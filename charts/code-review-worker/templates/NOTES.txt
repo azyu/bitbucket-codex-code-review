@@ -1,0 +1,44 @@
+code-review-worker has been deployed!
+
+1. Get the application URL:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}
+{{- end }}
+{{- else }}
+  kubectl port-forward svc/{{ include "code-review-worker.fullname" . }} {{ .Values.service.httpPort }}:{{ .Values.service.httpPort }}
+  Then visit: http://localhost:{{ .Values.service.httpPort }}/health
+{{- end }}
+
+2. Secrets configuration:
+{{- if not .Values.database.existingSecret }}
+   [!] Database password is stored in chart-managed Secret "{{ include "code-review-worker.fullname" . }}-database".
+       For production, use --set database.existingSecret=<your-secret> instead.
+{{- else }}
+   [OK] Database: using existing Secret "{{ .Values.database.existingSecret }}"
+{{- end }}
+{{- if not .Values.redis.existingSecret }}
+   [!] Redis password is stored in chart-managed Secret "{{ include "code-review-worker.fullname" . }}-redis".
+       For production, use --set redis.existingSecret=<your-secret> instead.
+{{- else }}
+   [OK] Redis: using existing Secret "{{ .Values.redis.existingSecret }}"
+{{- end }}
+{{- if not .Values.bitbucket.existingSecret }}
+   [!] Bitbucket credentials are stored in chart-managed Secret "{{ include "code-review-worker.fullname" . }}-bitbucket".
+       For production, use --set bitbucket.existingSecret=<your-secret> instead.
+{{- else }}
+   [OK] Bitbucket: using existing Secret "{{ .Values.bitbucket.existingSecret }}"
+{{- end }}
+{{- if .Values.codexAuth.existingSecret }}
+   [OK] Codex auth: mounted from Secret "{{ .Values.codexAuth.existingSecret }}" to /root/.codex
+{{- else }}
+   [!] Codex auth: no secret configured. Set codexAuth.existingSecret for Codex API authentication.
+{{- end }}
+
+3. Metrics:
+{{- if .Values.serviceMonitor.enabled }}
+   ServiceMonitor is enabled — Prometheus will auto-discover metrics on port {{ .Values.service.metricsPort }}.
+{{- else }}
+   ServiceMonitor is disabled. To enable: --set serviceMonitor.enabled=true
+   Manual scrape: kubectl port-forward svc/{{ include "code-review-worker.fullname" . }} {{ .Values.service.metricsPort }}:{{ .Values.service.metricsPort }}
+{{- end }}

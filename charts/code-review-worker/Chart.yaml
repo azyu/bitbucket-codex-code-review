@@ -1,0 +1,14 @@
+apiVersion: v2
+name: code-review-worker
+description: Bitbucket PR webhook code review worker powered by Codex CLI
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - code-review
+  - bitbucket
+  - codex
+  - nestjs
+maintainers:
+  - name: azyu
+    email: azyu@live.com
