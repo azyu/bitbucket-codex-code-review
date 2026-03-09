@@ -42,4 +42,32 @@ describe("TriggerService", () => {
   it("should return false for partial match like @codex-bot", () => {
     expect(service.hasCodexMention("@codex-bot")).toBe(false);
   });
+
+  describe("shouldAutoReview", () => {
+    it.each([
+      ["pullrequest:created", "auto", true],
+      ["pullrequest:updated", "auto", true],
+      ["pullrequest:created", "both", true],
+      ["pullrequest:updated", "both", true],
+      ["pullrequest:created", "mention", false],
+      ["pullrequest:updated", "mention", false],
+      ["pullrequest:comment_created", "auto", false],
+      ["pullrequest:comment_created", "both", false],
+    ])(
+      "event=%s, mode=%s → %s",
+      (eventKey, triggerMode, expected) => {
+        expect(service.shouldAutoReview(eventKey, triggerMode)).toBe(expected);
+      },
+    );
+  });
+
+  describe("shouldMentionReview", () => {
+    it.each([
+      ["mention", true],
+      ["both", true],
+      ["auto", false],
+    ])("mode=%s → %s", (triggerMode, expected) => {
+      expect(service.shouldMentionReview(triggerMode)).toBe(expected);
+    });
+  });
 });

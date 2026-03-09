@@ -2,30 +2,29 @@
 
 > Bitbucket PR webhook → Codex CLI 자동 코드 리뷰 → PR 코멘트 게시
 
-Bitbucket PR에 `@codex` 멘션이 달리면 자동으로 코드 리뷰를 수행하고, 인라인 코멘트와 요약을 PR에 게시하는 워커 서비스.
+Bitbucket PR에 `@codex` 멘션 또는 PR 오픈/업데이트 시 자동으로 코드 리뷰를 수행하고, 인라인 코멘트와 요약을 PR에 게시하는 워커 서비스.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A[Bitbucket Webhook] -->|PR comment| B[NestJS Server]
+    A[Bitbucket Webhook] -->|PR event / comment| B[NestJS Server]
     B -->|HMAC 검증| C{트리거 감지}
     C -->|"@codex 멘션"| D[BullMQ Job Queue]
+    C -->|"PR 오픈/업데이트 (auto)"| D
     D --> E[Git Worktree 생성]
-    E --> F1[Codex CLI: 요약]
-    E --> F2[Codex CLI: 상세 리뷰]
-    F1 --> G[Bitbucket API]
-    F2 --> G
+    E --> F[Codex CLI: 요약 + 상세 리뷰]
+    F --> G[Bitbucket API]
     G -->|inline comments + summary| A
 ```
 
 ## How It Works
 
-1. **Webhook 수신** — Bitbucket `pullrequest:comment_created` 이벤트 수신
-2. **트리거 감지** — `@codex` 멘션 감지 후 리뷰 작업 큐잉
+1. **Webhook 수신** — Bitbucket PR 이벤트 (`pullrequest:created`, `pullrequest:updated`, `pullrequest:comment_created`) 수신
+2. **트리거 감지** — 트리거 모드에 따라 자동(PR 오픈/업데이트) 또는 멘션(`@codex`) 기반으로 리뷰 작업 큐잉
 3. **Worktree 준비** — Bare repo clone + git worktree 생성 (PR head commit)
-4. **병렬 리뷰** — Codex CLI로 **요약** + **상세 리뷰** 병렬 실행
-5. **결과 게시** — 인라인 코멘트 + summary table로 Bitbucket PR에 게시
+4. **통합 리뷰** — Codex CLI로 **요약 + verdict + 상세 리뷰** 단일 호출
+5. **결과 게시** — verdict badge + 인라인 코멘트 + summary table로 Bitbucket PR에 게시
 
 ## Prerequisites
 
@@ -119,7 +118,18 @@ docker compose up -d
 | `BITBUCKET_BASE_URL` | Bitbucket API 기본 URL | `https://api.bitbucket.org/2.0` |
 | `BITBUCKET_API_TOKEN` | API 토큰 | - |
 | `BITBUCKET_WEBHOOK_SECRET` | Webhook HMAC secret | - |
-| `REVIEW_TRIGGER_MODE` | 트리거 모드 (`mention` / `auto` / `both`) | `mention` |
+| `REVIEW_TRIGGER_MODE` | 트리거 모드 (아래 참조) | `mention` |
+
+#### `REVIEW_TRIGGER_MODE` 상세
+
+| 모드 | PR 오픈/업데이트 시 | `@codex` 댓글 시 |
+|------|:---:|:---:|
+| `mention` (기본) | 무시 | 리뷰 실행 |
+| `auto` | 리뷰 실행 | 무시 |
+| `both` | 리뷰 실행 | 리뷰 실행 |
+
+> [!NOTE]
+> `auto`/`both` 모드에서 `pullrequest:updated` 이벤트도 처리됩니다. 동일 commit hash에 대한 중복 리뷰는 idempotency key로 자동 방지됩니다.
 
 ### Workspace
 

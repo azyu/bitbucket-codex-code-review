@@ -15,4 +15,18 @@ export class TriggerService {
     );
     return result;
   }
+
+  /** PR 이벤트에서 자동 리뷰를 트리거해야 하는지 확인 */
+  shouldAutoReview(eventKey: string, triggerMode: string): boolean {
+    const autoEvents = ["pullrequest:created", "pullrequest:updated"];
+    return (
+      autoEvents.includes(eventKey) &&
+      (triggerMode === "auto" || triggerMode === "both")
+    );
+  }
+
+  /** 댓글 멘션 트리거가 활성화되어 있는지 확인 */
+  shouldMentionReview(triggerMode: string): boolean {
+    return triggerMode === "mention" || triggerMode === "both";
+  }
 }

@@ -4,6 +4,20 @@
 
 ## 완료된 작업
 
+### Task 5: PR 오픈 시 자동 리뷰/서머리 트리거
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| IBitbucketWebhookBase 추출 + IBitbucketPrWebhook 추가 | ✅ | webhook.interfaces.ts 리팩터 |
+| triggerCommentId optional 처리 | ✅ | queue + review 인터페이스 |
+| shouldAutoReview / shouldMentionReview | ✅ | trigger.service.ts 확장 |
+| WebhookController 이벤트 라우팅 | ✅ | handleCommentEvent + handlePrEvent + enqueueReview 추출 |
+| ReviewProcessor auto 에러 댓글 | ✅ | triggerCommentId 없을 때 createComment fallback |
+| TriggerService 테스트 | ✅ | shouldAutoReview 8케이스 + shouldMentionReview 3케이스 |
+| ReviewProcessor 에러 핸들링 테스트 | ✅ | auto/mention 분기 테스트 |
+| pnpm build + test | ✅ | 55 tests passed |
+
 ### Task 1: 구조화된 리뷰 출력 포맷
 - **파일**: `src/queue/review.types.ts`, `src/queue/review.formatter.ts`, `src/queue/review.processor.ts`
 - **상태**: ✅ 완료

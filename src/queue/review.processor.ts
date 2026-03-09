@@ -66,7 +66,8 @@ export class ReviewProcessor extends WorkerHost {
         },
       );
 
-      // Notify user on the original @codex comment
+      // Notify user about the failure
+      const errorBody = `❌ Code Review 실패\n\n\`\`\`\n${error.message.substring(0, 500)}\n\`\`\``;
       if (data.triggerCommentId) {
         this.bitbucketService
           .replyToComment({
@@ -74,11 +75,24 @@ export class ReviewProcessor extends WorkerHost {
             repoSlug: data.repositorySlug,
             pullRequestId: data.pullRequestId,
             parentCommentId: data.triggerCommentId,
-            body: `❌ Code Review 실패\n\n\`\`\`\n${error.message.substring(0, 500)}\n\`\`\``,
+            body: errorBody,
           })
           .catch((replyErr) => {
             this.logger.error(
               `Failed to post error reply: ${(replyErr as Error).message}`,
+            );
+          });
+      } else {
+        this.bitbucketService
+          .createComment({
+            workspace: data.workspaceSlug,
+            repoSlug: data.repositorySlug,
+            pullRequestId: data.pullRequestId,
+            body: errorBody,
+          })
+          .catch((commentErr) => {
+            this.logger.error(
+              `Failed to post error comment: ${(commentErr as Error).message}`,
             );
           });
       }
