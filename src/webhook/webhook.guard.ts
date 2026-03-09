@@ -19,8 +19,8 @@ export class WebhookGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
-    const signature = request.headers["x-hub-signature"] as string | undefined;
-    if (!signature) {
+    const rawSignature = request.headers["x-hub-signature"] as string | undefined;
+    if (!rawSignature) {
       this.logger.warn("Missing x-hub-signature header");
       return false;
     }
@@ -31,9 +31,13 @@ export class WebhookGuard implements CanActivate {
       return false;
     }
 
-    const rawBodyStr = rawBody.toString("utf8");
+    // Bitbucket sends "sha256=<hex>", strip the prefix
+    const signature = rawSignature.startsWith("sha256=")
+      ? rawSignature.slice(7)
+      : rawSignature;
+
     const expectedSignature = createHmac("sha256", secret)
-      .update(rawBodyStr)
+      .update(rawBody)
       .digest("hex");
 
     try {
