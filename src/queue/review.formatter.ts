@@ -16,7 +16,13 @@ export function formatInlineComment(item: IReviewItem): string {
   const emoji = SEVERITY_EMOJI[item.severity] ?? "💡";
   const label = SEVERITY_LABEL[item.severity] ?? "Suggestion";
 
-  const parts: string[] = [`${emoji} **${label}**`, ""];
+  const header = item.title
+    ? `${emoji} **${label}**: ${item.title}`
+    : `${emoji} **${label}**`;
+  const confidenceSuffix =
+    item.confidence !== undefined ? ` (${item.confidence}%)` : "";
+
+  const parts: string[] = [`${header}${confidenceSuffix}`, ""];
   parts.push(`**문제**: ${item.description}`);
 
   if (item.problemCode) {
@@ -138,11 +144,19 @@ export function parseReviewItems(
     .map((item) => ({
       path: item.path as string,
       line: item.line as number,
+      endLine:
+        typeof item.endLine === "number" ? item.endLine : undefined,
       severity: (
         VALID_SEVERITIES.has(item.severity as string)
           ? item.severity
           : "suggestion"
       ) as ReviewSeverity,
+      title:
+        typeof item.title === "string" ? item.title : undefined,
+      confidence:
+        typeof item.confidence === "number"
+          ? Math.max(0, Math.min(100, item.confidence))
+          : undefined,
       description: item.description as string,
       problemCode:
         typeof item.problemCode === "string"

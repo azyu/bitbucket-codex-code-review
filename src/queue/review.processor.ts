@@ -16,6 +16,7 @@ import {
   buildVerdictBadge,
   parseUnifiedReviewJson,
 } from "./review.formatter";
+import { buildReviewPrompt } from "./review.prompt";
 
 @Processor(REVIEW_QUEUE_NAME)
 export class ReviewProcessor extends WorkerHost {
@@ -139,55 +140,7 @@ export class ReviewProcessor extends WorkerHost {
     worktreePath: string,
     baseBranch: string,
   ): Promise<ICodexReviewResult> {
-    const prompt = [
-      `'${baseBranch}'와 HEAD 사이의 코드 변경사항을 분석하여 한국어로 코드 리뷰해줘.`,
-      "",
-      "## 출력 형식",
-      "",
-      "반드시 아래 JSON 객체 형식으로만 응답해줘. 다른 텍스트 없이 JSON만 출력해줘:",
-      "```json",
-      "{",
-      '  "summary": "변경사항 요약 (마크다운 허용). 1) 변경 개요 2) 주요 변경사항 3) 영향 범위를 포함해줘.",',
-      '  "verdict": "approve | request-changes | comment",',
-      '  "confidence": 85,',
-      '  "findings": [',
-      "    {",
-      '      "path": "src/example/file.ts",',
-      '      "line": 42,',
-      '      "severity": "blocking",',
-      '      "description": "문제가 무엇인지 명확히 설명",',
-      '      "problemCode": "문제가 되는 코드 인용 (선택)",',
-      '      "suggestedFix": "개선된 코드 예시 (선택)",',
-      '      "reason": "왜 이 변경이 필요한지 근거"',
-      "    }",
-      "  ]",
-      "}",
-      "```",
-      "",
-      "## 가이드라인",
-      "",
-      "### summary",
-      "- 변경 개요: 어떤 기능/모듈이 변경되었는지",
-      "- 주요 변경사항 목록 (bullet point)",
-      "- 영향 범위: 이 변경이 영향을 미치는 부분",
-      "- 간결하고 명확하게, 비개발자도 이해할 수 있도록 작성",
-      "",
-      "### verdict",
-      '- "approve": blocking 이슈가 없고, 코드 품질이 양호한 경우',
-      '- "request-changes": blocking 이슈가 1개 이상인 경우',
-      '- "comment": blocking은 없지만 개선 권장사항이 있는 경우',
-      "",
-      "### confidence",
-      "- 리뷰 판단의 확신도 (0-100)",
-      "",
-      "### findings",
-      "- 각 이슈의 severity는 반드시 다음 4단계 중 하나:",
-      '  - "blocking": 반드시 수정 필요 (보안 취약점, 버그, 아키텍처 위반)',
-      '  - "recommended": 권장 개선 사항 (성능, 가독성, 베스트 프랙티스)',
-      '  - "suggestion": 선택적 개선 아이디어 (리팩토링, 최적화 기회)',
-      '  - "tech-debt": 향후 개선이 필요한 기술 부채',
-      "- 문제가 없으면 빈 배열 []",
-    ].join("\n");
+    const prompt = buildReviewPrompt(baseBranch);
 
     const result = await this.codexService.executeCodex(
       worktreePath,
@@ -294,6 +247,7 @@ export class ReviewProcessor extends WorkerHost {
           pullRequestId: data.pullRequestId,
           filePath: item.path,
           line: item.line,
+          endLine: item.endLine,
           body,
         });
         postedCount++;

@@ -110,7 +110,8 @@ export class BitbucketService {
         content: { raw: params.body },
         inline: {
           path: params.filePath,
-          to: params.line,
+          ...(params.endLine ? { from: params.line } : {}),
+          to: params.endLine ?? params.line,
         },
       }),
     });

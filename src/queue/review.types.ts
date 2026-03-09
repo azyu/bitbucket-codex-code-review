@@ -9,7 +9,10 @@ export type ReviewSeverity =
 export interface IReviewItem {
   readonly path: string;
   readonly line: number;
+  readonly endLine?: number;
   readonly severity: ReviewSeverity;
+  readonly title?: string;
+  readonly confidence?: number;
   readonly description: string;
   readonly problemCode?: string;
   readonly suggestedFix?: string;

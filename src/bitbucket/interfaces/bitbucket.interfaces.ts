@@ -16,4 +16,5 @@ export interface ICreateCommentParams {
 export interface ICreateInlineCommentParams extends ICreateCommentParams {
   readonly filePath: string;
   readonly line: number;
+  readonly endLine?: number;
 }

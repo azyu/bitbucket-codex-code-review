@@ -96,6 +96,92 @@ describe("review.formatter", () => {
       expect(result[0].problemCode).toBeUndefined();
       expect(result[0].suggestedFix).toBeUndefined();
     });
+
+    it("should parse endLine, title, and confidence fields", () => {
+      const items = [
+        {
+          path: "src/a.ts",
+          line: 10,
+          endLine: 15,
+          severity: "blocking",
+          title: "Null check 누락",
+          confidence: 90,
+          description: "desc",
+          reason: "reason",
+        },
+      ];
+
+      const result = parseReviewItems(items);
+
+      expect(result[0].endLine).toBe(15);
+      expect(result[0].title).toBe("Null check 누락");
+      expect(result[0].confidence).toBe(90);
+    });
+
+    it("should leave new optional fields undefined when missing", () => {
+      const items = [
+        {
+          path: "a.ts",
+          line: 1,
+          severity: "blocking",
+          description: "d",
+          reason: "r",
+        },
+      ];
+
+      const result = parseReviewItems(items);
+
+      expect(result[0].endLine).toBeUndefined();
+      expect(result[0].title).toBeUndefined();
+      expect(result[0].confidence).toBeUndefined();
+    });
+
+    it("should ignore non-number endLine and non-string title", () => {
+      const items = [
+        {
+          path: "a.ts",
+          line: 1,
+          endLine: "not-a-number",
+          title: 123,
+          confidence: "high",
+          severity: "blocking",
+          description: "d",
+          reason: "r",
+        },
+      ];
+
+      const result = parseReviewItems(items);
+
+      expect(result[0].endLine).toBeUndefined();
+      expect(result[0].title).toBeUndefined();
+      expect(result[0].confidence).toBeUndefined();
+    });
+
+    it("should clamp confidence to 0-100 range", () => {
+      const items = [
+        {
+          path: "a.ts",
+          line: 1,
+          severity: "blocking",
+          confidence: 150,
+          description: "d",
+          reason: "r",
+        },
+        {
+          path: "b.ts",
+          line: 2,
+          severity: "blocking",
+          confidence: -20,
+          description: "d",
+          reason: "r",
+        },
+      ];
+
+      const result = parseReviewItems(items);
+
+      expect(result[0].confidence).toBe(100);
+      expect(result[1].confidence).toBe(0);
+    });
   });
 
   describe("parseReviewJson", () => {
@@ -357,6 +443,52 @@ describe("review.formatter", () => {
       expect(result).not.toContain("**문제 코드**:");
       expect(result).not.toContain("**수정 제안**:");
       expect(result).toContain("**이유**: Improves readability");
+    });
+
+    it("should include title in header when present", () => {
+      const item: IReviewItem = {
+        path: "src/app.ts",
+        line: 42,
+        severity: "blocking",
+        title: "Null check 누락",
+        description: "문제 설명",
+        reason: "이유",
+      };
+
+      const result = formatInlineComment(item);
+
+      expect(result).toContain("**Blocking**: Null check 누락");
+    });
+
+    it("should include confidence percentage when present", () => {
+      const item: IReviewItem = {
+        path: "src/app.ts",
+        line: 42,
+        severity: "recommended",
+        confidence: 85,
+        description: "문제 설명",
+        reason: "이유",
+      };
+
+      const result = formatInlineComment(item);
+
+      expect(result).toContain("(85%)");
+    });
+
+    it("should include both title and confidence when present", () => {
+      const item: IReviewItem = {
+        path: "src/app.ts",
+        line: 42,
+        severity: "blocking",
+        title: "Race condition 가능",
+        confidence: 95,
+        description: "문제 설명",
+        reason: "이유",
+      };
+
+      const result = formatInlineComment(item);
+
+      expect(result).toContain("**Blocking**: Race condition 가능 (95%)");
     });
   });
 
