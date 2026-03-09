@@ -28,10 +28,31 @@
 | 테스트 업데이트 | ✅ | 신규 파서/포매터 단위 테스트 추가 (41 tests) |
 
 ### 빌드 검증 + 커밋
-- **상태**: 🔄 진행 중
+- **상태**: ✅ 완료
 
 | 서브태스크 | 상태 | 설명 |
 |-----------|------|------|
 | pnpm build 성공 | ✅ | nest build exit 0 |
 | pnpm test 통과 | ✅ | 41 tests passed |
-| git commit | 🔄 | 커밋 대기 |
+| git commit | ✅ | 완료 |
+
+### Task 4: Helm Chart
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| Chart.yaml + values.yaml + .helmignore | ✅ | Phase 1 scaffold |
+| _helpers.tpl (4개 secret name 헬퍼) | ✅ | fullname, labels, secret helpers |
+| configmap.yaml | ✅ | 비민감 env vars 전체 |
+| secret.yaml (3그룹 조건부) | ✅ | db/redis/bitbucket existingSecret 패턴 |
+| deployment.yaml | ✅ | container+init+volumes+probes |
+| service.yaml (ClusterIP 듀얼포트) | ✅ | http:3000, metrics:9463 |
+| ingress.yaml | ✅ | 선택적, /api/webhooks |
+| pvc.yaml | ✅ | persistence.workspaces.enabled 조건 |
+| hpa.yaml | ✅ | autoscaling.enabled 조건 |
+| servicemonitor.yaml | ✅ | Prometheus Operator |
+| networkpolicy.yaml | ✅ | ingress/egress 제한 |
+| NOTES.txt | ✅ | 설치 후 안내 |
+| helm lint 통과 | ✅ | 0 chart(s) failed |
+| helm template 렌더링 | ✅ | 정상 출력 확인 |
+| pnpm build + test | ✅ | 42 tests passed |
