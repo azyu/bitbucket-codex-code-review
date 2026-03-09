@@ -60,8 +60,15 @@ export class WorkspaceService {
     this.assertWithinBasePath(bareRepoPath);
     this.assertWithinBasePath(worktreePath);
 
-    await this.ensureBareRepo(bareRepoPath, params.cloneUrl);
-    await this.fetchLatest(bareRepoPath);
+    const gitAuthEnv = await this.buildGitAuthEnv();
+    try {
+      await this.ensureBareRepo(bareRepoPath, params.cloneUrl, gitAuthEnv);
+      await this.fetchLatest(bareRepoPath, gitAuthEnv);
+    } finally {
+      if (gitAuthEnv["GIT_ASKPASS"]) {
+        await unlink(gitAuthEnv["GIT_ASKPASS"]).catch(() => {});
+      }
+    }
     await this.createWorktree(
       bareRepoPath,
       worktreePath,
@@ -97,6 +104,7 @@ export class WorkspaceService {
   private async ensureBareRepo(
     bareRepoPath: string,
     cloneUrl: string,
+    gitAuthEnv: Record<string, string>,
   ): Promise<void> {
     if (existsSync(bareRepoPath)) {
       return;
@@ -105,30 +113,26 @@ export class WorkspaceService {
     await mkdir(join(this.basePath, "repos"), { recursive: true });
     this.logger.log(`Cloning bare repo: ${cloneUrl}`);
 
-    const env = await this.buildGitAuthEnv();
-
     try {
       await execFileAsync(
         "git",
         ["clone", "--bare", cloneUrl, bareRepoPath],
         {
           timeout: 120_000,
-          env: { ...process.env, ...env },
+          env: { ...process.env, ...gitAuthEnv },
         },
       );
     } catch (err) {
       throw new Error(
         `Git clone failed: ${(err as Error).message.replace(/https:\/\/[^@]+@/g, "https://***@")}`,
       );
-    } finally {
-      // Cleanup askpass script if created
-      if (env["GIT_ASKPASS"]) {
-        await unlink(env["GIT_ASKPASS"]).catch(() => {});
-      }
     }
   }
 
-  private async fetchLatest(bareRepoPath: string): Promise<void> {
+  private async fetchLatest(
+    bareRepoPath: string,
+    gitAuthEnv: Record<string, string>,
+  ): Promise<void> {
     // bare clone doesn't set a default refspec, so `fetch --all` fetches nothing.
     // Explicitly fetch all branches with a full refspec.
     await execFileAsync(
@@ -137,6 +141,7 @@ export class WorkspaceService {
       {
         cwd: bareRepoPath,
         timeout: 60_000,
+        env: { ...process.env, ...gitAuthEnv },
       },
     );
   }
