@@ -84,34 +84,17 @@ export class WebhookController {
 
     const prPayload = this.extractPrPayload(body);
 
-    // Post immediate "in progress" reply
-    const model = this.configService.getOrThrow<string>("codex.model");
-    const reasoningEffort = this.configService.get<string>(
-      "codex.reasoningEffort",
-      "",
-    );
-    const reasoningLine = reasoningEffort
-      ? `\n- Reasoning: ${reasoningEffort}`
-      : "";
-    this.bitbucketService
-      .replyToComment({
-        workspace: prPayload.workspaceSlug,
-        repoSlug: prPayload.repositorySlug,
-        pullRequestId: prPayload.pullRequestId,
-        parentCommentId: body.comment.id,
-        body: `⏳ Summary & Code Review 진행 중...\n\n- Model: ${model}${reasoningLine}`,
-      })
-      .catch((err) => {
-        this.logger.error(
-          `Failed to post in-progress reply: ${(err as Error).message}`,
-        );
-      });
-
-    return this.enqueueReview(
+    const result = await this.enqueueReview(
       prPayload,
       TriggerType.MENTION,
       body.comment.id,
     );
+
+    if (result.accepted) {
+      this.postInProgressReply(prPayload, body.comment.id);
+    }
+
+    return result;
   }
 
   /** PR 이벤트 처리 (자동 트리거) */
@@ -120,29 +103,13 @@ export class WebhookController {
   ): Promise<{ accepted: boolean; reason?: string }> {
     const prPayload = this.extractPrPayload(body);
 
-    // Post immediate "in progress" top-level comment
-    const model = this.configService.getOrThrow<string>("codex.model");
-    const reasoningEffort = this.configService.get<string>(
-      "codex.reasoningEffort",
-      "",
-    );
-    const reasoningLine = reasoningEffort
-      ? `\n- Reasoning: ${reasoningEffort}`
-      : "";
-    this.bitbucketService
-      .createComment({
-        workspace: prPayload.workspaceSlug,
-        repoSlug: prPayload.repositorySlug,
-        pullRequestId: prPayload.pullRequestId,
-        body: `⏳ Summary & Code Review 진행 중...\n\n- Model: ${model}${reasoningLine}`,
-      })
-      .catch((err) => {
-        this.logger.error(
-          `Failed to post in-progress comment: ${(err as Error).message}`,
-        );
-      });
+    const result = await this.enqueueReview(prPayload, TriggerType.AUTO);
 
-    return this.enqueueReview(prPayload, TriggerType.AUTO);
+    if (result.accepted) {
+      this.postInProgressComment(prPayload);
+    }
+
+    return result;
   }
 
   /** 공통: idempotency 체크 + stale job 제거 + DB 생성 + supersede + 큐 등록 */
@@ -204,6 +171,54 @@ export class WebhookController {
     );
 
     return { accepted: true };
+  }
+
+  private buildProgressMessage(): string {
+    const model = this.configService.getOrThrow<string>("codex.model");
+    const reasoningEffort = this.configService.get<string>(
+      "codex.reasoningEffort",
+      "",
+    );
+    const reasoningLine = reasoningEffort
+      ? `\n- Reasoning: ${reasoningEffort}`
+      : "";
+    return `⏳ Summary & Code Review 진행 중...\n\n- Model: ${model}${reasoningLine}`;
+  }
+
+  /** Fire-and-forget: reply to trigger comment */
+  private postInProgressReply(
+    prPayload: IWebhookPrPayload,
+    parentCommentId: number,
+  ): void {
+    this.bitbucketService
+      .replyToComment({
+        workspace: prPayload.workspaceSlug,
+        repoSlug: prPayload.repositorySlug,
+        pullRequestId: prPayload.pullRequestId,
+        parentCommentId,
+        body: this.buildProgressMessage(),
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to post in-progress reply: ${(err as Error).message}`,
+        );
+      });
+  }
+
+  /** Fire-and-forget: top-level in-progress comment */
+  private postInProgressComment(prPayload: IWebhookPrPayload): void {
+    this.bitbucketService
+      .createComment({
+        workspace: prPayload.workspaceSlug,
+        repoSlug: prPayload.repositorySlug,
+        pullRequestId: prPayload.pullRequestId,
+        body: this.buildProgressMessage(),
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to post in-progress comment: ${(err as Error).message}`,
+        );
+      });
   }
 
   private extractPrPayload(body: IBitbucketWebhookBase): IWebhookPrPayload {
