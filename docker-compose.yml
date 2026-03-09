@@ -1,0 +1,100 @@
+services:
+  code-review-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: code-review-worker
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+      - "9463:9463"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      METRICS_PORT: 9463
+
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-rootpass}
+      DB_NAME: lxp_code_review
+      DB_SYNCHRONIZE: "true"
+      DB_LOGGING: "false"
+      DB_POOL_SIZE: 5
+      DB_POOL_MAX_IDLE: 2
+
+      REDIS_QUEUE_HOST: redis
+      REDIS_QUEUE_PORT: 6379
+      REDIS_QUEUE_PASSWORD: ""
+      REDIS_QUEUE_DB: 0
+
+      QUEUE_RETRY_ATTEMPTS: 3
+      QUEUE_RETRY_DELAY: 5000
+
+      CODEX_BINARY_PATH: codex
+      CODEX_TIMEOUT_MS: 600000
+      CODEX_MODEL: gpt-5.3-codex
+      CODEX_REASONING_EFFORT: xhigh
+
+      BITBUCKET_BASE_URL: https://api.bitbucket.org/2.0
+      BITBUCKET_API_TOKEN: ${BITBUCKET_API_TOKEN:-}
+      BITBUCKET_USERNAME: ${BITBUCKET_USERNAME:-}
+      BITBUCKET_APP_PASSWORD: ${BITBUCKET_APP_PASSWORD:-}
+      BITBUCKET_WEBHOOK_SECRET: ${BITBUCKET_WEBHOOK_SECRET:-}
+
+      WORKSPACE_BASE_PATH: /workspaces
+      WORKSPACE_MAX_CONCURRENT: 3
+
+      REVIEW_TRIGGER_MODE: mention
+      LOG_LEVEL: info
+
+      OTEL_SDK_DISABLED: "true"
+      SERVICE_VERSION: 1.0.0
+    volumes:
+      - workspaces_data:/workspaces
+      - codex_auth:/root/.codex
+
+  mysql:
+    image: mysql:8.4
+    container_name: code-review-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-rootpass}
+      MYSQL_DATABASE: lxp_code_review
+      TZ: Asia/Seoul
+    ports:
+      - "3309:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: code-review-redis
+    restart: unless-stopped
+    ports:
+      - "6381:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  mysql_data:
+  redis_data:
+  workspaces_data:
+  codex_auth:
