@@ -10,18 +10,8 @@ export interface IWebhookPrPayload {
   readonly cloneUrl: string;
 }
 
-/** 댓글 웹훅 페이로드 (Bitbucket pullrequest:comment_created) */
-export interface IBitbucketCommentWebhook {
-  readonly comment: {
-    readonly id: number;
-    readonly content: {
-      readonly raw: string;
-    };
-    readonly user: {
-      readonly uuid: string;
-      readonly display_name: string;
-    };
-  };
+/** 공통 웹훅 base (pullrequest + repository) */
+export interface IBitbucketWebhookBase {
   readonly pullrequest: {
     readonly id: number;
     readonly title: string;
@@ -54,3 +44,20 @@ export interface IBitbucketCommentWebhook {
     };
   };
 }
+
+/** 댓글 웹훅 페이로드 (Bitbucket pullrequest:comment_created) */
+export interface IBitbucketCommentWebhook extends IBitbucketWebhookBase {
+  readonly comment: {
+    readonly id: number;
+    readonly content: {
+      readonly raw: string;
+    };
+    readonly user: {
+      readonly uuid: string;
+      readonly display_name: string;
+    };
+  };
+}
+
+/** PR 이벤트 웹훅 (pullrequest:created, pullrequest:updated) */
+export type IBitbucketPrWebhook = IBitbucketWebhookBase;

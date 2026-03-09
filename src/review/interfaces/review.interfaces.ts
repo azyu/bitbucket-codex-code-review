@@ -5,5 +5,5 @@ import { IWebhookPrPayload } from "../../webhook/interfaces/webhook.interfaces";
 export interface ICreateReviewRunParams extends IWebhookPrPayload {
   readonly idempotencyKey: string;
   readonly triggerType: TriggerType;
-  readonly triggerCommentId: number;
+  readonly triggerCommentId?: number;
 }

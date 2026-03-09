@@ -13,5 +13,5 @@ export interface IReviewJobData {
   readonly cloneUrl: string;
   readonly idempotencyKey: string;
   readonly triggerType: TriggerType;
-  readonly triggerCommentId: number;
+  readonly triggerCommentId?: number;
 }

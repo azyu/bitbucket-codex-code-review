@@ -17,6 +17,8 @@ import { TriggerService } from "./trigger.service";
 import { WebhookGuard } from "./webhook.guard";
 import {
   IBitbucketCommentWebhook,
+  IBitbucketPrWebhook,
+  IBitbucketWebhookBase,
   IWebhookPrPayload,
 } from "./interfaces/webhook.interfaces";
 import { TriggerType } from "../entities/review-run.entity";
@@ -40,70 +42,49 @@ export class WebhookController {
   @HttpCode(HttpStatus.ACCEPTED)
   @UseGuards(WebhookGuard)
   async handleBitbucketWebhook(
-    @Body() body: IBitbucketCommentWebhook,
+    @Body() body: IBitbucketWebhookBase,
     @Headers("x-event-key") eventKey: string,
   ): Promise<{ accepted: boolean; reason?: string }> {
-    if (eventKey !== "pullrequest:comment_created") {
-      return { accepted: false, reason: `Ignored event: ${eventKey}` };
+    const triggerMode = this.configService.get<string>(
+      "trigger.mode",
+      "mention",
+    );
+
+    if (eventKey === "pullrequest:comment_created") {
+      return this.handleCommentEvent(
+        body as IBitbucketCommentWebhook,
+        triggerMode,
+      );
     }
 
+    if (this.triggerService.shouldAutoReview(eventKey, triggerMode)) {
+      return this.handlePrEvent(body as IBitbucketPrWebhook);
+    }
+
+    return { accepted: false, reason: `Ignored event: ${eventKey}` };
+  }
+
+  /** 댓글 이벤트 처리 (@codex 멘션 트리거) */
+  private async handleCommentEvent(
+    body: IBitbucketCommentWebhook,
+    triggerMode: string,
+  ): Promise<{ accepted: boolean; reason?: string }> {
     if (!body.comment?.id || !body.comment?.content?.raw) {
       throw new BadRequestException(
         "Missing required fields: comment.id, comment.content.raw",
       );
     }
 
-    const triggerMode = this.configService.get<string>(
-      "trigger.mode",
-      "mention",
-    );
-    const commentRaw = body.comment.content.raw;
-
     if (
-      triggerMode === "mention" &&
-      !this.triggerService.hasCodexMention(commentRaw)
+      !this.triggerService.shouldMentionReview(triggerMode) ||
+      !this.triggerService.hasCodexMention(body.comment.content.raw)
     ) {
       return { accepted: false, reason: "No @codex mention found" };
     }
 
     const prPayload = this.extractPrPayload(body);
-    const idempotencyKey = `${prPayload.repositorySlug}:${prPayload.pullRequestId}:${prPayload.headCommitHash}`;
 
-    const isDuplicate =
-      await this.reviewService.existsByIdempotencyKey(idempotencyKey);
-    if (isDuplicate) {
-      this.logger.log(`Duplicate review request skipped: ${idempotencyKey}`);
-      return { accepted: false, reason: "Duplicate request" };
-    }
-
-    // Remove stale BullMQ job if it exists (e.g. from a previous failed attempt)
-    try {
-      const existingJob = await this.reviewQueue.getJob(idempotencyKey);
-      if (existingJob) {
-        await existingJob.remove();
-        this.logger.log(`Removed stale BullMQ job: ${idempotencyKey}`);
-      }
-    } catch (err) {
-      this.logger.error(
-        `Failed to remove stale job: ${(err as Error).message}`,
-      );
-    }
-
-    const reviewRun = await this.reviewService.createReviewRun({
-      ...prPayload,
-      idempotencyKey,
-      triggerType: TriggerType.MENTION,
-      triggerCommentId: body.comment.id,
-    });
-
-    // Supersede any active reviews for the same PR (e.g. new commit pushed)
-    await this.reviewService.supersedeActivePrReviews(
-      prPayload.repositorySlug,
-      prPayload.pullRequestId,
-      reviewRun.id,
-    );
-
-    // Post immediate "in progress" reply so the user knows the bot received the request
+    // Post immediate "in progress" reply
     const model = this.configService.getOrThrow<string>("codex.model");
     const reasoningEffort = this.configService.get<string>(
       "codex.reasoningEffort",
@@ -122,16 +103,96 @@ export class WebhookController {
       })
       .catch((err) => {
         this.logger.error(
-          `Failed to post in-progress reply: ${err.message}`,
+          `Failed to post in-progress reply: ${(err as Error).message}`,
         );
       });
+
+    return this.enqueueReview(
+      prPayload,
+      TriggerType.MENTION,
+      body.comment.id,
+    );
+  }
+
+  /** PR 이벤트 처리 (자동 트리거) */
+  private async handlePrEvent(
+    body: IBitbucketPrWebhook,
+  ): Promise<{ accepted: boolean; reason?: string }> {
+    const prPayload = this.extractPrPayload(body);
+
+    // Post immediate "in progress" top-level comment
+    const model = this.configService.getOrThrow<string>("codex.model");
+    const reasoningEffort = this.configService.get<string>(
+      "codex.reasoningEffort",
+      "",
+    );
+    const reasoningLine = reasoningEffort
+      ? `\n- Reasoning: ${reasoningEffort}`
+      : "";
+    this.bitbucketService
+      .createComment({
+        workspace: prPayload.workspaceSlug,
+        repoSlug: prPayload.repositorySlug,
+        pullRequestId: prPayload.pullRequestId,
+        body: `⏳ Summary & Code Review 진행 중...\n\n- Model: ${model}${reasoningLine}`,
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to post in-progress comment: ${(err as Error).message}`,
+        );
+      });
+
+    return this.enqueueReview(prPayload, TriggerType.AUTO);
+  }
+
+  /** 공통: idempotency 체크 + stale job 제거 + DB 생성 + supersede + 큐 등록 */
+  private async enqueueReview(
+    prPayload: IWebhookPrPayload,
+    triggerType: TriggerType,
+    triggerCommentId?: number,
+  ): Promise<{ accepted: boolean; reason?: string }> {
+    const idempotencyKey = `${prPayload.repositorySlug}:${prPayload.pullRequestId}:${prPayload.headCommitHash}`;
+
+    const isDuplicate =
+      await this.reviewService.existsByIdempotencyKey(idempotencyKey);
+    if (isDuplicate) {
+      this.logger.log(`Duplicate review request skipped: ${idempotencyKey}`);
+      return { accepted: false, reason: "Duplicate request" };
+    }
+
+    // Remove stale BullMQ job if it exists
+    try {
+      const existingJob = await this.reviewQueue.getJob(idempotencyKey);
+      if (existingJob) {
+        await existingJob.remove();
+        this.logger.log(`Removed stale BullMQ job: ${idempotencyKey}`);
+      }
+    } catch (err) {
+      this.logger.error(
+        `Failed to remove stale job: ${(err as Error).message}`,
+      );
+    }
+
+    const reviewRun = await this.reviewService.createReviewRun({
+      ...prPayload,
+      idempotencyKey,
+      triggerType,
+      triggerCommentId,
+    });
+
+    // Supersede any active reviews for the same PR
+    await this.reviewService.supersedeActivePrReviews(
+      prPayload.repositorySlug,
+      prPayload.pullRequestId,
+      reviewRun.id,
+    );
 
     const jobData: IReviewJobData = {
       reviewRunId: reviewRun.id,
       ...prPayload,
       idempotencyKey,
-      triggerType: TriggerType.MENTION,
-      triggerCommentId: body.comment.id,
+      triggerType,
+      triggerCommentId,
     };
 
     await this.reviewQueue.add("review", jobData, {
@@ -145,7 +206,7 @@ export class WebhookController {
     return { accepted: true };
   }
 
-  private extractPrPayload(body: IBitbucketCommentWebhook): IWebhookPrPayload {
+  private extractPrPayload(body: IBitbucketWebhookBase): IWebhookPrPayload {
     // Validate required nested fields
     if (!body.pullrequest?.id || !body.pullrequest?.source?.commit?.hash) {
       throw new BadRequestException(

@@ -7,6 +7,19 @@ import {
   buildVerdictBadge,
 } from "./review.formatter";
 import { type IReviewItem } from "./review.types";
+import { ReviewProcessor } from "./review.processor";
+import { TriggerType } from "../entities/review-run.entity";
+import { IReviewJobData } from "./interfaces/queue.interfaces";
+
+jest.mock("@lib/logger", () => ({
+  ServiceLogger: jest.fn().mockImplementation(() => ({
+    log: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    verbose: jest.fn(),
+  })),
+}));
 
 describe("review.formatter", () => {
   describe("parseReviewItems", () => {
@@ -399,5 +412,99 @@ describe("review.formatter", () => {
 
       expect(result).toBe("💬 **Comment** (confidence: 50%)");
     });
+  });
+});
+
+describe("ReviewProcessor error handling", () => {
+  const mockReviewService = {
+    updateStatus: jest.fn(),
+    existsByIdempotencyKey: jest.fn(),
+    createReviewRun: jest.fn(),
+    supersedeActivePrReviews: jest.fn(),
+  };
+  const mockWorkspaceService = {
+    prepareWorktree: jest.fn(),
+    cleanupWorktree: jest.fn(),
+  };
+  const mockCodexService = {
+    executeCodex: jest.fn(),
+  };
+  const mockBitbucketService = {
+    createComment: jest.fn().mockResolvedValue({ id: 100 }),
+    replyToComment: jest.fn().mockResolvedValue({ id: 101 }),
+    createInlineComment: jest.fn().mockResolvedValue({ id: 102 }),
+  };
+
+  let processor: ReviewProcessor;
+
+  const baseJobData: IReviewJobData = {
+    reviewRunId: 1,
+    repositorySlug: "my-repo",
+    workspaceSlug: "my-workspace",
+    pullRequestId: 42,
+    headCommitHash: "abc1234",
+    baseCommitHash: "def5678",
+    baseBranch: "main",
+    headBranch: "feature/test",
+    cloneUrl: "https://bitbucket.org/my-workspace/my-repo.git",
+    idempotencyKey: "my-repo:42:abc1234",
+    triggerType: TriggerType.MENTION,
+    triggerCommentId: 999,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    processor = new ReviewProcessor(
+      mockReviewService as never,
+      mockWorkspaceService as never,
+      mockCodexService as never,
+      mockBitbucketService as never,
+    );
+  });
+
+  it("should replyToComment when triggerCommentId is present", async () => {
+    mockWorkspaceService.prepareWorktree.mockRejectedValue(
+      new Error("workspace error"),
+    );
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+    const job = { data: { ...baseJobData, triggerCommentId: 999 } } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("workspace error");
+
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentCommentId: 999,
+        body: expect.stringContaining("Code Review 실패"),
+      }),
+    );
+    expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+  });
+
+  it("should createComment when triggerCommentId is undefined (auto trigger)", async () => {
+    mockWorkspaceService.prepareWorktree.mockRejectedValue(
+      new Error("workspace error"),
+    );
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+    const job = {
+      data: {
+        ...baseJobData,
+        triggerType: TriggerType.AUTO,
+        triggerCommentId: undefined,
+      },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("workspace error");
+
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: "my-workspace",
+        repoSlug: "my-repo",
+        pullRequestId: 42,
+        body: expect.stringContaining("Code Review 실패"),
+      }),
+    );
+    expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
   });
 });
