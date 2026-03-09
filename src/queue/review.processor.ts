@@ -9,11 +9,12 @@ import { WorkspaceService } from "../workspace/workspace.service";
 import { CodexService } from "../codex/codex.service";
 import { ICodexReviewResult } from "../codex/interfaces/codex.interfaces";
 import { BitbucketService } from "../bitbucket/bitbucket.service";
-import { type IReviewItem } from "./review.types";
+import { type IReviewItem, type IUnifiedReviewResult } from "./review.types";
 import {
   formatInlineComment,
   buildSummaryTable,
-  parseReviewJson,
+  buildVerdictBadge,
+  parseUnifiedReviewJson,
 } from "./review.formatter";
 
 @Processor(REVIEW_QUEUE_NAME)
@@ -42,24 +43,17 @@ export class ReviewProcessor extends WorkerHost {
       worktreePath = worktreeInfo.worktreePath;
       bareRepoPath = worktreeInfo.bareRepoPath;
 
-      // Step 2: Execute summary + detailed review in parallel
-      const { summaryResult, reviewResult } = await this.executeReviews(
+      // Step 2: Execute unified review (single Codex call)
+      const codexResult = await this.executeReview(
         worktreePath,
         data.baseBranch,
       );
 
       // Step 3: Publish results to Bitbucket
-      const { summaryCommentId, reviewCommentId } =
-        await this.publishResults(data, summaryResult, reviewResult);
+      const commentId = await this.publishResults(data, codexResult);
 
       // Step 4: Mark completed
-      await this.markCompleted(
-        data,
-        summaryResult,
-        reviewResult,
-        summaryCommentId,
-        reviewCommentId,
-      );
+      await this.markCompleted(data, codexResult, commentId);
     } catch (err) {
       const error = err as Error;
       this.logger.error(`Review failed: ${error.message}`);
@@ -126,209 +120,212 @@ export class ReviewProcessor extends WorkerHost {
     });
   }
 
-  /** Step 2: summary + detailed review 병렬 실행 */
-  private async executeReviews(
+  /** Step 2: 통합 프롬프트로 단일 Codex 호출 */
+  private async executeReview(
     worktreePath: string,
     baseBranch: string,
-  ): Promise<{
-    summaryResult: ICodexReviewResult;
-    reviewResult: ICodexReviewResult;
-  }> {
-    const summaryPrompt = [
-      `'${baseBranch}'와 HEAD 사이의 코드 변경사항을 분석하여 한국어로 요약해줘.`,
-      "다음 형식으로 작성해줘:",
-      "1. 변경 개요 (어떤 기능/모듈이 변경되었는지)",
-      "2. 주요 변경사항 목록 (bullet point)",
-      "3. 영향 범위 (이 변경이 영향을 미치는 부분)",
-      "간결하고 명확하게, 비개발자도 이해할 수 있도록 작성해줘.",
-    ].join("\n");
-
-    const reviewPrompt = [
-      `'${baseBranch}'와 HEAD 사이의 코드 변경사항을 한국어로 상세 코드 리뷰해줘.`,
-      "다음 관점에서 리뷰해줘:",
-      "- 버그 및 잠재적 오류",
-      "- 보안 이슈",
-      "- 성능 개선점",
-      "- 코드 구조 및 설계",
-      "- 개선 제안",
+  ): Promise<ICodexReviewResult> {
+    const prompt = [
+      `'${baseBranch}'와 HEAD 사이의 코드 변경사항을 분석하여 한국어로 코드 리뷰해줘.`,
       "",
-      "각 이슈의 심각도(severity)는 반드시 다음 4단계 중 하나로 분류해줘:",
-      '- "blocking": 반드시 수정이 필요한 항목 (보안 취약점, 버그, 아키텍처 위반)',
-      '- "recommended": 권장 개선 사항 (성능, 가독성, 베스트 프랙티스)',
-      '- "suggestion": 선택적 개선 아이디어 (리팩토링, 최적화 기회)',
-      '- "tech-debt": 향후 개선이 필요한 기술 부채',
+      "## 출력 형식",
       "",
-      "반드시 아래 JSON 배열 형식으로만 응답해줘. 다른 텍스트 없이 JSON만 출력해줘:",
+      "반드시 아래 JSON 객체 형식으로만 응답해줘. 다른 텍스트 없이 JSON만 출력해줘:",
       "```json",
-      "[",
-      "  {",
-      '    "path": "src/example/file.ts",',
-      '    "line": 42,',
-      '    "severity": "blocking",',
-      '    "description": "문제가 무엇인지 명확히 설명",',
-      '    "problemCode": "문제가 되는 코드 인용 (선택)",',
-      '    "suggestedFix": "개선된 코드 예시 (선택)",',
-      '    "reason": "왜 이 변경이 필요한지 근거"',
-      "  }",
-      "]",
+      "{",
+      '  "summary": "변경사항 요약 (마크다운 허용). 1) 변경 개요 2) 주요 변경사항 3) 영향 범위를 포함해줘.",',
+      '  "verdict": "approve | request-changes | comment",',
+      '  "confidence": 85,',
+      '  "findings": [',
+      "    {",
+      '      "path": "src/example/file.ts",',
+      '      "line": 42,',
+      '      "severity": "blocking",',
+      '      "description": "문제가 무엇인지 명확히 설명",',
+      '      "problemCode": "문제가 되는 코드 인용 (선택)",',
+      '      "suggestedFix": "개선된 코드 예시 (선택)",',
+      '      "reason": "왜 이 변경이 필요한지 근거"',
+      "    }",
+      "  ]",
+      "}",
       "```",
       "",
-      "문제가 없으면 빈 배열 []을 반환해줘.",
+      "## 가이드라인",
+      "",
+      "### summary",
+      "- 변경 개요: 어떤 기능/모듈이 변경되었는지",
+      "- 주요 변경사항 목록 (bullet point)",
+      "- 영향 범위: 이 변경이 영향을 미치는 부분",
+      "- 간결하고 명확하게, 비개발자도 이해할 수 있도록 작성",
+      "",
+      "### verdict",
+      '- "approve": blocking 이슈가 없고, 코드 품질이 양호한 경우',
+      '- "request-changes": blocking 이슈가 1개 이상인 경우',
+      '- "comment": blocking은 없지만 개선 권장사항이 있는 경우',
+      "",
+      "### confidence",
+      "- 리뷰 판단의 확신도 (0-100)",
+      "",
+      "### findings",
+      "- 각 이슈의 severity는 반드시 다음 4단계 중 하나:",
+      '  - "blocking": 반드시 수정 필요 (보안 취약점, 버그, 아키텍처 위반)',
+      '  - "recommended": 권장 개선 사항 (성능, 가독성, 베스트 프랙티스)',
+      '  - "suggestion": 선택적 개선 아이디어 (리팩토링, 최적화 기회)',
+      '  - "tech-debt": 향후 개선이 필요한 기술 부채',
+      "- 문제가 없으면 빈 배열 []",
     ].join("\n");
 
-    const [summaryResult, reviewResult] = await Promise.all([
-      this.codexService.executeCodex(worktreePath, baseBranch, summaryPrompt),
-      this.codexService.executeCodex(worktreePath, baseBranch, reviewPrompt),
-    ]);
+    const result = await this.codexService.executeCodex(
+      worktreePath,
+      baseBranch,
+      prompt,
+    );
 
-    if (summaryResult.exitCode !== 0 && reviewResult.exitCode !== 0) {
+    if (result.exitCode !== 0) {
       throw new Error(
-        `Both codex runs failed. Summary: ${summaryResult.rawOutput.substring(0, 250)}. Review: ${reviewResult.rawOutput.substring(0, 250)}`,
+        `Codex run failed (exit ${result.exitCode}): ${result.rawOutput.substring(0, 500)}`,
       );
     }
 
-    return { summaryResult, reviewResult };
+    return result;
   }
 
   /** Step 3: Bitbucket에 결과 게시 */
   private async publishResults(
     data: IReviewJobData,
-    summaryResult: ICodexReviewResult,
-    reviewResult: ICodexReviewResult,
-  ): Promise<{
-    summaryCommentId: number | undefined;
-    reviewCommentId: number | undefined;
-  }> {
+    codexResult: ICodexReviewResult,
+  ): Promise<number | undefined> {
     await this.reviewService.updateStatus(
       data.reviewRunId,
       ReviewRunStatus.PUBLISHING,
     );
 
-    let summaryCommentId: number | undefined;
-    let reviewCommentId: number | undefined;
+    const unified = parseUnifiedReviewJson(codexResult.rawOutput, (msg) =>
+      this.logger.error(msg),
+    );
 
-    // Parse review items first (needed for summary table)
-    const inlineItems: ReadonlyArray<IReviewItem> =
-      reviewResult.exitCode === 0
-        ? parseReviewJson(reviewResult.rawOutput, (msg) =>
-            this.logger.error(msg),
-          )
-        : [];
-
-    // Post summary comment with review stats table (if succeeded)
-    if (summaryResult.exitCode === 0) {
-      const statsTable =
-        inlineItems.length > 0 ? buildSummaryTable(inlineItems) : "";
-      const summaryBody = [
-        `## 📋 변경사항 요약`,
-        "",
-        summaryResult.rawOutput,
-        statsTable,
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-      const summaryComment = await this.bitbucketService.createComment({
-        workspace: data.workspaceSlug,
-        repoSlug: data.repositorySlug,
-        pullRequestId: data.pullRequestId,
-        body: summaryBody,
-      });
-      summaryCommentId = summaryComment.id;
-      this.logger.log(`Summary comment posted: ${summaryComment.id}`);
-    } else {
-      this.logger.warn(`Summary failed (exit ${summaryResult.exitCode}), skipping`);
+    if (unified) {
+      return this.publishUnifiedResults(data, unified);
     }
 
-    // Post review: try inline comments, fallback to general comment
-    if (reviewResult.exitCode === 0) {
-      if (inlineItems.length > 0) {
-        // Post inline comments per file/line
-        let postedCount = 0;
-        for (const item of inlineItems) {
-          try {
-            const body = formatInlineComment(item);
-            await this.bitbucketService.createInlineComment({
-              workspace: data.workspaceSlug,
-              repoSlug: data.repositorySlug,
-              pullRequestId: data.pullRequestId,
-              filePath: item.path,
-              line: item.line,
-              body,
-            });
-            postedCount++;
-          } catch (err) {
-            this.logger.warn(
-              `Inline comment failed for ${item.path}:${item.line}: ${(err as Error).message}`,
-            );
-          }
-        }
-        this.logger.log(
-          `Inline comments posted: ${postedCount}/${inlineItems.length}`,
-        );
+    return this.publishFallbackResults(data, codexResult.rawOutput);
+  }
 
-        // If all inline comments failed, fallback to general comment
-        if (postedCount === 0) {
-          this.logger.warn("All inline comments failed, falling back to general comment");
-          const reviewComment = await this.bitbucketService.createComment({
-            workspace: data.workspaceSlug,
-            repoSlug: data.repositorySlug,
-            pullRequestId: data.pullRequestId,
-            body: `## 🔍 코드 리뷰\n\n${reviewResult.rawOutput}`,
-          });
-          reviewCommentId = reviewComment.id;
-        } else {
-          // Use first inline comment as reference
-          reviewCommentId = -1; // inline comments have no single ID
-        }
-      } else {
-        // JSON parse failed or empty → fallback to general comment
-        const reviewBody = `## 🔍 코드 리뷰\n\n${reviewResult.rawOutput}`;
-        const reviewComment = await this.bitbucketService.createComment({
+  /** 통합 파싱 성공 시: verdict badge + summary + stats table + inline comments */
+  private async publishUnifiedResults(
+    data: IReviewJobData,
+    unified: IUnifiedReviewResult,
+  ): Promise<number | undefined> {
+    // Build summary comment body
+    const verdictBadge = buildVerdictBadge(unified.verdict, unified.confidence);
+    const statsTable =
+      unified.findings.length > 0
+        ? buildSummaryTable(unified.findings)
+        : "";
+    const summaryBody = [
+      `## 📋 코드 리뷰`,
+      "",
+      verdictBadge,
+      "",
+      unified.summary,
+      statsTable,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const summaryComment = await this.bitbucketService.createComment({
+      workspace: data.workspaceSlug,
+      repoSlug: data.repositorySlug,
+      pullRequestId: data.pullRequestId,
+      body: summaryBody,
+    });
+    this.logger.log(`Summary comment posted: ${summaryComment.id}`);
+
+    // Post inline comments
+    if (unified.findings.length > 0) {
+      await this.postInlineComments(data, unified.findings);
+    }
+
+    return summaryComment.id;
+  }
+
+  /** 파싱 실패 시: raw output 일반 댓글 게시 */
+  private async publishFallbackResults(
+    data: IReviewJobData,
+    rawOutput: string,
+  ): Promise<number | undefined> {
+    this.logger.warn("Unified JSON parse failed, falling back to raw output comment");
+    const comment = await this.bitbucketService.createComment({
+      workspace: data.workspaceSlug,
+      repoSlug: data.repositorySlug,
+      pullRequestId: data.pullRequestId,
+      body: `## 🔍 코드 리뷰\n\n${rawOutput}`,
+    });
+    this.logger.log(`Fallback comment posted: ${comment.id}`);
+    return comment.id;
+  }
+
+  /** inline comments 개별 게시 (전체 실패 시 일반 댓글 fallback) */
+  private async postInlineComments(
+    data: IReviewJobData,
+    findings: ReadonlyArray<IReviewItem>,
+  ): Promise<void> {
+    let postedCount = 0;
+    for (const item of findings) {
+      try {
+        const body = formatInlineComment(item);
+        await this.bitbucketService.createInlineComment({
           workspace: data.workspaceSlug,
           repoSlug: data.repositorySlug,
           pullRequestId: data.pullRequestId,
-          body: reviewBody,
+          filePath: item.path,
+          line: item.line,
+          body,
         });
-        reviewCommentId = reviewComment.id;
-        this.logger.log(`Review comment posted (fallback): ${reviewComment.id}`);
+        postedCount++;
+      } catch (err) {
+        this.logger.warn(
+          `Inline comment failed for ${item.path}:${item.line}: ${(err as Error).message}`,
+        );
       }
-    } else {
-      this.logger.warn(`Review failed (exit ${reviewResult.exitCode}), skipping`);
     }
+    this.logger.log(
+      `Inline comments posted: ${postedCount}/${findings.length}`,
+    );
 
-    if (!summaryCommentId && !reviewCommentId) {
-      throw new Error("Both comments failed to post");
+    // If all inline comments failed, fallback to general comment
+    if (postedCount === 0) {
+      this.logger.warn("All inline comments failed, falling back to general comment");
+      const fallbackBody = findings
+        .map((f) => formatInlineComment(f))
+        .join("\n\n---\n\n");
+      await this.bitbucketService.createComment({
+        workspace: data.workspaceSlug,
+        repoSlug: data.repositorySlug,
+        pullRequestId: data.pullRequestId,
+        body: `## 🔍 코드 리뷰 상세\n\n${fallbackBody}`,
+      });
     }
-
-    return { summaryCommentId, reviewCommentId };
   }
 
   /** Step 4: 완료 상태 저장 */
   private async markCompleted(
     data: IReviewJobData,
-    summaryResult: ICodexReviewResult,
-    reviewResult: ICodexReviewResult,
-    summaryCommentId: number | undefined,
-    reviewCommentId: number | undefined,
+    codexResult: ICodexReviewResult,
+    commentId: number | undefined,
   ): Promise<void> {
-    const totalDurationMs = Math.max(summaryResult.durationMs, reviewResult.durationMs);
-    const combinedOutput = [
-      summaryResult.exitCode === 0 ? `## Summary\n${summaryResult.rawOutput}` : "",
-      reviewResult.exitCode === 0 ? `## Review\n${reviewResult.rawOutput}` : "",
-    ].filter(Boolean).join("\n\n---\n\n");
-
     await this.reviewService.updateStatus(
       data.reviewRunId,
       ReviewRunStatus.COMPLETED,
       {
-        reviewOutput: combinedOutput,
-        resultCommentId: reviewCommentId ?? summaryCommentId!,
-        durationMs: totalDurationMs,
+        reviewOutput: codexResult.rawOutput,
+        resultCommentId: commentId!,
+        durationMs: codexResult.durationMs,
       },
     );
 
     this.logger.log(
-      `Review completed: PR #${data.pullRequestId}, summary=${summaryCommentId}, review=${reviewCommentId}, ${totalDurationMs}ms`,
+      `Review completed: PR #${data.pullRequestId}, comment=${commentId}, ${codexResult.durationMs}ms`,
     );
   }
 }
