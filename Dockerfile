@@ -29,7 +29,8 @@ RUN apk add --no-cache git ca-certificates
 
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --prod --frozen-lockfile
-RUN npm install -g @openai/codex@latest
+# renovate: datasource=npm depName=@openai/codex
+RUN npm install -g @openai/codex@0.112.0
 
 COPY --from=build /app/dist ./dist
 
