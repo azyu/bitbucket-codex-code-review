@@ -152,6 +152,42 @@ pnpm test:cov       # 커버리지 포함 테스트
 pnpm lint           # ESLint
 ```
 
+## Kubernetes Deployment
+
+Helm 차트가 `charts/code-review-worker/`에 포함되어 있습니다.
+
+```bash
+helm install code-review ./charts/code-review-worker \
+  --set database.host=mysql \
+  --set database.username=root \
+  --set database.password=changeme \
+  --set database.name=lxp_code_review \
+  --set redis.host=redis \
+  --set redis.password=pass \
+  --set codexAuth.existingSecret=codex-auth
+```
+
+### Codex CLI 인증
+
+Codex CLI는 `~/.codex/auth.json`에서 API 인증 정보를 읽습니다.
+K8s 환경에서는 Secret을 생성하고 차트에서 `/root/.codex`로 마운트합니다.
+
+```bash
+# 로컬 인증 파일로 Secret 생성
+kubectl create secret generic codex-auth \
+  --from-file=auth.json=$HOME/.codex/auth.json
+
+# Helm 설치 시 적용
+helm install code-review ./charts/code-review-worker \
+  --set codexAuth.existingSecret=codex-auth \
+  # ... 기타 설정
+```
+
+> [!TIP]
+> 프로덕션 환경에서는 External Secrets Operator나 Sealed Secrets를 사용하여 `existingSecret`을 관리하세요.
+
+상세 설정은 [charts/code-review-worker/README.md](charts/code-review-worker/README.md) 참조.
+
 ## Project Structure
 
 ```
