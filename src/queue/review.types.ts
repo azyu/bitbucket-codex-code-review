@@ -39,3 +39,35 @@ export const VALID_SEVERITIES: ReadonlySet<string> = new Set<string>([
   "suggestion",
   "tech-debt",
 ]);
+
+/** 리뷰 판정 타입 */
+export type ReviewVerdict = "approve" | "request-changes" | "comment";
+
+/** 통합 리뷰 결과 인터페이스 */
+export interface IUnifiedReviewResult {
+  readonly summary: string;
+  readonly verdict: ReviewVerdict;
+  readonly confidence: number;
+  readonly findings: ReadonlyArray<IReviewItem>;
+}
+
+/** 판정별 이모지 */
+export const VERDICT_EMOJI: Readonly<Record<ReviewVerdict, string>> = {
+  approve: "✅",
+  "request-changes": "🔴",
+  comment: "💬",
+};
+
+/** 판정별 라벨 */
+export const VERDICT_LABEL: Readonly<Record<ReviewVerdict, string>> = {
+  approve: "Approve",
+  "request-changes": "Request Changes",
+  comment: "Comment",
+};
+
+/** 유효한 판정 값 집합 */
+export const VALID_VERDICTS: ReadonlySet<string> = new Set<string>([
+  "approve",
+  "request-changes",
+  "comment",
+]);
