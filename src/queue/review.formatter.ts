@@ -67,10 +67,58 @@ export function buildSummaryTable(
   ].join("\n");
 }
 
-/** raw 텍스트에서 JSON 문자열 추출 (코드블록 또는 raw) */
+/** raw 텍스트에서 JSON 문자열 추출 (가장 바깥 {}/[] 브래킷 기반) */
 function extractJsonString(rawOutput: string): string {
-  const jsonMatch = rawOutput.match(/```(?:json)?\s*([\s\S]*?)```/);
-  return jsonMatch ? jsonMatch[1].trim() : rawOutput.trim();
+  const trimmed = rawOutput.trim();
+
+  // 1차: 가장 바깥 JSON 객체/배열 브래킷을 직접 매칭
+  const firstBrace = trimmed.indexOf("{");
+  const firstBracket = trimmed.indexOf("[");
+  const startIdx =
+    firstBrace === -1
+      ? firstBracket
+      : firstBracket === -1
+        ? firstBrace
+        : Math.min(firstBrace, firstBracket);
+
+  if (startIdx !== -1) {
+    const openChar = trimmed[startIdx];
+    const closeChar = openChar === "{" ? "}" : "]";
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = startIdx; i < trimmed.length; i++) {
+      const ch = trimmed[i];
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (ch === openChar) depth++;
+      else if (ch === closeChar) depth--;
+
+      if (depth === 0) {
+        return trimmed.slice(startIdx, i + 1);
+      }
+    }
+  }
+
+  // 2차 fallback: 그대로 반환
+  return trimmed;
 }
 
 /** parsed 배열에서 IReviewItem[] 변환 (공통 로직) */

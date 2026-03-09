@@ -206,6 +206,26 @@ describe("review.formatter", () => {
       expect(result!.summary).toBe("변경사항 요약입니다.");
     });
 
+    it("should parse when summary contains markdown code blocks", () => {
+      const withCodeBlock = {
+        ...validUnified,
+        summary: "변경 요약:\n```ts\nconst x = 1;\n```\n끝.",
+      };
+      const input = [
+        "Here is the result:",
+        "```json",
+        JSON.stringify(withCodeBlock),
+        "```",
+      ].join("\n");
+
+      const result = parseUnifiedReviewJson(input);
+
+      expect(result).not.toBeNull();
+      expect(result!.summary).toContain("```ts");
+      expect(result!.summary).toContain("const x = 1;");
+      expect(result!.findings).toHaveLength(1);
+    });
+
     it("should return null for array JSON", () => {
       const onError = jest.fn();
       const result = parseUnifiedReviewJson(JSON.stringify([1, 2, 3]), onError);
