@@ -73,17 +73,30 @@ describe("WebhookGuard", () => {
     expect(guard.canActivate(ctx)).toBe(false);
   });
 
-  it("should return true when signature matches", () => {
+  it("should return true when signature matches (with sha256= prefix)", () => {
     (configService.get as jest.Mock).mockReturnValue(SECRET);
 
     const body = '{"action":"pr:comment:added"}';
     const rawBody = Buffer.from(body, "utf8");
-    const expectedSig = createHmac("sha256", SECRET)
-      .update(body)
-      .digest("hex");
+    const hex = createHmac("sha256", SECRET).update(rawBody).digest("hex");
 
     const ctx = buildExecutionContext({
-      headers: { "x-hub-signature": expectedSig },
+      headers: { "x-hub-signature": `sha256=${hex}` },
+      rawBody,
+    });
+
+    expect(guard.canActivate(ctx)).toBe(true);
+  });
+
+  it("should return true when signature matches (without prefix)", () => {
+    (configService.get as jest.Mock).mockReturnValue(SECRET);
+
+    const body = '{"action":"pr:comment:added"}';
+    const rawBody = Buffer.from(body, "utf8");
+    const hex = createHmac("sha256", SECRET).update(rawBody).digest("hex");
+
+    const ctx = buildExecutionContext({
+      headers: { "x-hub-signature": hex },
       rawBody,
     });
 
@@ -99,7 +112,7 @@ describe("WebhookGuard", () => {
       .digest("hex");
 
     const ctx = buildExecutionContext({
-      headers: { "x-hub-signature": wrongSig },
+      headers: { "x-hub-signature": `sha256=${wrongSig}` },
       rawBody,
     });
 
