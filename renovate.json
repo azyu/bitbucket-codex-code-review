@@ -1,6 +1,17 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^Dockerfile$"],
+      "matchStrings": [
+        "# renovate: datasource=npm depName=@openai/codex\\nRUN npm install -g @openai/codex@(?<currentValue>[\\d.]+)"
+      ],
+      "datasourceTemplate": "npm",
+      "depNameTemplate": "@openai/codex"
+    }
+  ],
   "packageRules": [
     {
       "matchPackageNames": ["@openai/codex"],
