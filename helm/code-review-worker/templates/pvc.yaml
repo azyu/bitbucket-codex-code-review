@@ -1,0 +1,19 @@
+{{- if .Values.persistence.workspaces.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "code-review-worker.fullname" . }}-workspaces
+  labels:
+    {{- include "code-review-worker.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- range .Values.persistence.workspaces.accessModes }}
+    - {{ . }}
+    {{- end }}
+  {{- if .Values.persistence.workspaces.storageClass }}
+  storageClassName: {{ .Values.persistence.workspaces.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.workspaces.size }}
+{{- end }}

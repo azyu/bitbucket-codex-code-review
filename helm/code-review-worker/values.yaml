@@ -1,0 +1,157 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/anthropics/code-review-worker
+  pullPolicy: IfNotPresent
+  tag: ""  # defaults to Chart.appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+
+# --- Application Config (non-sensitive) ---
+nodeEnv: production
+port: 3000
+metricsPort: 9463
+logLevel: info
+
+# --- Database ---
+database:
+  host: ""
+  port: 3309
+  username: ""
+  password: ""
+  name: lxp_code_review
+  synchronize: false
+  logging: false
+  poolSize: 5
+  poolMaxIdle: 2
+  existingSecret: ""  # if set, uses this Secret for db-password key
+
+# --- Redis ---
+redis:
+  host: ""
+  port: 6379
+  username: ""
+  password: ""
+  db: 0
+  existingSecret: ""  # if set, uses this Secret for redis-password key
+
+# --- Queue ---
+queue:
+  retryAttempts: 3
+  retryDelay: 5000
+
+# --- Codex ---
+codex:
+  binaryPath: codex
+  timeoutMs: 600000
+  model: gpt-5.4
+  reasoningEffort: high
+
+# --- Bitbucket ---
+bitbucket:
+  baseUrl: "https://api.bitbucket.org/2.0"
+  apiToken: ""
+  username: ""
+  appPassword: ""
+  webhookSecret: ""
+  existingSecret: ""  # if set, uses this Secret for bitbucket-api-token, bitbucket-app-password, bitbucket-webhook-secret
+
+# --- Codex Auth (mounted to /root/.codex) ---
+codexAuth:
+  existingSecret: ""  # if set, mounts entire Secret as volume to /root/.codex
+
+# --- Workspace ---
+workspace:
+  basePath: /workspaces
+  maxConcurrent: 3
+
+# --- Trigger ---
+trigger:
+  mode: mention  # mention | auto | both
+
+# --- Migration ---
+migration:
+  enabled: false
+  command: ["npx", "typeorm", "migration:run", "-d", "dist/database/data-source.js"]
+
+# --- Persistence (workspace volume) ---
+persistence:
+  workspaces:
+    enabled: false
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+  emptyDir:
+    sizeLimit: 5Gi
+
+# --- Service ---
+service:
+  type: ClusterIP
+  httpPort: 3000
+  metricsPort: 9463
+
+# --- Ingress ---
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: code-review.example.com
+      paths:
+        - path: /api/webhooks
+          pathType: Prefix
+  tls: []
+
+# --- HPA ---
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+# --- ServiceMonitor (Prometheus Operator) ---
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: 10s
+  additionalLabels: {}
+
+# --- NetworkPolicy ---
+networkPolicy:
+  enabled: false
+  ingressRules: []
+  egressRules: []
+
+# --- Resources ---
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

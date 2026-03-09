@@ -1,0 +1,150 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "code-review-worker.fullname" . }}
+  labels:
+    {{- include "code-review-worker.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "code-review-worker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/configmap: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "code-review-worker.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "code-review-worker.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.migration.enabled }}
+      initContainers:
+        - name: migration
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            {{- toYaml .Values.migration.command | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "code-review-worker.fullname" . }}
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "code-review-worker.databaseSecretName" . }}
+                  key: db-password
+            - name: REDIS_QUEUE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "code-review-worker.redisSecretName" . }}
+                  key: redis-password
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.metricsPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "code-review-worker.fullname" . }}
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "code-review-worker.databaseSecretName" . }}
+                  key: db-password
+            - name: REDIS_QUEUE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "code-review-worker.redisSecretName" . }}
+                  key: redis-password
+            - name: BITBUCKET_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "code-review-worker.bitbucketSecretName" . }}
+                  key: bitbucket-api-token
+            - name: BITBUCKET_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "code-review-worker.bitbucketSecretName" . }}
+                  key: bitbucket-app-password
+            - name: BITBUCKET_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "code-review-worker.bitbucketSecretName" . }}
+                  key: bitbucket-webhook-secret
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: workspaces
+              mountPath: {{ .Values.workspace.basePath }}
+            {{- if .Values.codexAuth.existingSecret }}
+            - name: codex-auth
+              mountPath: /root/.codex
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: workspaces
+          {{- if .Values.persistence.workspaces.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "code-review-worker.fullname" . }}-workspaces
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ .Values.persistence.emptyDir.sizeLimit }}
+          {{- end }}
+        {{- if .Values.codexAuth.existingSecret }}
+        - name: codex-auth
+          secret:
+            secretName: {{ .Values.codexAuth.existingSecret }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
