@@ -1,8 +1,22 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-03-09
+> 마지막 업데이트: 2026-03-10
 
 ## 완료된 작업
+
+### Task 6: 리뷰 프롬프트 하이브리드 업그레이드
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| review.prompt.ts 신규 | ✅ | Codex 기반 버그 판정 8조, 코멘트 가이드, P0-P3 우선순위 |
+| review.types.ts 확장 | ✅ | title, priority, ILineRange, lineRange 추가 |
+| review.formatter.ts 파서 업데이트 | ✅ | line_range→lineRange 매핑, line 하위호환, title/priority 파싱 |
+| review.formatter.ts 포매터 업데이트 | ✅ | title 헤더, priority 태그, 라인 범위 표시 |
+| review.processor.ts 프롬프트 분리 | ✅ | 인라인 → buildReviewPrompt() import |
+| review.processor.ts lineRange 사용 | ✅ | item.line → item.lineRange.end |
+| 테스트 업데이트 | ✅ | 65 tests passed (하위호환, 새 필드 등) |
+| pnpm build 성공 | ✅ | nest build exit 0 |
 
 ### Task 5: PR 오픈 시 자동 리뷰/서머리 트리거
 - **상태**: ✅ 완료

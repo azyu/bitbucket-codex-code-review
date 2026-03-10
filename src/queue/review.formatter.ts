@@ -1,11 +1,15 @@
 import {
   type ReviewSeverity,
+  type ReviewPriority,
   type ReviewVerdict,
+  type ILineRange,
   type IReviewItem,
   type IUnifiedReviewResult,
   SEVERITY_EMOJI,
   SEVERITY_LABEL,
   VALID_SEVERITIES,
+  PRIORITY_LABEL,
+  PRIORITY_TO_SEVERITY,
   VERDICT_EMOJI,
   VERDICT_LABEL,
   VALID_VERDICTS,
@@ -15,8 +19,26 @@ import {
 export function formatInlineComment(item: IReviewItem): string {
   const emoji = SEVERITY_EMOJI[item.severity] ?? "💡";
   const label = SEVERITY_LABEL[item.severity] ?? "Suggestion";
+  const priorityTag = PRIORITY_LABEL[item.priority] ?? "";
 
-  const parts: string[] = [`${emoji} **${label}**`, ""];
+  const headerParts = [`${emoji} **${label}**`];
+  if (priorityTag) {
+    headerParts.push(`\`${priorityTag}\``);
+  }
+
+  const parts: string[] = [headerParts.join(" "), ""];
+
+  // title 헤더
+  if (item.title) {
+    parts.push(`**${item.title}**`, "");
+  }
+
+  // 라인 범위 표시
+  const { start, end } = item.lineRange;
+  if (start !== end) {
+    parts.push(`📍 L${start}-L${end}`, "");
+  }
+
   parts.push(`**문제**: ${item.description}`);
 
   if (item.problemCode) {
@@ -121,6 +143,48 @@ function extractJsonString(rawOutput: string): string {
   return trimmed;
 }
 
+/** line_range / line から ILineRange へ変換 */
+function parseLineRange(item: Record<string, unknown>): ILineRange | null {
+  // line_range 객체 우선
+  const lr = item.line_range ?? item.lineRange;
+  if (typeof lr === "object" && lr !== null) {
+    const range = lr as Record<string, unknown>;
+    const start = typeof range.start === "number" ? range.start : NaN;
+    const end = typeof range.end === "number" ? range.end : NaN;
+    if (!isNaN(start) && !isNaN(end)) {
+      return { start, end };
+    }
+  }
+
+  // 하위호환: line 단일 숫자
+  if (typeof item.line === "number") {
+    return { start: item.line, end: item.line };
+  }
+
+  return null;
+}
+
+/** priority 파싱 (0-3 범위, 없으면 severity 기반 추론) */
+function parsePriority(
+  raw: unknown,
+  severity: ReviewSeverity,
+): ReviewPriority {
+  if (typeof raw === "number" && raw >= 0 && raw <= 3) {
+    return raw as ReviewPriority;
+  }
+  // severity → priority 역매핑
+  switch (severity) {
+    case "blocking":
+      return 1;
+    case "recommended":
+      return 2;
+    case "suggestion":
+      return 3;
+    case "tech-debt":
+      return 3;
+  }
+}
+
 /** parsed 배열에서 IReviewItem[] 변환 (공통 로직) */
 export function parseReviewItems(
   parsed: unknown[],
@@ -131,29 +195,37 @@ export function parseReviewItems(
         typeof item === "object" &&
         item !== null &&
         typeof (item as Record<string, unknown>).path === "string" &&
-        typeof (item as Record<string, unknown>).line === "number" &&
         typeof (item as Record<string, unknown>).description === "string" &&
-        typeof (item as Record<string, unknown>).reason === "string",
+        typeof (item as Record<string, unknown>).reason === "string" &&
+        parseLineRange(item as Record<string, unknown>) !== null,
     )
-    .map((item) => ({
-      path: item.path as string,
-      line: item.line as number,
-      severity: (
+    .map((item) => {
+      const lineRange = parseLineRange(item)!;
+      const severity = (
         VALID_SEVERITIES.has(item.severity as string)
           ? item.severity
           : "suggestion"
-      ) as ReviewSeverity,
-      description: item.description as string,
-      problemCode:
-        typeof item.problemCode === "string"
-          ? item.problemCode
-          : undefined,
-      suggestedFix:
-        typeof item.suggestedFix === "string"
-          ? item.suggestedFix
-          : undefined,
-      reason: item.reason as string,
-    }));
+      ) as ReviewSeverity;
+      const priority = parsePriority(item.priority, severity);
+
+      return {
+        title: typeof item.title === "string" ? item.title : "",
+        path: item.path as string,
+        lineRange,
+        priority,
+        severity,
+        description: item.description as string,
+        problemCode:
+          typeof item.problemCode === "string"
+            ? item.problemCode
+            : undefined,
+        suggestedFix:
+          typeof item.suggestedFix === "string"
+            ? item.suggestedFix
+            : undefined,
+        reason: item.reason as string,
+      };
+    });
 }
 
 /** codex 출력에서 JSON 배열 파싱 (실패 시 빈 배열 반환) */

@@ -7,6 +7,7 @@ import {
   buildVerdictBadge,
 } from "./review.formatter";
 import { type IReviewItem } from "./review.types";
+import { buildReviewPrompt } from "./review.prompt";
 import { ReviewProcessor } from "./review.processor";
 import { TriggerType } from "../entities/review-run.entity";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
@@ -21,20 +22,36 @@ jest.mock("@lib/logger", () => ({
   })),
 }));
 
+describe("review.prompt", () => {
+  it("should build a prompt string containing baseBranch", () => {
+    const prompt = buildReviewPrompt("main");
+
+    expect(prompt).toContain("'main'");
+    expect(prompt).toContain("버그 판정 기준");
+    expect(prompt).toContain("line_range");
+    expect(prompt).toContain("priority");
+    expect(prompt).toContain("title");
+  });
+});
+
 describe("review.formatter", () => {
   describe("parseReviewItems", () => {
-    it("should parse valid items from array", () => {
+    it("should parse valid items with line_range", () => {
       const items = [
         {
+          title: "null 체크 누락",
           path: "src/a.ts",
-          line: 10,
+          line_range: { start: 10, end: 15 },
+          priority: 1,
           severity: "blocking",
           description: "desc",
           reason: "reason",
         },
         {
+          title: "변수명 개선",
           path: "src/b.ts",
-          line: 20,
+          line_range: { start: 20, end: 20 },
+          priority: 3,
           severity: "recommended",
           description: "desc2",
           problemCode: "bad()",
@@ -47,12 +64,48 @@ describe("review.formatter", () => {
 
       expect(result).toHaveLength(2);
       expect(result[0]).toMatchObject({
+        title: "null 체크 누락",
         path: "src/a.ts",
-        line: 10,
+        lineRange: { start: 10, end: 15 },
+        priority: 1,
         severity: "blocking",
       });
       expect(result[1].problemCode).toBe("bad()");
       expect(result[1].suggestedFix).toBe("good()");
+    });
+
+    it("should support legacy line field (backward compat)", () => {
+      const items = [
+        {
+          path: "src/a.ts",
+          line: 10,
+          severity: "blocking",
+          description: "desc",
+          reason: "reason",
+        },
+      ];
+
+      const result = parseReviewItems(items);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].lineRange).toEqual({ start: 10, end: 10 });
+    });
+
+    it("should prefer line_range over line when both present", () => {
+      const items = [
+        {
+          path: "src/a.ts",
+          line: 5,
+          line_range: { start: 10, end: 15 },
+          severity: "blocking",
+          description: "desc",
+          reason: "reason",
+        },
+      ];
+
+      const result = parseReviewItems(items);
+
+      expect(result[0].lineRange).toEqual({ start: 10, end: 15 });
     });
 
     it("should filter out items missing required fields", () => {
@@ -96,6 +149,52 @@ describe("review.formatter", () => {
       expect(result[0].problemCode).toBeUndefined();
       expect(result[0].suggestedFix).toBeUndefined();
     });
+
+    it("should default title to empty string when missing", () => {
+      const items = [
+        { path: "a.ts", line: 1, severity: "blocking", description: "d", reason: "r" },
+      ];
+
+      const result = parseReviewItems(items);
+
+      expect(result[0].title).toBe("");
+    });
+
+    it("should infer priority from severity when not provided", () => {
+      const items = [
+        { path: "a.ts", line: 1, severity: "blocking", description: "d", reason: "r" },
+        { path: "b.ts", line: 2, severity: "recommended", description: "d", reason: "r" },
+        { path: "c.ts", line: 3, severity: "suggestion", description: "d", reason: "r" },
+        { path: "d.ts", line: 4, severity: "tech-debt", description: "d", reason: "r" },
+      ];
+
+      const result = parseReviewItems(items);
+
+      expect(result[0].priority).toBe(1); // blocking → P1
+      expect(result[1].priority).toBe(2); // recommended → P2
+      expect(result[2].priority).toBe(3); // suggestion → P3
+      expect(result[3].priority).toBe(3); // tech-debt → P3
+    });
+
+    it("should use explicit priority when valid", () => {
+      const items = [
+        { path: "a.ts", line: 1, priority: 0, severity: "blocking", description: "d", reason: "r" },
+      ];
+
+      const result = parseReviewItems(items);
+
+      expect(result[0].priority).toBe(0);
+    });
+
+    it("should reject items with no line or line_range", () => {
+      const items = [
+        { path: "a.ts", severity: "blocking", description: "d", reason: "r" },
+      ];
+
+      const result = parseReviewItems(items);
+
+      expect(result).toHaveLength(0);
+    });
   });
 
   describe("parseReviewJson", () => {
@@ -114,7 +213,7 @@ describe("review.formatter", () => {
       expect(result).toHaveLength(1);
       expect(result[0]).toMatchObject({
         path: "src/app.ts",
-        line: 10,
+        lineRange: { start: 10, end: 10 },
         severity: "blocking",
         description: "Null pointer",
         reason: "Will crash at runtime",
@@ -184,8 +283,10 @@ describe("review.formatter", () => {
       confidence: 85,
       findings: [
         {
+          title: "null 체크 누락",
           path: "src/app.ts",
-          line: 10,
+          line_range: { start: 10, end: 12 },
+          priority: 1,
           severity: "blocking",
           description: "문제",
           reason: "이유",
@@ -203,6 +304,30 @@ describe("review.formatter", () => {
       expect(result!.confidence).toBe(85);
       expect(result!.findings).toHaveLength(1);
       expect(result!.findings[0].path).toBe("src/app.ts");
+      expect(result!.findings[0].lineRange).toEqual({ start: 10, end: 12 });
+      expect(result!.findings[0].title).toBe("null 체크 누락");
+      expect(result!.findings[0].priority).toBe(1);
+    });
+
+    it("should parse legacy format with line field", () => {
+      const legacyUnified = {
+        summary: "요약",
+        verdict: "approve",
+        confidence: 85,
+        findings: [
+          {
+            path: "src/app.ts",
+            line: 10,
+            severity: "blocking",
+            description: "문제",
+            reason: "이유",
+          },
+        ],
+      };
+      const result = parseUnifiedReviewJson(JSON.stringify(legacyUnified));
+
+      expect(result).not.toBeNull();
+      expect(result!.findings[0].lineRange).toEqual({ start: 10, end: 10 });
     });
 
     it("should extract from markdown code block", () => {
@@ -321,10 +446,12 @@ describe("review.formatter", () => {
   });
 
   describe("formatInlineComment", () => {
-    it("should format a blocking item correctly", () => {
+    it("should format a blocking item with title and priority", () => {
       const item: IReviewItem = {
+        title: "SQL injection 취약점",
         path: "src/app.ts",
-        line: 42,
+        lineRange: { start: 40, end: 45 },
+        priority: 0,
         severity: "blocking",
         description: "SQL injection vulnerability",
         problemCode: "db.query(`SELECT * FROM ${input}`)",
@@ -335,16 +462,21 @@ describe("review.formatter", () => {
       const result = formatInlineComment(item);
 
       expect(result).toContain("**Blocking**");
+      expect(result).toContain("`P0`");
+      expect(result).toContain("**SQL injection 취약점**");
+      expect(result).toContain("L40-L45");
       expect(result).toContain("SQL injection vulnerability");
       expect(result).toContain("**문제 코드**:");
       expect(result).toContain("**수정 제안**:");
       expect(result).toContain("**이유**: User input is not sanitized");
     });
 
-    it("should format item without optional fields", () => {
+    it("should not show line range when start equals end", () => {
       const item: IReviewItem = {
+        title: "단일 라인",
         path: "src/app.ts",
-        line: 10,
+        lineRange: { start: 10, end: 10 },
+        priority: 3,
         severity: "suggestion",
         description: "Consider extracting constant",
         reason: "Improves readability",
@@ -353,22 +485,40 @@ describe("review.formatter", () => {
       const result = formatInlineComment(item);
 
       expect(result).toContain("**Suggestion**");
+      expect(result).toContain("`P3`");
+      expect(result).not.toContain("L10-L10");
       expect(result).toContain("Consider extracting constant");
       expect(result).not.toContain("**문제 코드**:");
       expect(result).not.toContain("**수정 제안**:");
       expect(result).toContain("**이유**: Improves readability");
+    });
+
+    it("should handle empty title gracefully", () => {
+      const item: IReviewItem = {
+        title: "",
+        path: "src/app.ts",
+        lineRange: { start: 10, end: 10 },
+        priority: 2,
+        severity: "recommended",
+        description: "desc",
+        reason: "reason",
+      };
+
+      const result = formatInlineComment(item);
+
+      expect(result).not.toContain("****"); // empty bold
     });
   });
 
   describe("buildSummaryTable", () => {
     it("should count severities correctly", () => {
       const items: ReadonlyArray<IReviewItem> = [
-        { path: "a.ts", line: 1, severity: "blocking", description: "d1", reason: "r1" },
-        { path: "b.ts", line: 2, severity: "blocking", description: "d2", reason: "r2" },
-        { path: "c.ts", line: 3, severity: "recommended", description: "d3", reason: "r3" },
-        { path: "d.ts", line: 4, severity: "suggestion", description: "d4", reason: "r4" },
-        { path: "e.ts", line: 5, severity: "tech-debt", description: "d5", reason: "r5" },
-        { path: "f.ts", line: 6, severity: "tech-debt", description: "d6", reason: "r6" },
+        { title: "", path: "a.ts", lineRange: { start: 1, end: 1 }, priority: 1, severity: "blocking", description: "d1", reason: "r1" },
+        { title: "", path: "b.ts", lineRange: { start: 2, end: 2 }, priority: 1, severity: "blocking", description: "d2", reason: "r2" },
+        { title: "", path: "c.ts", lineRange: { start: 3, end: 3 }, priority: 2, severity: "recommended", description: "d3", reason: "r3" },
+        { title: "", path: "d.ts", lineRange: { start: 4, end: 4 }, priority: 3, severity: "suggestion", description: "d4", reason: "r4" },
+        { title: "", path: "e.ts", lineRange: { start: 5, end: 5 }, priority: 3, severity: "tech-debt", description: "d5", reason: "r5" },
+        { title: "", path: "f.ts", lineRange: { start: 6, end: 6 }, priority: 3, severity: "tech-debt", description: "d6", reason: "r6" },
       ];
 
       const result = buildSummaryTable(items);
@@ -383,7 +533,7 @@ describe("review.formatter", () => {
 
     it("should return zero counts for unused severities", () => {
       const items: ReadonlyArray<IReviewItem> = [
-        { path: "a.ts", line: 1, severity: "blocking", description: "d", reason: "r" },
+        { title: "", path: "a.ts", lineRange: { start: 1, end: 1 }, priority: 1, severity: "blocking", description: "d", reason: "r" },
       ];
 
       const result = buildSummaryTable(items);

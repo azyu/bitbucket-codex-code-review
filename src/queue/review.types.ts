@@ -5,16 +5,43 @@ export type ReviewSeverity =
   | "suggestion"
   | "tech-debt";
 
+/** 우선순위 타입 (P0-P3) */
+export type ReviewPriority = 0 | 1 | 2 | 3;
+
+/** 라인 범위 */
+export interface ILineRange {
+  readonly start: number;
+  readonly end: number;
+}
+
 /** 리뷰 항목 인터페이스 */
 export interface IReviewItem {
+  readonly title: string;
   readonly path: string;
-  readonly line: number;
+  readonly lineRange: ILineRange;
+  readonly priority: ReviewPriority;
   readonly severity: ReviewSeverity;
   readonly description: string;
   readonly problemCode?: string;
   readonly suggestedFix?: string;
   readonly reason: string;
 }
+
+/** 우선순위별 라벨 */
+export const PRIORITY_LABEL: Readonly<Record<ReviewPriority, string>> = {
+  0: "P0",
+  1: "P1",
+  2: "P2",
+  3: "P3",
+};
+
+/** 우선순위 → severity 매핑 */
+export const PRIORITY_TO_SEVERITY: Readonly<Record<ReviewPriority, ReviewSeverity>> = {
+  0: "blocking",
+  1: "blocking",
+  2: "recommended",
+  3: "suggestion",
+};
 
 /** 심각도별 이모지 */
 export const SEVERITY_EMOJI: Readonly<Record<ReviewSeverity, string>> = {
