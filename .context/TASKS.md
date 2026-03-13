@@ -1,6 +1,22 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-03-10
+> 마지막 업데이트: 2026-03-13
+
+## 진행 중/최근 작업
+
+### Task 7: Bitbucket 리뷰 요약 Markdown 정규화
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| summary Markdown 렌더링 원인 분석 | ✅ | Bitbucket payload 대신 summary 문자열 shape 문제로 확인 |
+| summary 정규화 로직 추가 | ✅ | `1)` 섹션/inline `-` 목록을 `###` + `-` bullet 형식으로 변환 |
+| review 프롬프트 수정 | ✅ | Bitbucket 호환 Markdown 섹션 형식을 명시적으로 유도 |
+| 회귀 테스트 추가 | ✅ | formatter + processor에서 summary 정규화 검증 |
+| `pnpm test` 성공 | ✅ | 68 tests passed |
+| `pnpm build` 성공 | ✅ | `nest build` exit 0 |
+| `pnpm test:cov` 확인 | ✅ | 전체 커버리지 43.41%로 DoD 80% 미달(기존 상태) |
+| `pnpm lint` 확인 | ⚠️ | `eslint: command not found`로 실패 (repo devDependency 누락) |
 
 ## 완료된 작업
 

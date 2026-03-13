@@ -5,6 +5,7 @@ import {
   formatInlineComment,
   buildSummaryTable,
   buildVerdictBadge,
+  normalizeSummaryMarkdown,
 } from "./review.formatter";
 import { type IReviewItem } from "./review.types";
 import { buildReviewPrompt } from "./review.prompt";
@@ -544,6 +545,37 @@ describe("review.formatter", () => {
     });
   });
 
+  describe("normalizeSummaryMarkdown", () => {
+    it("should convert compact numbered sections into markdown headings and bullets", () => {
+      const input = [
+        "1) 변경 개요 - learning-trace와 bff-rtc에서 사용하지 않거나 불필요해진 데이터베이스 설정 코드를 정리했고, 예제 환경변수 파일도 이에 맞게 축소했습니다. - bff-ac-lrm의 예제 환경변수에서는 실제로 사용되지 않는 GRPC_PORT 항목이 제거되었습니다.",
+        "2) 주요 변경사항 - apps/learning-trace에서 DB 설정(configuration.ts, validation.ts)의 DB 관련 항목 제거 - apps/learning-trace의 TypeORM 초기화 파일과 DatabaseModule 삭제",
+        "3) 영향 범위 - 런타임 기준으로는 DB를 직접 사용하지 않는 서비스들의 설정 표면이 단순화됩니다. - 신규 개발자 온보딩, 로컬 실행, 환경변수 관리 문서화 측면에서 혼란이 줄어듭니다.",
+      ].join("\n");
+
+      const result = normalizeSummaryMarkdown(input);
+
+      expect(result).toContain("### 변경 개요");
+      expect(result).toContain("### 주요 변경사항");
+      expect(result).toContain("### 영향 범위");
+      expect(result).toContain("\n- learning-trace와 bff-rtc에서 사용하지 않거나 불필요해진 데이터베이스 설정 코드를 정리했고, 예제 환경변수 파일도 이에 맞게 축소했습니다.");
+      expect(result).toContain("\n- bff-ac-lrm의 예제 환경변수에서는 실제로 사용되지 않는 GRPC_PORT 항목이 제거되었습니다.");
+      expect(result).not.toContain("1) 변경 개요");
+    });
+
+    it("should keep existing markdown headings and bullets intact", () => {
+      const input = [
+        "### 변경 개요",
+        "- DB 설정 제거",
+        "",
+        "### 주요 변경사항",
+        "- TypeORM 초기화 파일 삭제",
+      ].join("\n");
+
+      expect(normalizeSummaryMarkdown(input)).toBe(input);
+    });
+  });
+
   describe("buildVerdictBadge", () => {
     it("should format approve verdict", () => {
       const result = buildVerdictBadge("approve", 90);
@@ -562,6 +594,100 @@ describe("review.formatter", () => {
 
       expect(result).toBe("💬 **Comment** (confidence: 50%)");
     });
+  });
+});
+
+describe("ReviewProcessor publish results", () => {
+  const mockReviewService = {
+    updateStatus: jest.fn(),
+    existsByIdempotencyKey: jest.fn(),
+    createReviewRun: jest.fn(),
+    supersedeActivePrReviews: jest.fn(),
+  };
+  const mockWorkspaceService = {
+    prepareWorktree: jest.fn(),
+    cleanupWorktree: jest.fn(),
+  };
+  const mockCodexService = {
+    executeCodex: jest.fn(),
+  };
+  const mockBitbucketService = {
+    createComment: jest.fn().mockResolvedValue({ id: 100 }),
+    replyToComment: jest.fn().mockResolvedValue({ id: 101 }),
+    createInlineComment: jest.fn().mockResolvedValue({ id: 102 }),
+  };
+
+  let processor: ReviewProcessor;
+
+  const baseJobData: IReviewJobData = {
+    reviewRunId: 1,
+    repositorySlug: "my-repo",
+    workspaceSlug: "my-workspace",
+    pullRequestId: 42,
+    headCommitHash: "abc1234",
+    baseCommitHash: "def5678",
+    baseBranch: "main",
+    headBranch: "feature/test",
+    cloneUrl: "https://bitbucket.org/my-workspace/my-repo.git",
+    idempotencyKey: "my-repo:42:abc1234",
+    triggerType: TriggerType.MENTION,
+    triggerCommentId: 999,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    processor = new ReviewProcessor(
+      mockReviewService as never,
+      mockWorkspaceService as never,
+      mockCodexService as never,
+      mockBitbucketService as never,
+    );
+  });
+
+  it("should normalize summary into Bitbucket-friendly markdown before posting", async () => {
+    await (
+      processor as unknown as {
+        publishUnifiedResults: (
+          data: IReviewJobData,
+          unified: {
+            summary: string;
+            verdict: "approve" | "request-changes" | "comment";
+            confidence: number;
+            findings: ReadonlyArray<IReviewItem>;
+          },
+        ) => Promise<number | undefined>;
+      }
+    ).publishUnifiedResults(baseJobData, {
+      summary: [
+        "1) 변경 개요 - learning-trace와 bff-rtc에서 사용하지 않거나 불필요해진 데이터베이스 설정 코드를 정리했습니다.",
+        "2) 주요 변경사항 - apps/learning-trace에서 DB 설정 제거 - apps/bff-rtc에서 미사용 DB 설정 제거",
+        "3) 영향 범위 - 환경변수 관리 혼란이 줄어듭니다.",
+      ].join(" "),
+      verdict: "approve",
+      confidence: 88,
+      findings: [],
+    });
+
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("### 변경 개요"),
+      }),
+    );
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("- learning-trace와 bff-rtc에서 사용하지 않거나 불필요해진 데이터베이스 설정 코드를 정리했습니다."),
+      }),
+    );
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("### 주요 변경사항"),
+      }),
+    );
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.not.stringContaining("1) 변경 개요"),
+      }),
+    );
   });
 });
 

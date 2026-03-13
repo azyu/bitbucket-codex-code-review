@@ -14,6 +14,7 @@ import {
   formatInlineComment,
   buildSummaryTable,
   buildVerdictBadge,
+  normalizeSummaryMarkdown,
   parseUnifiedReviewJson,
 } from "./review.formatter";
 import { buildReviewPrompt } from "./review.prompt";
@@ -189,12 +190,13 @@ export class ReviewProcessor extends WorkerHost {
       unified.findings.length > 0
         ? buildSummaryTable(unified.findings)
         : "";
+    const normalizedSummary = normalizeSummaryMarkdown(unified.summary);
     const summaryBody = [
       `## 📋 코드 리뷰`,
       "",
       verdictBadge,
       "",
-      unified.summary,
+      normalizedSummary,
       statsTable,
     ]
       .filter(Boolean)

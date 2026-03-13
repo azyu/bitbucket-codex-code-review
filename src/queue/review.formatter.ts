@@ -89,6 +89,47 @@ export function buildSummaryTable(
   ].join("\n");
 }
 
+/** Bitbucket Markdown에서 잘 렌더링되도록 summary 구조를 정규화 */
+export function normalizeSummaryMarkdown(summary: string): string {
+  const trimmed = summary.trim().replace(/\r\n/g, "\n");
+  if (!trimmed) {
+    return "";
+  }
+
+  const headingLabels = ["변경 개요", "주요 변경사항", "영향 범위"];
+  const headingPattern = headingLabels.join("|");
+  const headingRegex = new RegExp(
+    String.raw`\d+\)\s*(${headingPattern})\s*`,
+    "g",
+  );
+  const matches = Array.from(trimmed.matchAll(headingRegex));
+
+  if (matches.length === 0) {
+    return trimmed.replace(/\n{3,}/g, "\n\n");
+  }
+
+  const sections = matches.map((match, index) => {
+    const title = match[1];
+    const bodyStart = (match.index ?? 0) + match[0].length;
+    const bodyEnd =
+      index + 1 < matches.length ? (matches[index + 1].index ?? trimmed.length) : trimmed.length;
+    const rawBody = trimmed.slice(bodyStart, bodyEnd).trim();
+
+    if (!rawBody) {
+      return `### ${title}`;
+    }
+
+    const bulletized = rawBody.replace(/\s+-\s+/g, "\n- ");
+    const normalizedBody = bulletized.startsWith("- ")
+      ? bulletized
+      : `- ${bulletized}`;
+
+    return `### ${title}\n${normalizedBody.trim()}`;
+  });
+
+  return sections.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** raw 텍스트에서 JSON 문자열 추출 (가장 바깥 {}/[] 브래킷 기반) */
 function extractJsonString(rawOutput: string): string {
   const trimmed = rawOutput.trim();
