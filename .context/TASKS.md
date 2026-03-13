@@ -4,6 +4,18 @@
 
 ## 진행 중/최근 작업
 
+### Task 8: ESLint 설정 복구
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| lint 실패 원인 분석 | ✅ | `eslint` 바이너리와 설정 파일이 누락된 상태로 확인 |
+| 최소 devDependency 복구 | ✅ | `eslint`, `typescript-eslint`, `globals` 추가 |
+| flat config 적용 | ✅ | `eslint.config.mjs` 기준으로 Node/Jest globals 설정 |
+| `pnpm lint` 성공 | ✅ | `eslint "{src,test}/**/*.ts" --fix` exit 0 |
+| `pnpm test` 성공 | ✅ | 68 tests passed |
+| `pnpm build` 성공 | ✅ | `nest build` exit 0 |
+
 ### Task 7: Bitbucket 리뷰 요약 Markdown 정규화
 - **상태**: ✅ 완료
 
@@ -13,10 +25,11 @@
 | summary 정규화 로직 추가 | ✅ | `1)` 섹션/inline `-` 목록을 `###` + `-` bullet 형식으로 변환 |
 | review 프롬프트 수정 | ✅ | Bitbucket 호환 Markdown 섹션 형식을 명시적으로 유도 |
 | 회귀 테스트 추가 | ✅ | formatter + processor에서 summary 정규화 검증 |
+| ESLint 설정/의존성 추가 | ✅ | `eslint.config.mjs` 추가 및 lint 실행 가능 상태로 복구 |
 | `pnpm test` 성공 | ✅ | 68 tests passed |
 | `pnpm build` 성공 | ✅ | `nest build` exit 0 |
 | `pnpm test:cov` 확인 | ✅ | 전체 커버리지 43.41%로 DoD 80% 미달(기존 상태) |
-| `pnpm lint` 확인 | ⚠️ | `eslint: command not found`로 실패 (repo devDependency 누락) |
+| `pnpm lint` 성공 | ✅ | ESLint 설치 및 flat config 추가 후 exit 0 |
 
 ## 완료된 작업
 
