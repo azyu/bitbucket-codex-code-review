@@ -14,7 +14,7 @@ export const DEFAULTS = {
   CODEX_BINARY_PATH: "codex",
   CODEX_TIMEOUT_MS: 600_000,
   CODEX_MODEL: "gpt-5.4",
-  CODEX_REASONING_EFFORT: "high",
+  CODEX_REASONING_EFFORT: "medium",
   REVIEW_CUSTOM_PROMPT_FILEPATH: "",
   BITBUCKET_BASE_URL: "https://api.bitbucket.org/2.0",
   WORKSPACE_BASE_PATH: "/tmp/code-review-workspaces",

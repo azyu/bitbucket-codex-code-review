@@ -38,8 +38,8 @@ services:
 
       CODEX_BINARY_PATH: codex
       CODEX_TIMEOUT_MS: 600000
-      CODEX_MODEL: gpt-5.3-codex
-      CODEX_REASONING_EFFORT: xhigh
+      CODEX_MODEL: gpt-5.4
+      CODEX_REASONING_EFFORT: medium
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
 
       BITBUCKET_BASE_URL: https://api.bitbucket.org/2.0

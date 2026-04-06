@@ -64,7 +64,7 @@ codex:
   binaryPath: codex
   timeoutMs: 600000
   model: gpt-5.4
-  reasoningEffort: high
+  reasoningEffort: medium
 
 # --- Bitbucket ---
 bitbucket:
