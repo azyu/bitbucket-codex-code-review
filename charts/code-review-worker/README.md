@@ -51,7 +51,7 @@ kubectl exec deploy/code-review-code-review-worker -- codex --version
 ```
 
 > [!NOTE]
-> 커스텀 엔드포인트는 Codex `config.toml`의 `openai_base_url` 키로 설정합니다 (환경변수 미지원).
+> 커스텀 엔드포인트는 `OPENAI_BASE_URL` 환경변수 또는 Codex `config.toml`의 `openai_base_url` 키로 설정합니다. 둘 다 설정된 경우 config.toml이 우선합니다.
 
 ## Secret 관리
 

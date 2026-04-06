@@ -111,6 +111,7 @@ docker compose up -d
 | `CODEX_REASONING_EFFORT` | 추론 노력도 (`low` / `medium` / `high` / `xhigh`) | `medium` |
 | `CODEX_TIMEOUT_MS` | 실행 타임아웃 (ms) | `600000` |
 | `OPENAI_API_KEY` | OpenAI API 키 (Codex CLI 인증) | - |
+| `OPENAI_BASE_URL` | OpenAI API 엔드포인트 URL (커스텀 엔드포인트용) | - |
 | `REVIEW_CUSTOM_PROMPT_FILEPATH` | 커스텀 리뷰 프롬프트 파일 경로 (기본 프롬프트에 append) | - |
 
 ### Bitbucket
@@ -210,7 +211,7 @@ helm install code-review ./charts/code-review-worker \
 ```
 
 > [!NOTE]
-> 커스텀 엔드포인트(`OPENAI_BASE_URL`)는 환경변수가 아닌 Codex `config.toml`의 `openai_base_url` 키로 설정합니다.
+> 커스텀 엔드포인트는 `OPENAI_BASE_URL` 환경변수 또는 Codex `config.toml`의 `openai_base_url` 키로 설정합니다. 둘 다 설정된 경우 config.toml이 우선합니다.
 
 > [!TIP]
 > 프로덕션 환경에서는 External Secrets Operator나 Sealed Secrets를 사용하여 시크릿을 관리하세요.
