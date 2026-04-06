@@ -30,7 +30,7 @@ describe("review.prompt", () => {
     expect(prompt).toContain("'main'");
     expect(prompt).toContain("버그 판정 기준");
     expect(prompt).toContain("line_range");
-    expect(prompt).toContain("priority");
+    expect(prompt).toContain("severity");
     expect(prompt).toContain("title");
   });
 
@@ -76,7 +76,6 @@ describe("review.formatter", () => {
           title: "null 체크 누락",
           path: "src/a.ts",
           line_range: { start: 10, end: 15 },
-          priority: 1,
           severity: "blocking",
           description: "desc",
           reason: "reason",
@@ -85,7 +84,6 @@ describe("review.formatter", () => {
           title: "변수명 개선",
           path: "src/b.ts",
           line_range: { start: 20, end: 20 },
-          priority: 3,
           severity: "recommended",
           description: "desc2",
           problemCode: "bad()",
@@ -101,7 +99,6 @@ describe("review.formatter", () => {
         title: "null 체크 누락",
         path: "src/a.ts",
         lineRange: { start: 10, end: 15 },
-        priority: 1,
         severity: "blocking",
       });
       expect(result[1].problemCode).toBe("bad()");
@@ -192,32 +189,6 @@ describe("review.formatter", () => {
       const result = parseReviewItems(items);
 
       expect(result[0].title).toBe("");
-    });
-
-    it("should infer priority from severity when not provided", () => {
-      const items = [
-        { path: "a.ts", line: 1, severity: "blocking", description: "d", reason: "r" },
-        { path: "b.ts", line: 2, severity: "recommended", description: "d", reason: "r" },
-        { path: "c.ts", line: 3, severity: "suggestion", description: "d", reason: "r" },
-        { path: "d.ts", line: 4, severity: "tech-debt", description: "d", reason: "r" },
-      ];
-
-      const result = parseReviewItems(items);
-
-      expect(result[0].priority).toBe(1); // blocking → P1
-      expect(result[1].priority).toBe(2); // recommended → P2
-      expect(result[2].priority).toBe(3); // suggestion → P3
-      expect(result[3].priority).toBe(3); // tech-debt → P3
-    });
-
-    it("should use explicit priority when valid", () => {
-      const items = [
-        { path: "a.ts", line: 1, priority: 0, severity: "blocking", description: "d", reason: "r" },
-      ];
-
-      const result = parseReviewItems(items);
-
-      expect(result[0].priority).toBe(0);
     });
 
     it("should reject items with no line or line_range", () => {
@@ -320,7 +291,6 @@ describe("review.formatter", () => {
           title: "null 체크 누락",
           path: "src/app.ts",
           line_range: { start: 10, end: 12 },
-          priority: 1,
           severity: "blocking",
           description: "문제",
           reason: "이유",
@@ -340,7 +310,7 @@ describe("review.formatter", () => {
       expect(result!.findings[0].path).toBe("src/app.ts");
       expect(result!.findings[0].lineRange).toEqual({ start: 10, end: 12 });
       expect(result!.findings[0].title).toBe("null 체크 누락");
-      expect(result!.findings[0].priority).toBe(1);
+      expect(result!.findings[0].severity).toBe("blocking");
     });
 
     it("should parse legacy format with line field", () => {
@@ -480,12 +450,11 @@ describe("review.formatter", () => {
   });
 
   describe("formatInlineComment", () => {
-    it("should format a blocking item with title and priority", () => {
+    it("should format a blocking item with title", () => {
       const item: IReviewItem = {
         title: "SQL injection 취약점",
         path: "src/app.ts",
         lineRange: { start: 40, end: 45 },
-        priority: 0,
         severity: "blocking",
         description: "SQL injection vulnerability",
         problemCode: "db.query(`SELECT * FROM ${input}`)",
@@ -496,7 +465,6 @@ describe("review.formatter", () => {
       const result = formatInlineComment(item);
 
       expect(result).toContain("**Blocking**");
-      expect(result).toContain("`P0`");
       expect(result).toContain("**SQL injection 취약점**");
       expect(result).toContain("L40-L45");
       expect(result).toContain("SQL injection vulnerability");
@@ -510,7 +478,6 @@ describe("review.formatter", () => {
         title: "단일 라인",
         path: "src/app.ts",
         lineRange: { start: 10, end: 10 },
-        priority: 3,
         severity: "suggestion",
         description: "Consider extracting constant",
         reason: "Improves readability",
@@ -519,7 +486,6 @@ describe("review.formatter", () => {
       const result = formatInlineComment(item);
 
       expect(result).toContain("**Suggestion**");
-      expect(result).toContain("`P3`");
       expect(result).not.toContain("L10-L10");
       expect(result).toContain("Consider extracting constant");
       expect(result).not.toContain("**문제 코드**:");
@@ -532,7 +498,6 @@ describe("review.formatter", () => {
         title: "",
         path: "src/app.ts",
         lineRange: { start: 10, end: 10 },
-        priority: 2,
         severity: "recommended",
         description: "desc",
         reason: "reason",
@@ -547,12 +512,12 @@ describe("review.formatter", () => {
   describe("buildSummaryTable", () => {
     it("should count severities correctly", () => {
       const items: ReadonlyArray<IReviewItem> = [
-        { title: "", path: "a.ts", lineRange: { start: 1, end: 1 }, priority: 1, severity: "blocking", description: "d1", reason: "r1" },
-        { title: "", path: "b.ts", lineRange: { start: 2, end: 2 }, priority: 1, severity: "blocking", description: "d2", reason: "r2" },
-        { title: "", path: "c.ts", lineRange: { start: 3, end: 3 }, priority: 2, severity: "recommended", description: "d3", reason: "r3" },
-        { title: "", path: "d.ts", lineRange: { start: 4, end: 4 }, priority: 3, severity: "suggestion", description: "d4", reason: "r4" },
-        { title: "", path: "e.ts", lineRange: { start: 5, end: 5 }, priority: 3, severity: "tech-debt", description: "d5", reason: "r5" },
-        { title: "", path: "f.ts", lineRange: { start: 6, end: 6 }, priority: 3, severity: "tech-debt", description: "d6", reason: "r6" },
+        { title: "", path: "a.ts", lineRange: { start: 1, end: 1 }, severity: "blocking", description: "d1", reason: "r1" },
+        { title: "", path: "b.ts", lineRange: { start: 2, end: 2 }, severity: "blocking", description: "d2", reason: "r2" },
+        { title: "", path: "c.ts", lineRange: { start: 3, end: 3 }, severity: "recommended", description: "d3", reason: "r3" },
+        { title: "", path: "d.ts", lineRange: { start: 4, end: 4 }, severity: "suggestion", description: "d4", reason: "r4" },
+        { title: "", path: "e.ts", lineRange: { start: 5, end: 5 }, severity: "tech-debt", description: "d5", reason: "r5" },
+        { title: "", path: "f.ts", lineRange: { start: 6, end: 6 }, severity: "tech-debt", description: "d6", reason: "r6" },
       ];
 
       const result = buildSummaryTable(items);
@@ -567,7 +532,7 @@ describe("review.formatter", () => {
 
     it("should return zero counts for unused severities", () => {
       const items: ReadonlyArray<IReviewItem> = [
-        { title: "", path: "a.ts", lineRange: { start: 1, end: 1 }, priority: 1, severity: "blocking", description: "d", reason: "r" },
+        { title: "", path: "a.ts", lineRange: { start: 1, end: 1 }, severity: "blocking", description: "d", reason: "r" },
       ];
 
       const result = buildSummaryTable(items);

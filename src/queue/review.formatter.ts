@@ -1,6 +1,5 @@
 import {
   type ReviewSeverity,
-  type ReviewPriority,
   type ReviewVerdict,
   type ILineRange,
   type IReviewItem,
@@ -8,8 +7,6 @@ import {
   SEVERITY_EMOJI,
   SEVERITY_LABEL,
   VALID_SEVERITIES,
-  PRIORITY_LABEL,
-  PRIORITY_TO_SEVERITY,
   VERDICT_EMOJI,
   VERDICT_LABEL,
   VALID_VERDICTS,
@@ -19,14 +16,8 @@ import {
 export function formatInlineComment(item: IReviewItem): string {
   const emoji = SEVERITY_EMOJI[item.severity] ?? "💡";
   const label = SEVERITY_LABEL[item.severity] ?? "Suggestion";
-  const priorityTag = PRIORITY_LABEL[item.priority] ?? "";
 
-  const headerParts = [`${emoji} **${label}**`];
-  if (priorityTag) {
-    headerParts.push(`\`${priorityTag}\``);
-  }
-
-  const parts: string[] = [headerParts.join(" "), ""];
+  const parts: string[] = [`${emoji} **${label}**`, ""];
 
   // title 헤더
   if (item.title) {
@@ -205,27 +196,6 @@ function parseLineRange(item: Record<string, unknown>): ILineRange | null {
   return null;
 }
 
-/** priority 파싱 (0-3 범위, 없으면 severity 기반 추론) */
-function parsePriority(
-  raw: unknown,
-  severity: ReviewSeverity,
-): ReviewPriority {
-  if (typeof raw === "number" && raw >= 0 && raw <= 3) {
-    return raw as ReviewPriority;
-  }
-  // severity → priority 역매핑
-  switch (severity) {
-    case "blocking":
-      return 1;
-    case "recommended":
-      return 2;
-    case "suggestion":
-      return 3;
-    case "tech-debt":
-      return 3;
-  }
-}
-
 /** parsed 배열에서 IReviewItem[] 변환 (공통 로직) */
 export function parseReviewItems(
   parsed: unknown[],
@@ -247,13 +217,11 @@ export function parseReviewItems(
           ? item.severity
           : "suggestion"
       ) as ReviewSeverity;
-      const priority = parsePriority(item.priority, severity);
 
       return {
         title: typeof item.title === "string" ? item.title : "",
         path: item.path as string,
         lineRange,
-        priority,
         severity,
         description: item.description as string,
         problemCode:
