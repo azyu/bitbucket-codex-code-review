@@ -1,8 +1,37 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-03-13
+> 마지막 업데이트: 2026-04-06
 
 ## 진행 중/최근 작업
+
+### Task 11: Codex 인증 간소화
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| OPENAI_API_KEY 환경변수 지원 | ✅ | docker-compose.yml에 env passthrough 추가 |
+| codex_auth 볼륨 제거 | ✅ | named volume → 선택적 bind mount 코멘트로 교체 |
+| OPENAI_BASE_URL 지원 확인 | ✅ | config.toml의 openai_base_url 키로 설정 (env var 아님) |
+
+### Task 10: 리뷰 프롬프트 Codex upstream 강화
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 코멘트 가이드 확장 | ✅ | AI 톤, 심각도 과장 금지, 조건부 심각도 전달 |
+| 발견 건수 가이드 추가 | ✅ | 전수 탐색, 억지 발견 금지, 첫 발견에서 멈추지 않기 |
+| line_range 최소화 가이드 | ✅ | 5-10줄 이내 최소 범위 선택 |
+
+### Task 9: severity 단일 축 체계 + 커스텀 프롬프트 지원
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| P0-P3 priority 축 제거 | ✅ | severity만 남김 (blocking/recommended/suggestion/tech-debt) |
+| 커스텀 프롬프트 파일 지원 | ✅ | REVIEW_CUSTOM_PROMPT_FILEPATH env → 기본 프롬프트에 append |
+| resolveReviewPrompt 함수 | ✅ | 파일 있으면 append, 없으면 기본값, 실패 시 throw |
+| ConfigService 주입 | ✅ | review.processor.ts에서 config 기반 filepath 조회 |
+| 테스트 업데이트 | ✅ | 69 tests passed |
 
 ### Task 8: ESLint 설정 복구
 - **상태**: ✅ 완료
