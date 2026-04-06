@@ -40,6 +40,7 @@ services:
       CODEX_TIMEOUT_MS: 600000
       CODEX_MODEL: gpt-5.3-codex
       CODEX_REASONING_EFFORT: xhigh
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
 
       BITBUCKET_BASE_URL: https://api.bitbucket.org/2.0
       BITBUCKET_API_TOKEN: ${BITBUCKET_API_TOKEN:-}
@@ -57,7 +58,8 @@ services:
       SERVICE_VERSION: 1.0.0
     volumes:
       - workspaces_data:/workspaces
-      - codex_auth:/root/.codex
+      # auth.json을 사용하려면 호스트 경로를 바인드 마운트:
+      # - ~/.codex:/root/.codex:ro
 
   mysql:
     image: mysql:8.4
@@ -97,4 +99,3 @@ volumes:
   mysql_data:
   redis_data:
   workspaces_data:
-  codex_auth:
