@@ -1,5 +1,31 @@
 /** 리뷰 프롬프트 템플릿 — Codex review_prompt.md 기반 하이브리드 */
 
+import { readFile } from "fs/promises";
+
+/**
+ * 기본 프롬프트를 빌드한 뒤, customPromptFilepath가 있으면
+ * 해당 파일 내용을 추가 지시사항으로 append.
+ */
+export async function resolveReviewPrompt(
+  baseBranch: string,
+  customPromptFilepath: string,
+): Promise<string> {
+  const base = buildReviewPrompt(baseBranch);
+
+  if (!customPromptFilepath) {
+    return base;
+  }
+
+  try {
+    const custom = await readFile(customPromptFilepath, "utf-8");
+    return [base, "", "## 추가 리뷰 지시사항", "", custom].join("\n");
+  } catch (err) {
+    throw new Error(
+      `Failed to read custom prompt file "${customPromptFilepath}": ${(err as Error).message}`,
+    );
+  }
+}
+
 export function buildReviewPrompt(baseBranch: string): string {
   return [
     `'${baseBranch}'와 HEAD 사이의 코드 변경사항을 분석하여 한국어로 코드 리뷰해줘.`,

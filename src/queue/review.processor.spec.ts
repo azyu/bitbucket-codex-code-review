@@ -8,7 +8,7 @@ import {
   normalizeSummaryMarkdown,
 } from "./review.formatter";
 import { type IReviewItem } from "./review.types";
-import { buildReviewPrompt } from "./review.prompt";
+import { buildReviewPrompt, resolveReviewPrompt } from "./review.prompt";
 import { ReviewProcessor } from "./review.processor";
 import { TriggerType } from "../entities/review-run.entity";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
@@ -32,6 +32,39 @@ describe("review.prompt", () => {
     expect(prompt).toContain("line_range");
     expect(prompt).toContain("priority");
     expect(prompt).toContain("title");
+  });
+
+  describe("resolveReviewPrompt", () => {
+    it("should return default prompt when filepath is empty", async () => {
+      const result = await resolveReviewPrompt("main", "");
+
+      expect(result).toContain("'main'");
+      expect(result).toContain("버그 판정 기준");
+      expect(result).not.toContain("추가 리뷰 지시사항");
+    });
+
+    it("should append custom prompt after default prompt", async () => {
+      const fs = await import("fs/promises");
+      const tmpFile = `/tmp/test-prompt-${Date.now()}.txt`;
+      await fs.writeFile(tmpFile, "React hooks 규칙을 엄격히 적용해줘.");
+
+      try {
+        const result = await resolveReviewPrompt("develop", tmpFile);
+
+        expect(result).toContain("'develop'");
+        expect(result).toContain("버그 판정 기준");
+        expect(result).toContain("## 추가 리뷰 지시사항");
+        expect(result).toContain("React hooks 규칙을 엄격히 적용해줘.");
+      } finally {
+        await fs.rm(tmpFile, { force: true });
+      }
+    });
+
+    it("should throw when file does not exist", async () => {
+      await expect(
+        resolveReviewPrompt("main", "/nonexistent/path/prompt.txt"),
+      ).rejects.toThrow('Failed to read custom prompt file "/nonexistent/path/prompt.txt"');
+    });
   });
 });
 
@@ -616,6 +649,10 @@ describe("ReviewProcessor publish results", () => {
     replyToComment: jest.fn().mockResolvedValue({ id: 101 }),
     createInlineComment: jest.fn().mockResolvedValue({ id: 102 }),
   };
+  const mockConfigService = {
+    get: jest.fn().mockReturnValue(""),
+    getOrThrow: jest.fn(),
+  };
 
   let processor: ReviewProcessor;
 
@@ -641,6 +678,7 @@ describe("ReviewProcessor publish results", () => {
       mockWorkspaceService as never,
       mockCodexService as never,
       mockBitbucketService as never,
+      mockConfigService as never,
     );
   });
 
@@ -710,6 +748,10 @@ describe("ReviewProcessor error handling", () => {
     replyToComment: jest.fn().mockResolvedValue({ id: 101 }),
     createInlineComment: jest.fn().mockResolvedValue({ id: 102 }),
   };
+  const mockConfigService = {
+    get: jest.fn().mockReturnValue(""),
+    getOrThrow: jest.fn(),
+  };
 
   let processor: ReviewProcessor;
 
@@ -735,6 +777,7 @@ describe("ReviewProcessor error handling", () => {
       mockWorkspaceService as never,
       mockCodexService as never,
       mockBitbucketService as never,
+      mockConfigService as never,
     );
   });
 

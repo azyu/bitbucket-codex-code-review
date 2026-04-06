@@ -15,6 +15,7 @@ export const DEFAULTS = {
   CODEX_TIMEOUT_MS: 600_000,
   CODEX_MODEL: "gpt-5.4",
   CODEX_REASONING_EFFORT: "high",
+  REVIEW_CUSTOM_PROMPT_FILEPATH: "",
   BITBUCKET_BASE_URL: "https://api.bitbucket.org/2.0",
   WORKSPACE_BASE_PATH: "/tmp/code-review-workspaces",
   WORKSPACE_MAX_CONCURRENT: 3,
@@ -54,6 +55,7 @@ export default (): Record<string, unknown> => ({
     timeoutMs: parseInt(process.env["CODEX_TIMEOUT_MS"] || String(DEFAULTS.CODEX_TIMEOUT_MS), 10),
     model: process.env["CODEX_MODEL"] || DEFAULTS.CODEX_MODEL,
     reasoningEffort: process.env["CODEX_REASONING_EFFORT"] || DEFAULTS.CODEX_REASONING_EFFORT,
+    customPromptFilepath: process.env["REVIEW_CUSTOM_PROMPT_FILEPATH"] || DEFAULTS.REVIEW_CUSTOM_PROMPT_FILEPATH,
   },
   bitbucket: {
     baseUrl: process.env["BITBUCKET_BASE_URL"] || DEFAULTS.BITBUCKET_BASE_URL,

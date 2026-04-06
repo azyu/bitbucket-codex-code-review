@@ -1,5 +1,6 @@
 import { Processor, WorkerHost, OnWorkerEvent } from "@nestjs/bullmq";
 import { Job } from "bullmq";
+import { ConfigService } from "@nestjs/config";
 import { ServiceLogger } from "@lib/logger";
 import { REVIEW_QUEUE_NAME } from "../constants/queue.constants";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
@@ -17,7 +18,7 @@ import {
   normalizeSummaryMarkdown,
   parseUnifiedReviewJson,
 } from "./review.formatter";
-import { buildReviewPrompt } from "./review.prompt";
+import { resolveReviewPrompt } from "./review.prompt";
 
 @Processor(REVIEW_QUEUE_NAME)
 export class ReviewProcessor extends WorkerHost {
@@ -28,6 +29,7 @@ export class ReviewProcessor extends WorkerHost {
     private readonly workspaceService: WorkspaceService,
     private readonly codexService: CodexService,
     private readonly bitbucketService: BitbucketService,
+    private readonly configService: ConfigService,
   ) {
     super();
   }
@@ -141,7 +143,11 @@ export class ReviewProcessor extends WorkerHost {
     worktreePath: string,
     baseBranch: string,
   ): Promise<ICodexReviewResult> {
-    const prompt = buildReviewPrompt(baseBranch);
+    const customPromptFilepath = this.configService.get<string>(
+      "codex.customPromptFilepath",
+      "",
+    );
+    const prompt = await resolveReviewPrompt(baseBranch, customPromptFilepath);
 
     const result = await this.codexService.executeCodex(
       worktreePath,
