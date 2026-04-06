@@ -108,8 +108,10 @@ docker compose up -d
 |---|---|---|
 | `CODEX_BINARY_PATH` | Codex CLI 바이너리 경로 | `codex` |
 | `CODEX_MODEL` | 사용 모델 | `gpt-5.4` |
-| `CODEX_REASONING_EFFORT` | 추론 노력도 (`low` / `medium` / `high` / `xhigh`) | `high` |
+| `CODEX_REASONING_EFFORT` | 추론 노력도 (`low` / `medium` / `high` / `xhigh`) | `medium` |
 | `CODEX_TIMEOUT_MS` | 실행 타임아웃 (ms) | `600000` |
+| `OPENAI_API_KEY` | OpenAI API 키 (Codex CLI 인증) | - |
+| `REVIEW_CUSTOM_PROMPT_FILEPATH` | 커스텀 리뷰 프롬프트 파일 경로 (기본 프롬프트에 append) | - |
 
 ### Bitbucket
 
@@ -179,22 +181,39 @@ helm install code-review ./charts/code-review-worker \
 
 ### Codex CLI 인증
 
-Codex CLI는 `~/.codex/auth.json`에서 API 인증 정보를 읽습니다.
-K8s 환경에서는 Secret을 생성하고 차트에서 `/root/.codex`로 마운트합니다.
+**방법 1: `OPENAI_API_KEY` 환경변수 (권장)**
+
+가장 간단한 방법입니다. 환경변수로 API 키를 전달하면 Codex CLI가 자동으로 인식합니다.
 
 ```bash
-# 로컬 인증 파일로 Secret 생성
+# Docker Compose
+export OPENAI_API_KEY=sk-...
+docker compose up -d
+
+# K8s — Secret에서 환경변수로 주입
+kubectl create secret generic openai-api-key --from-literal=api-key=sk-...
+# deployment.yaml에서 secretKeyRef로 OPENAI_API_KEY에 매핑
+```
+
+**방법 2: `auth.json` 볼륨 마운트**
+
+`codex login`으로 생성되는 `~/.codex/auth.json`을 마운트하는 방식입니다.
+
+```bash
+# K8s Secret 생성
 kubectl create secret generic codex-auth \
   --from-file=auth.json=$HOME/.codex/auth.json
 
 # Helm 설치 시 적용
 helm install code-review ./charts/code-review-worker \
-  --set codexAuth.existingSecret=codex-auth \
-  # ... 기타 설정
+  --set codexAuth.existingSecret=codex-auth
 ```
 
+> [!NOTE]
+> 커스텀 엔드포인트(`OPENAI_BASE_URL`)는 환경변수가 아닌 Codex `config.toml`의 `openai_base_url` 키로 설정합니다.
+
 > [!TIP]
-> 프로덕션 환경에서는 External Secrets Operator나 Sealed Secrets를 사용하여 `existingSecret`을 관리하세요.
+> 프로덕션 환경에서는 External Secrets Operator나 Sealed Secrets를 사용하여 시크릿을 관리하세요.
 
 상세 설정은 [charts/code-review-worker/README.md](charts/code-review-worker/README.md) 참조.
 

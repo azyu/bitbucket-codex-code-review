@@ -17,47 +17,41 @@ helm install code-review ./charts/code-review-worker \
 
 ## Codex CLI 인증 설정
 
-Codex CLI는 `~/.codex/` 디렉토리의 인증 파일을 참조합니다.
-차트는 `codexAuth.existingSecret`으로 지정한 Secret 전체를 `/root/.codex`에 볼륨 마운트합니다.
+두 가지 방식을 지원합니다:
 
-### 1. 로컬 auth 파일 확인
+### 방법 1: `OPENAI_API_KEY` 환경변수 (권장)
 
-Codex CLI 로그인 후 생성되는 인증 파일:
+K8s Secret에 API 키를 저장하고 환경변수로 주입합니다.
 
 ```bash
-ls ~/.codex/
-# auth.json  (API 키, 토큰 등)
+kubectl create secret generic openai-api-key --from-literal=api-key=sk-...
 ```
 
-### 2. Secret 생성
+`deployment.yaml`의 `env` 섹션에서 `OPENAI_API_KEY`로 매핑됩니다.
+
+### 방법 2: `auth.json` 볼륨 마운트
+
+`codex login`으로 생성되는 `~/.codex/auth.json`을 Secret으로 마운트합니다.
 
 ```bash
-# 파일 기반 — ~/.codex/ 하위 모든 파일을 Secret으로 생성
+# Secret 생성
 kubectl create secret generic codex-auth \
   --from-file=auth.json=$HOME/.codex/auth.json
 
-# 또는 여러 파일이 있는 경우
-kubectl create secret generic codex-auth \
-  --from-file=$HOME/.codex/
-```
-
-### 3. Helm 설치 시 적용
-
-```bash
+# Helm 설치 시 적용
 helm install code-review ./charts/code-review-worker \
-  --set codexAuth.existingSecret=codex-auth \
-  # ... 기타 설정
+  --set codexAuth.existingSecret=codex-auth
 ```
 
-### 4. 확인
+### 확인
 
 ```bash
-# Secret 마운트 확인
-kubectl exec deploy/code-review-code-review-worker -- ls /root/.codex/
-
 # Codex CLI 인증 테스트
 kubectl exec deploy/code-review-code-review-worker -- codex --version
 ```
+
+> [!NOTE]
+> 커스텀 엔드포인트는 Codex `config.toml`의 `openai_base_url` 키로 설정합니다 (환경변수 미지원).
 
 ## Secret 관리
 
@@ -117,7 +111,7 @@ EOF
 | `metricsPort` | `9463` | 메트릭 포트 |
 | `codex.model` | `gpt-5.4` | Codex 모델 |
 | `codex.timeoutMs` | `600000` | Codex 타임아웃 (ms) |
-| `codex.reasoningEffort` | `high` | Codex reasoning 수준 |
+| `codex.reasoningEffort` | `medium` | Codex reasoning 수준 |
 | `codexAuth.existingSecret` | `""` | Codex 인증 Secret 이름 |
 | `bitbucket.baseUrl` | `https://api.bitbucket.org/2.0` | Bitbucket API URL |
 | `workspace.basePath` | `/workspaces` | 워크스페이스 경로 |
