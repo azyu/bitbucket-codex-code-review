@@ -4,6 +4,16 @@
 
 ## 진행 중/최근 작업
 
+### Task 12: Docker runtime curl 추가
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| Dockerfile 런타임 패키지 업데이트 | ✅ | `apk add`에 `curl` 추가 |
+| 검증 실행 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test` 성공 |
+| Docker 이미지 빌드 확인 | ⚠️ | Docker daemon 미실행으로 `docker build` 확인 불가 |
+| 커밋 | ✅ | conventional commit 완료 |
+
 ### Task 11: Codex 인증 간소화
 - **상태**: ✅ 완료
 

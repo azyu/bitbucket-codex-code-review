@@ -25,7 +25,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 RUN corepack enable
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache git ca-certificates curl
 
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --prod --frozen-lockfile
