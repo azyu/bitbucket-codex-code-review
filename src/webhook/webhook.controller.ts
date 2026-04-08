@@ -49,8 +49,8 @@ export class WebhookController {
   ): Promise<{ accepted: boolean; reason?: string }> {
     // Enforce that the repo slug used for HMAC verification matches the payload
     const payloadSlug =
-      body.repository?.name ??
-      body.repository?.full_name?.split("/")[1];
+      body.repository?.full_name?.split("/")[1] ??
+      body.repository?.name;
     if (
       request.verifiedRepoSlug &&
       payloadSlug &&
@@ -261,8 +261,8 @@ export class WebhookController {
       `https://bitbucket.org/${body.repository.full_name}.git`;
 
     const repositorySlug =
-      body.repository.name ||
       body.repository.full_name.split("/").pop() ||
+      body.repository.name ||
       "";
 
     return {
