@@ -119,6 +119,19 @@ describe("WebhookGuard", () => {
       });
       expect(guard.canActivate(ctx)).toBe(false);
     });
+
+    it("should use global secret when body has no repository slug", () => {
+      const body = '{"action":"test"}';
+      const rawBody = Buffer.from(body, "utf8");
+      const hex = createHmac("sha256", SECRET).update(rawBody).digest("hex");
+
+      const ctx = buildExecutionContext({
+        headers: { "x-hub-signature": `sha256=${hex}` },
+        rawBody,
+        body: { action: "test" },
+      });
+      expect(guard.canActivate(ctx)).toBe(true);
+    });
   });
 
   describe("no secret configured (fail-closed)", () => {

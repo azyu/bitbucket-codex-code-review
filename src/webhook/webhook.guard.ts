@@ -23,7 +23,10 @@ export class WebhookGuard implements CanActivate {
       "bitbucket.webhookSecret",
       "",
     );
-    const secret = (repoSlug && repoSecrets[repoSlug]) || globalSecret;
+    const secret =
+      (repoSlug && Object.hasOwn(repoSecrets, repoSlug)
+        ? repoSecrets[repoSlug]
+        : undefined) || globalSecret;
 
     if (!secret) {
       this.logger.error(
@@ -53,10 +56,15 @@ export class WebhookGuard implements CanActivate {
       .digest("hex");
 
     try {
-      return timingSafeEqual(
+      const valid = timingSafeEqual(
         Buffer.from(signature, "utf8"),
         Buffer.from(expectedSignature, "utf8"),
       );
+      if (valid && repoSlug) {
+        // Store verified slug so controller can enforce identity consistency
+        request.verifiedRepoSlug = repoSlug;
+      }
+      return valid;
     } catch {
       this.logger.warn("Webhook signature verification failed");
       return false;
