@@ -90,6 +90,7 @@ export default (): Record<string, unknown> => ({
     username: process.env["BITBUCKET_USERNAME"] || "",
     appPassword: process.env["BITBUCKET_APP_PASSWORD"] || "",
     webhookSecret: process.env["BITBUCKET_WEBHOOK_SECRET"] || "",
+    repoWebhookSecrets: parseRepoTokens(process.env["BITBUCKET_REPO_WEBHOOK_SECRETS"]),
   },
   workspace: {
     basePath: process.env["WORKSPACE_BASE_PATH"] || DEFAULTS.WORKSPACE_BASE_PATH,

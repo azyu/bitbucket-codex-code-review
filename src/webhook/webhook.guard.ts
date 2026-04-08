@@ -10,15 +10,27 @@ export class WebhookGuard implements CanActivate {
   constructor(private readonly configService: ConfigService) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const secret = this.configService.get<string>("bitbucket.webhookSecret");
+    const request = context.switchToHttp().getRequest();
+
+    // Extract repo slug from parsed body for per-repo secret lookup
+    const repoSlug: string | undefined = request.body?.repository?.slug;
+
+    const repoSecrets =
+      this.configService.get<Record<string, string>>(
+        "bitbucket.repoWebhookSecrets",
+      ) ?? {};
+    const globalSecret = this.configService.get<string>(
+      "bitbucket.webhookSecret",
+      "",
+    );
+    const secret = (repoSlug && repoSecrets[repoSlug]) || globalSecret;
+
     if (!secret) {
       this.logger.error(
-        "Webhook secret not configured — rejecting request (fail-closed)",
+        `No webhook secret for repo "${repoSlug ?? "unknown"}" — rejecting request (fail-closed)`,
       );
       return false;
     }
-
-    const request = context.switchToHttp().getRequest();
     const rawSignature = request.headers["x-hub-signature"] as string | undefined;
     if (!rawSignature) {
       this.logger.warn("Missing x-hub-signature header");

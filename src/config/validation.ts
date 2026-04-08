@@ -47,6 +47,21 @@ export const validationSchema = Joi.object({
   BITBUCKET_USERNAME: Joi.string().allow("").default(""),
   BITBUCKET_APP_PASSWORD: Joi.string().allow("").default(""),
   BITBUCKET_WEBHOOK_SECRET: Joi.string().allow("").default(""),
+  BITBUCKET_REPO_WEBHOOK_SECRETS: Joi.string()
+    .allow("")
+    .default("")
+    .custom((value: string) => {
+      if (!value) return value;
+      try {
+        const parsed: unknown = JSON.parse(value);
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          throw new Error("must be a JSON object");
+        }
+        return value;
+      } catch (e) {
+        throw new Error(`Invalid BITBUCKET_REPO_WEBHOOK_SECRETS: ${(e as Error).message}`);
+      }
+    }),
   WORKSPACE_BASE_PATH: Joi.string().default(DEFAULTS.WORKSPACE_BASE_PATH),
   WORKSPACE_MAX_CONCURRENT: Joi.number().default(DEFAULTS.WORKSPACE_MAX_CONCURRENT),
   REVIEW_TRIGGER_MODE: Joi.string()
