@@ -100,8 +100,15 @@ export class CodexService {
         `Codex review failed after ${durationMs}ms: ${error.message}`,
       );
 
+      // error.message from execFile includes the full command (with prompt)
+      // which should not leak into PR comments. Extract just the cause.
+      const cause = error.stderr
+        || error.message.replace(/^Command failed:.*?\n/, "").trim()
+        || "Unknown error";
+      const sanitizedOutput = `Codex run failed (exit ${error.code || 1}): ${cause}`;
+
       return {
-        rawOutput: error.stdout || error.message,
+        rawOutput: error.stdout || sanitizedOutput,
         exitCode: error.code || 1,
         durationMs,
       };
