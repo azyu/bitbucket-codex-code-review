@@ -29,7 +29,21 @@ export const validationSchema = Joi.object({
   CODEX_MODEL: Joi.string().default(DEFAULTS.CODEX_MODEL),
   BITBUCKET_BASE_URL: Joi.string().default(DEFAULTS.BITBUCKET_BASE_URL),
   BITBUCKET_API_TOKEN: Joi.string().allow("").default(""),
-  BITBUCKET_REPO_TOKENS: Joi.string().allow("").default(""),
+  BITBUCKET_REPO_TOKENS: Joi.string()
+    .allow("")
+    .default("")
+    .custom((value: string) => {
+      if (!value) return value;
+      try {
+        const parsed: unknown = JSON.parse(value);
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          throw new Error("must be a JSON object");
+        }
+        return value;
+      } catch (e) {
+        throw new Error(`Invalid BITBUCKET_REPO_TOKENS: ${(e as Error).message}`);
+      }
+    }),
   BITBUCKET_USERNAME: Joi.string().allow("").default(""),
   BITBUCKET_APP_PASSWORD: Joi.string().allow("").default(""),
   BITBUCKET_WEBHOOK_SECRET: Joi.string().allow("").default(""),

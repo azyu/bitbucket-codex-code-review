@@ -170,9 +170,8 @@ export class WorkspaceService {
 
   /**
    * Build GIT_ASKPASS env to avoid embedding credentials in clone URLs.
-   * Creates a temporary shell script that responds to git's username/password prompts.
+   * Auth resolution order: repoTokens[repoSlug] → apiToken → username/appPassword.
    */
-  /** Resolve git auth: repoTokens[repoSlug] → apiToken → username/appPassword */
   private async buildGitAuthEnv(
     repoSlug: string,
   ): Promise<Record<string, string>> {

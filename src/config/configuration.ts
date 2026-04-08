@@ -24,11 +24,14 @@ export const DEFAULTS = {
 } as const;
 
 /** Parse BITBUCKET_REPO_TOKENS JSON into a Record<string, string> */
-function parseRepoTokens(raw: string | undefined): Record<string, string> {
+export function parseRepoTokens(raw: string | undefined): Record<string, string> {
   if (!raw) return {};
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      console.warn(
+        "[config] BITBUCKET_REPO_TOKENS is not a JSON object. Falling back to empty map.",
+      );
       return {};
     }
     const result: Record<string, string> = {};
@@ -38,7 +41,10 @@ function parseRepoTokens(raw: string | undefined): Record<string, string> {
       }
     }
     return result;
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[config] Failed to parse BITBUCKET_REPO_TOKENS: ${(error as Error).message}. Falling back to empty map.`,
+    );
     return {};
   }
 }
