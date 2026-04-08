@@ -4,6 +4,17 @@
 
 ## 진행 중/최근 작업
 
+### Task 14: Per-Repository Webhook Secret 지원
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| configuration.ts 수정 | ✅ | `BITBUCKET_REPO_WEBHOOK_SECRETS` → `bitbucket.repoWebhookSecrets` |
+| validation.ts 수정 | ✅ | Joi 스키마 + JSON 형식 검증 |
+| webhook.guard.ts 수정 | ✅ | `repoWebhookSecrets[slug]` → `webhookSecret` fallback |
+| 테스트 추가 | ✅ | per-repo secret 5케이스 추가 (87 tests total) |
+| 빌드/린트/테스트 통과 | ✅ | 전부 통과 |
+
 ### Task 13: Per-Repository Bitbucket Token 지원
 - **상태**: ✅ 완료
 

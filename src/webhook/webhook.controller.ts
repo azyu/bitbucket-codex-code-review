@@ -7,6 +7,7 @@ import {
   HttpStatus,
   UseGuards,
   BadRequestException,
+  Req,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectQueue } from "@nestjs/bullmq";
@@ -44,7 +45,21 @@ export class WebhookController {
   async handleBitbucketWebhook(
     @Body() body: IBitbucketWebhookBase,
     @Headers("x-event-key") eventKey: string,
+    @Req() request: { verifiedRepoSlug?: string },
   ): Promise<{ accepted: boolean; reason?: string }> {
+    // Enforce that the repo slug used for HMAC verification matches the payload
+    const payloadSlug = body.repository?.slug;
+    if (
+      request.verifiedRepoSlug &&
+      payloadSlug &&
+      request.verifiedRepoSlug !== payloadSlug
+    ) {
+      this.logger.warn(
+        `Repo slug mismatch: verified="${request.verifiedRepoSlug}" vs payload="${payloadSlug}"`,
+      );
+      throw new BadRequestException("Repository identity mismatch");
+    }
+
     const triggerMode = this.configService.get<string>(
       "trigger.mode",
       "mention",

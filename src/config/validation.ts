@@ -2,6 +2,21 @@ import * as Joi from "joi";
 import { dbPoolValidationSchema } from "@lib/database";
 import { DEFAULTS } from "./configuration";
 
+function jsonObjectValidator(label: string) {
+  return (value: string) => {
+    if (!value) return value;
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error("must be a JSON object");
+      }
+      return value;
+    } catch (e) {
+      throw new Error(`Invalid ${label}: ${(e as Error).message}`);
+    }
+  };
+}
+
 export const validationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid("development", "production", "test", "staging", "local")
@@ -32,21 +47,14 @@ export const validationSchema = Joi.object({
   BITBUCKET_REPO_TOKENS: Joi.string()
     .allow("")
     .default("")
-    .custom((value: string) => {
-      if (!value) return value;
-      try {
-        const parsed: unknown = JSON.parse(value);
-        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-          throw new Error("must be a JSON object");
-        }
-        return value;
-      } catch (e) {
-        throw new Error(`Invalid BITBUCKET_REPO_TOKENS: ${(e as Error).message}`);
-      }
-    }),
+    .custom(jsonObjectValidator("BITBUCKET_REPO_TOKENS")),
   BITBUCKET_USERNAME: Joi.string().allow("").default(""),
   BITBUCKET_APP_PASSWORD: Joi.string().allow("").default(""),
   BITBUCKET_WEBHOOK_SECRET: Joi.string().allow("").default(""),
+  BITBUCKET_REPO_WEBHOOK_SECRETS: Joi.string()
+    .allow("")
+    .default("")
+    .custom(jsonObjectValidator("BITBUCKET_REPO_WEBHOOK_SECRETS")),
   WORKSPACE_BASE_PATH: Joi.string().default(DEFAULTS.WORKSPACE_BASE_PATH),
   WORKSPACE_MAX_CONCURRENT: Joi.number().default(DEFAULTS.WORKSPACE_MAX_CONCURRENT),
   REVIEW_TRIGGER_MODE: Joi.string()
