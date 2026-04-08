@@ -28,7 +28,7 @@ export interface IBitbucketWebhookBase {
     };
   };
   readonly repository: {
-    readonly slug?: string;
+    readonly name?: string;
     readonly full_name: string;
     readonly links: {
       readonly clone?: ReadonlyArray<{
