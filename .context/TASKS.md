@@ -1,8 +1,19 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-04-06
+> 마지막 업데이트: 2026-04-08
 
 ## 진행 중/최근 작업
+
+### Task 13: Per-Repository Bitbucket Token 지원
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| configuration.ts 수정 | ✅ | `BITBUCKET_REPO_TOKENS` JSON 파싱 → `bitbucket.repoTokens` |
+| validation.ts 수정 | ✅ | Joi 스키마에 `BITBUCKET_REPO_TOKENS` 추가 |
+| BitbucketService 수정 | ✅ | 생성자 고정 authHeader → `resolveAuthHeader(repoSlug)` 런타임 lookup |
+| WorkspaceService 수정 | ✅ | `buildGitAuthEnv(repoSlug)` 파라미터 추가, repo별 토큰 우선 사용 |
+| 빌드/린트/테스트 통과 | ✅ | 69 tests passed |
 
 ### Task 12: Docker runtime curl 추가
 - **상태**: ✅ 완료

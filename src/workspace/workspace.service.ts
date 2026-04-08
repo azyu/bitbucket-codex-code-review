@@ -60,7 +60,7 @@ export class WorkspaceService {
     this.assertWithinBasePath(bareRepoPath);
     this.assertWithinBasePath(worktreePath);
 
-    const gitAuthEnv = await this.buildGitAuthEnv();
+    const gitAuthEnv = await this.buildGitAuthEnv(params.repositorySlug);
     try {
       await this.ensureBareRepo(bareRepoPath, params.cloneUrl, gitAuthEnv);
       await this.fetchLatest(bareRepoPath, gitAuthEnv);
@@ -170,9 +170,19 @@ export class WorkspaceService {
 
   /**
    * Build GIT_ASKPASS env to avoid embedding credentials in clone URLs.
-   * Creates a temporary shell script that responds to git's username/password prompts.
+   * Auth resolution order: repoTokens[repoSlug] → apiToken → username/appPassword.
    */
-  private async buildGitAuthEnv(): Promise<Record<string, string>> {
+  private async buildGitAuthEnv(
+    repoSlug: string,
+  ): Promise<Record<string, string>> {
+    const repoTokens =
+      this.configService.get<Record<string, string>>("bitbucket.repoTokens") ??
+      {};
+    const repoToken = repoTokens[repoSlug];
+    if (repoToken) {
+      return this.createAskpassEnv("x-token-auth", repoToken);
+    }
+
     const apiToken = this.configService.get<string>("bitbucket.apiToken", "");
     if (apiToken) {
       return this.createAskpassEnv("x-token-auth", apiToken);
@@ -185,7 +195,7 @@ export class WorkspaceService {
     );
     if (!username || !appPassword) {
       this.logger.warn(
-        "No Bitbucket auth configured — git clone may fail for private repos",
+        `No Bitbucket auth configured for repo "${repoSlug}" — git clone may fail`,
       );
       return {};
     }

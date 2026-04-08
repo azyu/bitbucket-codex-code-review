@@ -23,6 +23,32 @@ export const DEFAULTS = {
   LOG_LEVEL: "info",
 } as const;
 
+/** Parse BITBUCKET_REPO_TOKENS JSON into a Record<string, string> */
+export function parseRepoTokens(raw: string | undefined): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      console.warn(
+        "[config] BITBUCKET_REPO_TOKENS is not a JSON object. Falling back to empty map.",
+      );
+      return {};
+    }
+    const result: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === "string") {
+        result[key] = value;
+      }
+    }
+    return result;
+  } catch (error) {
+    console.warn(
+      `[config] Failed to parse BITBUCKET_REPO_TOKENS: ${(error as Error).message}. Falling back to empty map.`,
+    );
+    return {};
+  }
+}
+
 export default (): Record<string, unknown> => ({
   port: parseInt(process.env["PORT"] || String(DEFAULTS.PORT), 10),
   metricsPort: parseInt(process.env["METRICS_PORT"] || String(DEFAULTS.METRICS_PORT), 10),
@@ -60,6 +86,7 @@ export default (): Record<string, unknown> => ({
   bitbucket: {
     baseUrl: process.env["BITBUCKET_BASE_URL"] || DEFAULTS.BITBUCKET_BASE_URL,
     apiToken: process.env["BITBUCKET_API_TOKEN"] || "",
+    repoTokens: parseRepoTokens(process.env["BITBUCKET_REPO_TOKENS"]),
     username: process.env["BITBUCKET_USERNAME"] || "",
     appPassword: process.env["BITBUCKET_APP_PASSWORD"] || "",
     webhookSecret: process.env["BITBUCKET_WEBHOOK_SECRET"] || "",
