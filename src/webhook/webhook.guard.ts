@@ -13,7 +13,11 @@ export class WebhookGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
 
     // Extract repo slug from parsed body for per-repo secret lookup
-    const repoSlug: string | undefined = request.body?.repository?.slug;
+    // Bitbucket Cloud uses "name" (not "slug") in the repository object;
+    // fall back to the second segment of full_name if name is absent.
+    const repoSlug: string | undefined =
+      request.body?.repository?.name ??
+      request.body?.repository?.full_name?.split("/")[1];
 
     const repoSecrets =
       this.configService.get<Record<string, string>>(

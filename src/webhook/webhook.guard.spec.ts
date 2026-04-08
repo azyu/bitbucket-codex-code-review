@@ -140,7 +140,7 @@ describe("WebhookGuard", () => {
       const ctx = buildExecutionContext({
         headers: { "x-hub-signature": "some-sig" },
         rawBody: Buffer.from("body"),
-        body: { repository: { slug: "unknown-repo" } },
+        body: { repository: { name:"unknown-repo" } },
       });
       expect(guard.canActivate(ctx)).toBe(false);
     });
@@ -163,7 +163,7 @@ describe("WebhookGuard", () => {
     });
 
     it("should use repo-specific secret for repo-a", () => {
-      const body = JSON.stringify({ repository: { slug: "repo-a" } });
+      const body = JSON.stringify({ repository: { name:"repo-a" } });
       const rawBody = Buffer.from(body, "utf8");
       const hex = createHmac("sha256", REPO_A_SECRET)
         .update(rawBody)
@@ -172,13 +172,13 @@ describe("WebhookGuard", () => {
       const ctx = buildExecutionContext({
         headers: { "x-hub-signature": `sha256=${hex}` },
         rawBody,
-        body: { repository: { slug: "repo-a" } },
+        body: { repository: { name:"repo-a" } },
       });
       expect(guard.canActivate(ctx)).toBe(true);
     });
 
     it("should use repo-specific secret for repo-b", () => {
-      const body = JSON.stringify({ repository: { slug: "repo-b" } });
+      const body = JSON.stringify({ repository: { name:"repo-b" } });
       const rawBody = Buffer.from(body, "utf8");
       const hex = createHmac("sha256", REPO_B_SECRET)
         .update(rawBody)
@@ -187,13 +187,13 @@ describe("WebhookGuard", () => {
       const ctx = buildExecutionContext({
         headers: { "x-hub-signature": `sha256=${hex}` },
         rawBody,
-        body: { repository: { slug: "repo-b" } },
+        body: { repository: { name:"repo-b" } },
       });
       expect(guard.canActivate(ctx)).toBe(true);
     });
 
     it("should reject when signed with wrong repo secret", () => {
-      const body = JSON.stringify({ repository: { slug: "repo-a" } });
+      const body = JSON.stringify({ repository: { name:"repo-a" } });
       const rawBody = Buffer.from(body, "utf8");
       const hex = createHmac("sha256", REPO_B_SECRET)
         .update(rawBody)
@@ -202,7 +202,7 @@ describe("WebhookGuard", () => {
       const ctx = buildExecutionContext({
         headers: { "x-hub-signature": `sha256=${hex}` },
         rawBody,
-        body: { repository: { slug: "repo-a" } },
+        body: { repository: { name:"repo-a" } },
       });
       expect(guard.canActivate(ctx)).toBe(false);
     });
@@ -216,7 +216,7 @@ describe("WebhookGuard", () => {
         }),
       );
 
-      const body = JSON.stringify({ repository: { slug: "repo-c" } });
+      const body = JSON.stringify({ repository: { name:"repo-c" } });
       const rawBody = Buffer.from(body, "utf8");
       const hex = createHmac("sha256", globalSecret)
         .update(rawBody)
@@ -225,19 +225,19 @@ describe("WebhookGuard", () => {
       const ctx = buildExecutionContext({
         headers: { "x-hub-signature": `sha256=${hex}` },
         rawBody,
-        body: { repository: { slug: "repo-c" } },
+        body: { repository: { name:"repo-c" } },
       });
       expect(guardWithFallback.canActivate(ctx)).toBe(true);
     });
 
     it("should reject unknown repo when no global fallback", () => {
-      const body = JSON.stringify({ repository: { slug: "unknown" } });
+      const body = JSON.stringify({ repository: { name:"unknown" } });
       const rawBody = Buffer.from(body, "utf8");
 
       const ctx = buildExecutionContext({
         headers: { "x-hub-signature": "sha256=abc" },
         rawBody,
-        body: { repository: { slug: "unknown" } },
+        body: { repository: { name:"unknown" } },
       });
       expect(guard.canActivate(ctx)).toBe(false);
     });
