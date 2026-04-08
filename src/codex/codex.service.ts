@@ -100,8 +100,16 @@ export class CodexService {
         `Codex review failed after ${durationMs}ms: ${error.message}`,
       );
 
+      // error.message from execFile includes the full command (with prompt)
+      // which must not leak into PR comments. Only trust stderr for details;
+      // never parse error.message as it can contain multi-line prompt text.
+      const exitCode = error.code || 1;
+      const sanitizedOutput = error.stderr
+        ? `Codex run failed (exit ${exitCode}): ${error.stderr.trim()}`
+        : `Codex run failed (exit ${exitCode}). Check worker logs for details.`;
+
       return {
-        rawOutput: error.stdout || error.message,
+        rawOutput: error.stdout || sanitizedOutput,
         exitCode: error.code || 1,
         durationMs,
       };
