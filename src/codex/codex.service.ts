@@ -101,11 +101,12 @@ export class CodexService {
       );
 
       // error.message from execFile includes the full command (with prompt)
-      // which should not leak into PR comments. Extract just the cause.
-      const cause = error.stderr
-        || error.message.replace(/^Command failed:.*?\n/, "").trim()
-        || "Unknown error";
-      const sanitizedOutput = `Codex run failed (exit ${error.code || 1}): ${cause}`;
+      // which must not leak into PR comments. Only trust stderr for details;
+      // never parse error.message as it can contain multi-line prompt text.
+      const exitCode = error.code || 1;
+      const sanitizedOutput = error.stderr
+        ? `Codex run failed (exit ${exitCode}): ${error.stderr.trim()}`
+        : `Codex run failed (exit ${exitCode}). Check worker logs for details.`;
 
       return {
         rawOutput: error.stdout || sanitizedOutput,
