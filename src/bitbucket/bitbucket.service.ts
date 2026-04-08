@@ -11,32 +11,40 @@ import {
 export class BitbucketService {
   private readonly logger = new ServiceLogger(BitbucketService.name);
   private readonly baseUrl: string;
-  private readonly authHeader: string;
 
   constructor(private readonly configService: ConfigService) {
     this.baseUrl = this.configService.get<string>(
       "bitbucket.baseUrl",
       "https://api.bitbucket.org/2.0",
     );
+  }
+
+  /** Resolve auth header: repoTokens[repoSlug] → apiToken → username/appPassword */
+  private resolveAuthHeader(repoSlug: string): string {
+    const repoTokens =
+      this.configService.get<Record<string, string>>("bitbucket.repoTokens") ??
+      {};
+    const repoToken = repoTokens[repoSlug];
+    if (repoToken) {
+      return `Bearer ${repoToken}`;
+    }
+
     const apiToken = this.configService.get<string>("bitbucket.apiToken", "");
     if (apiToken) {
-      this.authHeader = `Bearer ${apiToken}`;
-    } else {
-      const username = this.configService.get<string>(
-        "bitbucket.username",
-        "",
-      );
-      const appPassword = this.configService.get<string>(
-        "bitbucket.appPassword",
-        "",
-      );
-      if (!username || !appPassword) {
-        this.logger.warn(
-          "No Bitbucket auth configured — API calls will fail for private resources",
-        );
-      }
-      this.authHeader = `Basic ${Buffer.from(`${username}:${appPassword}`).toString("base64")}`;
+      return `Bearer ${apiToken}`;
     }
+
+    const username = this.configService.get<string>("bitbucket.username", "");
+    const appPassword = this.configService.get<string>(
+      "bitbucket.appPassword",
+      "",
+    );
+    if (!username || !appPassword) {
+      this.logger.warn(
+        `No Bitbucket auth configured for repo "${repoSlug}" — API calls will fail`,
+      );
+    }
+    return `Basic ${Buffer.from(`${username}:${appPassword}`).toString("base64")}`;
   }
 
   /** PR에 리뷰 결과 댓글 생성 */
@@ -48,7 +56,7 @@ export class BitbucketService {
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: this.authHeader,
+        Authorization: this.resolveAuthHeader(params.repoSlug),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -77,7 +85,7 @@ export class BitbucketService {
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: this.authHeader,
+        Authorization: this.resolveAuthHeader(params.repoSlug),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -103,7 +111,7 @@ export class BitbucketService {
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: this.authHeader,
+        Authorization: this.resolveAuthHeader(params.repoSlug),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

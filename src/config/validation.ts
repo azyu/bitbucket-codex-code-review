@@ -29,6 +29,7 @@ export const validationSchema = Joi.object({
   CODEX_MODEL: Joi.string().default(DEFAULTS.CODEX_MODEL),
   BITBUCKET_BASE_URL: Joi.string().default(DEFAULTS.BITBUCKET_BASE_URL),
   BITBUCKET_API_TOKEN: Joi.string().allow("").default(""),
+  BITBUCKET_REPO_TOKENS: Joi.string().allow("").default(""),
   BITBUCKET_USERNAME: Joi.string().allow("").default(""),
   BITBUCKET_APP_PASSWORD: Joi.string().allow("").default(""),
   BITBUCKET_WEBHOOK_SECRET: Joi.string().allow("").default(""),
