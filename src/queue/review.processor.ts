@@ -36,10 +36,12 @@ export class ReviewProcessor extends WorkerHost {
 
   override async process(job: Job<IReviewJobData>): Promise<void> {
     const data = job.data;
+    const processStartTime = Date.now();
     this.logger.log(`Processing review job: ${data.idempotencyKey}`);
 
     let worktreePath: string | undefined;
     let bareRepoPath: string | undefined;
+    let codexResult: ICodexReviewResult | undefined;
 
     try {
       // Step 1: Prepare workspace
@@ -48,7 +50,7 @@ export class ReviewProcessor extends WorkerHost {
       bareRepoPath = worktreeInfo.bareRepoPath;
 
       // Step 2: Execute unified review (single Codex call)
-      const codexResult = await this.executeReview(
+      codexResult = await this.executeReview(
         worktreePath,
         data.baseBranch,
       );
@@ -57,15 +59,30 @@ export class ReviewProcessor extends WorkerHost {
       const commentId = await this.publishResults(data, codexResult);
 
       // Step 4: Mark completed
-      await this.markCompleted(data, codexResult, commentId);
+      await this.markCompleted(
+        data,
+        codexResult,
+        commentId,
+        Date.now() - processStartTime,
+      );
     } catch (err) {
       const error = err as Error;
+      const failedCodexResult =
+        codexResult ||
+        (err as Error & { codexResult?: ICodexReviewResult }).codexResult;
       this.logger.error(`Review failed: ${error.message}`);
 
       await this.reviewService.updateStatus(
         data.reviewRunId,
         ReviewRunStatus.FAILED,
         {
+          reviewOutput: failedCodexResult?.rawOutput,
+          durationMs: failedCodexResult?.durationMs,
+          totalDurationMs: Date.now() - processStartTime,
+          inputTokens: failedCodexResult?.inputTokens ?? undefined,
+          cachedInputTokens:
+            failedCodexResult?.cachedInputTokens ?? undefined,
+          outputTokens: failedCodexResult?.outputTokens ?? undefined,
           errorMessage: error.message.substring(0, 2000),
         },
       );
@@ -156,9 +173,15 @@ export class ReviewProcessor extends WorkerHost {
     );
 
     if (result.exitCode !== 0) {
-      throw new Error(
+      const error = new Error(
         `Codex run failed (exit ${result.exitCode}): ${result.rawOutput.substring(0, 500)}`,
       );
+      (
+        error as Error & {
+          codexResult?: ICodexReviewResult;
+        }
+      ).codexResult = result;
+      throw error;
     }
 
     return result;
@@ -288,6 +311,7 @@ export class ReviewProcessor extends WorkerHost {
     data: IReviewJobData,
     codexResult: ICodexReviewResult,
     commentId: number | undefined,
+    totalDurationMs: number,
   ): Promise<void> {
     await this.reviewService.updateStatus(
       data.reviewRunId,
@@ -296,6 +320,10 @@ export class ReviewProcessor extends WorkerHost {
         reviewOutput: codexResult.rawOutput,
         resultCommentId: commentId!,
         durationMs: codexResult.durationMs,
+        totalDurationMs,
+        inputTokens: codexResult.inputTokens ?? undefined,
+        cachedInputTokens: codexResult.cachedInputTokens ?? undefined,
+        outputTokens: codexResult.outputTokens ?? undefined,
       },
     );
 

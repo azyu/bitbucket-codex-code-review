@@ -165,6 +165,19 @@ pnpm test:cov       # 커버리지 포함 테스트
 pnpm lint           # ESLint
 ```
 
+## Internal Stats API
+
+대시보드/운영 도구용 내부 전용 endpoint입니다. 공개 ingress로 노출하지 않는 것을 전제로 합니다.
+
+| Method | Path | 설명 |
+|---|---|---|
+| `GET` | `/api/internal/reviews/:id` | 리뷰 실행 1건 상세 조회 |
+| `GET` | `/api/internal/reviews/:repoSlug/:prId/latest` | 특정 PR의 최신 리뷰 조회 |
+| `GET` | `/api/internal/stats/repos` | repo별 요약 통계 목록 (대시보드 첫 화면용) |
+| `GET` | `/api/internal/stats/repos/:repoSlug` | 특정 repo의 누적 요약 통계 |
+
+repo 통계 응답에는 리뷰 건수, Codex/전체 소요 시간, input/cached/output token 합계, 최신 리뷰 메타데이터가 포함됩니다.
+
 ## Kubernetes Deployment
 
 Helm 차트가 `charts/code-review-worker/`에 포함되어 있습니다.

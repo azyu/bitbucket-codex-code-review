@@ -6,6 +6,7 @@ import { promisify } from "util";
 import { readFile, rm } from "fs/promises";
 import { join } from "path";
 import { ICodexReviewResult } from "./interfaces/codex.interfaces";
+import { parseCodexUsageJsonl } from "./codex-output.parser";
 
 const execFileAsync = promisify(execFile);
 
@@ -54,6 +55,7 @@ export class CodexService {
         this.model,
         "--sandbox",
         "read-only",
+        "--json",
         "--output-last-message",
         outputFile,
       ];
@@ -64,7 +66,7 @@ export class CodexService {
 
       args.push(prompt);
 
-      await execFileAsync(
+      const { stdout } = await execFileAsync(
         this.binaryPath,
         args,
         {
@@ -75,6 +77,7 @@ export class CodexService {
       );
 
       const durationMs = Date.now() - startTime;
+      const usage = parseCodexUsageJsonl(stdout);
       this.logger.log(`Codex review completed in ${durationMs}ms`);
 
       let rawOutput: string;
@@ -86,7 +89,14 @@ export class CodexService {
         );
       }
 
-      return { rawOutput, exitCode: 0, durationMs };
+      return {
+        rawOutput,
+        exitCode: 0,
+        durationMs,
+        inputTokens: usage.inputTokens,
+        cachedInputTokens: usage.cachedInputTokens,
+        outputTokens: usage.outputTokens,
+      };
     } catch (err: unknown) {
       const durationMs = Date.now() - startTime;
       const error = err as {
@@ -95,15 +105,26 @@ export class CodexService {
         stderr?: string;
         message: string;
       };
+      const usage = parseCodexUsageJsonl(error.stdout || "");
 
       this.logger.error(
         `Codex review failed after ${durationMs}ms: ${error.message}`,
       );
 
+      let rawOutput = error.stdout || error.message;
+      try {
+        rawOutput = await readFile(outputFile, "utf-8");
+      } catch {
+        // keep stdout/message fallback
+      }
+
       return {
-        rawOutput: error.stdout || error.message,
+        rawOutput,
         exitCode: error.code || 1,
         durationMs,
+        inputTokens: usage.inputTokens,
+        cachedInputTokens: usage.cachedInputTokens,
+        outputTokens: usage.outputTokens,
       };
     } finally {
       // Cleanup output file

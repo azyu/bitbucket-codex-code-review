@@ -8,6 +8,85 @@ import {
 } from "../entities/review-run.entity";
 import { ICreateReviewRunParams } from "./interfaces/review.interfaces";
 
+export interface ILatestReviewStats {
+  readonly id: number;
+  readonly repositorySlug: string;
+  readonly pullRequestId: number;
+  readonly reviewStatus: ReviewRunStatus;
+  readonly durationMs: number | null;
+  readonly totalDurationMs: number | null;
+  readonly inputTokens: number | null;
+  readonly cachedInputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly createdAt: Date;
+}
+
+export interface IRepoStatsOverview {
+  readonly repoSlug: string;
+  readonly counts: {
+    readonly total: number;
+    readonly completed: number;
+    readonly failed: number;
+    readonly superseded: number;
+  };
+  readonly durations: {
+    readonly codexTotalMs: number;
+    readonly codexAvgMs: number;
+    readonly reviewTotalMs: number;
+    readonly reviewAvgMs: number;
+  };
+  readonly tokens: {
+    readonly inputTokens: number;
+    readonly cachedInputTokens: number;
+    readonly outputTokens: number;
+    readonly totalTokens: number;
+  };
+  readonly latestReview: ILatestReviewStats | null;
+}
+
+interface IRepoAggregateRow {
+  readonly repositorySlug: string;
+  readonly totalCount: string | number | null;
+  readonly completedCount: string | number | null;
+  readonly failedCount: string | number | null;
+  readonly supersededCount: string | number | null;
+  readonly codexTotalMs: string | number | null;
+  readonly codexAvgMs: string | number | null;
+  readonly reviewTotalMs: string | number | null;
+  readonly reviewAvgMs: string | number | null;
+  readonly inputTokens: string | number | null;
+  readonly cachedInputTokens: string | number | null;
+  readonly outputTokens: string | number | null;
+}
+
+interface ILatestReviewRow {
+  readonly id: number;
+  readonly repositorySlug: string;
+  readonly pullRequestId: number;
+  readonly reviewStatus: ReviewRunStatus;
+  readonly durationMs: number | null;
+  readonly totalDurationMs: number | null;
+  readonly inputTokens: number | null;
+  readonly cachedInputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly createdAt: Date;
+}
+
+function toNumber(value: string | number | null | undefined): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value.trim() !== "") return Number(value);
+  return 0;
+}
+
+function toNullableNumber(
+  value: string | number | null | undefined,
+): number | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  return toNumber(value);
+}
+
 @Injectable()
 export class ReviewService {
   private readonly logger = new ServiceLogger(ReviewService.name);
@@ -70,7 +149,14 @@ export class ReviewService {
     extra?: Partial<
       Pick<
         ReviewRunEntity,
-        "reviewOutput" | "resultCommentId" | "durationMs" | "errorMessage"
+        | "reviewOutput"
+        | "resultCommentId"
+        | "durationMs"
+        | "totalDurationMs"
+        | "inputTokens"
+        | "cachedInputTokens"
+        | "outputTokens"
+        | "errorMessage"
       >
     >,
   ): Promise<void> {
@@ -91,6 +177,40 @@ export class ReviewService {
   /** ID로 리뷰 조회 */
   async findById(id: number): Promise<ReviewRunEntity | null> {
     return this.reviewRunRepository.findOne({ where: { id } });
+  }
+
+  async getRepoStats(repositorySlug: string): Promise<IRepoStatsOverview> {
+    const aggregates = await this.queryRepoAggregates(repositorySlug);
+    const latestByRepo = await this.queryLatestReviews(repositorySlug);
+
+    return this.buildRepoStatsOverview(
+      repositorySlug,
+      aggregates[0],
+      latestByRepo.get(repositorySlug) ?? null,
+    );
+  }
+
+  async listRepoStats(): Promise<ReadonlyArray<IRepoStatsOverview>> {
+    const aggregates = await this.queryRepoAggregates();
+    const latestByRepo = await this.queryLatestReviews();
+
+    return aggregates
+      .map((aggregate) =>
+        this.buildRepoStatsOverview(
+          aggregate.repositorySlug,
+          aggregate,
+          latestByRepo.get(aggregate.repositorySlug) ?? null,
+        ),
+      )
+      .sort((left, right) => {
+        const leftTime = left.latestReview
+          ? new Date(left.latestReview.createdAt).getTime()
+          : 0;
+        const rightTime = right.latestReview
+          ? new Date(right.latestReview.createdAt).getTime()
+          : 0;
+        return rightTime - leftTime;
+      });
   }
 
   /** 같은 PR의 진행 중인 리뷰를 SUPERSEDED로 전환 */
@@ -123,5 +243,120 @@ export class ReviewService {
       );
     }
     return affected;
+  }
+
+  private async queryRepoAggregates(
+    repositorySlug?: string,
+  ): Promise<ReadonlyArray<IRepoAggregateRow>> {
+    const sql = `
+      SELECT
+        repository_slug AS repositorySlug,
+        COUNT(*) AS totalCount,
+        SUM(CASE WHEN review_status = 'completed' THEN 1 ELSE 0 END) AS completedCount,
+        SUM(CASE WHEN review_status = 'failed' THEN 1 ELSE 0 END) AS failedCount,
+        SUM(CASE WHEN review_status = 'superseded' THEN 1 ELSE 0 END) AS supersededCount,
+        COALESCE(SUM(duration_ms), 0) AS codexTotalMs,
+        COALESCE(AVG(duration_ms), 0) AS codexAvgMs,
+        COALESCE(SUM(total_duration_ms), 0) AS reviewTotalMs,
+        COALESCE(AVG(total_duration_ms), 0) AS reviewAvgMs,
+        COALESCE(SUM(input_tokens), 0) AS inputTokens,
+        COALESCE(SUM(cached_input_tokens), 0) AS cachedInputTokens,
+        COALESCE(SUM(output_tokens), 0) AS outputTokens
+      FROM review_runs
+      ${repositorySlug ? "WHERE repository_slug = ?" : ""}
+      GROUP BY repository_slug
+    `;
+
+    return this.reviewRunRepository.query(
+      sql,
+      repositorySlug ? [repositorySlug] : [],
+    );
+  }
+
+  private async queryLatestReviews(
+    repositorySlug?: string,
+  ): Promise<Map<string, ILatestReviewStats>> {
+    const sql = `
+      SELECT
+        rr.id AS id,
+        rr.repository_slug AS repositorySlug,
+        rr.pull_request_id AS pullRequestId,
+        rr.review_status AS reviewStatus,
+        rr.duration_ms AS durationMs,
+        rr.total_duration_ms AS totalDurationMs,
+        rr.input_tokens AS inputTokens,
+        rr.cached_input_tokens AS cachedInputTokens,
+        rr.output_tokens AS outputTokens,
+        rr.created_at AS createdAt
+      FROM review_runs rr
+      INNER JOIN (
+        SELECT repository_slug, MAX(created_at) AS latestCreatedAt
+        FROM review_runs
+        ${repositorySlug ? "WHERE repository_slug = ?" : ""}
+        GROUP BY repository_slug
+      ) latest
+        ON latest.repository_slug = rr.repository_slug
+       AND latest.latestCreatedAt = rr.created_at
+      ${repositorySlug ? "WHERE rr.repository_slug = ?" : ""}
+      ORDER BY rr.created_at DESC
+    `;
+
+    const params = repositorySlug
+      ? [repositorySlug, repositorySlug]
+      : [];
+    const rows = await this.reviewRunRepository.query(
+      sql,
+      params,
+    ) as ReadonlyArray<ILatestReviewRow>;
+
+    return new Map(
+      rows.map((row) => [
+        row.repositorySlug,
+        {
+          id: toNumber(row.id),
+          repositorySlug: row.repositorySlug,
+          pullRequestId: toNumber(row.pullRequestId),
+          reviewStatus: row.reviewStatus,
+          durationMs: toNullableNumber(row.durationMs),
+          totalDurationMs: toNullableNumber(row.totalDurationMs),
+          inputTokens: toNullableNumber(row.inputTokens),
+          cachedInputTokens: toNullableNumber(row.cachedInputTokens),
+          outputTokens: toNullableNumber(row.outputTokens),
+          createdAt: new Date(row.createdAt),
+        },
+      ]),
+    );
+  }
+
+  private buildRepoStatsOverview(
+    repositorySlug: string,
+    aggregate: IRepoAggregateRow | undefined,
+    latestReview: ILatestReviewStats | null,
+  ): IRepoStatsOverview {
+    const inputTokens = toNumber(aggregate?.inputTokens);
+    const outputTokens = toNumber(aggregate?.outputTokens);
+
+    return {
+      repoSlug: repositorySlug,
+      counts: {
+        total: toNumber(aggregate?.totalCount),
+        completed: toNumber(aggregate?.completedCount),
+        failed: toNumber(aggregate?.failedCount),
+        superseded: toNumber(aggregate?.supersededCount),
+      },
+      durations: {
+        codexTotalMs: toNumber(aggregate?.codexTotalMs),
+        codexAvgMs: toNumber(aggregate?.codexAvgMs),
+        reviewTotalMs: toNumber(aggregate?.reviewTotalMs),
+        reviewAvgMs: toNumber(aggregate?.reviewAvgMs),
+      },
+      tokens: {
+        inputTokens,
+        cachedInputTokens: toNumber(aggregate?.cachedInputTokens),
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+      },
+      latestReview,
+    };
   }
 }

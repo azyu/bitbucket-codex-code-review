@@ -1,8 +1,22 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-04-08
+> 마지막 업데이트: 2026-04-09
 
 ## 진행 중/최근 작업
+
+### Task 15: 리뷰 사용량 통계 + 내부 대시보드 API 준비
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| Codex usage 파싱 추가 | ✅ | `codex exec --json`의 `turn.completed.usage`에서 input/cached/output 토큰 추출 |
+| ReviewRun 메트릭 컬럼 확장 | ✅ | `totalDurationMs`, `inputTokens`, `cachedInputTokens`, `outputTokens` 추가 |
+| 실패/성공 메트릭 저장 | ✅ | 완료/실패 리뷰 모두 가능한 범위의 시간/토큰 저장 |
+| 내부 stats API 추가 | ✅ | `/api/internal/stats/repos`, `/api/internal/stats/repos/:repoSlug` 추가 |
+| migration/data-source 추가 | ✅ | TypeORM data source + 메트릭 컬럼 migration 추가 |
+| 테스트 추가 | ✅ | parser, review service, internal controller, processor 메트릭 저장 검증 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test` 성공 |
+| 커버리지 확인 | ⚠️ | `pnpm test:cov` 전체 52.92%로 DoD 80% 미달 (프로젝트 전체 기준) |
 
 ### Task 14: Per-Repository Webhook Secret 지원
 - **상태**: ✅ 완료
