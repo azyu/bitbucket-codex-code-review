@@ -21,7 +21,7 @@ describe("AppController", () => {
     expect(html).toContain('<html lang="ko" data-bs-theme="auto">');
     expect(html).toContain('src="/dashboard.js"');
     expect(html).toContain('src="/dashboard-alpine.js"');
-    expect(html).toContain("프로젝트 대시보드");
+    expect(html).toContain("코드 리뷰 통계 대시보드");
     expect(html).toContain("https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css");
     expect(html).toContain('x-data="dashboardApp()"');
     expect(html).toContain('aria-label="사이드 메뉴"');
