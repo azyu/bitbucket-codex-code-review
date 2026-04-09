@@ -178,6 +178,10 @@ pnpm lint           # ESLint
 
 repo 통계 응답에는 리뷰 건수, Codex/전체 소요 시간, input/cached/output token 합계, 최신 리뷰 메타데이터가 포함됩니다.
 
+## Local Dashboard
+
+간단한 내장 대시보드는 `GET /dashboard` 에서 확인할 수 있습니다. 같은 origin의 `/api/internal/stats/repos`를 직접 읽어 repo별 리뷰 건수, 시간, 토큰 요약을 렌더링합니다.
+
 ## Kubernetes Deployment
 
 Helm 차트가 `charts/code-review-worker/`에 포함되어 있습니다.

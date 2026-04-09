@@ -8,20 +8,20 @@ export class AddReviewRunUsageMetrics1744200000000
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       ALTER TABLE review_runs
-        ADD COLUMN total_duration_ms int NULL,
-        ADD COLUMN input_tokens int NULL,
-        ADD COLUMN cached_input_tokens int NULL,
-        ADD COLUMN output_tokens int NULL
+        ADD COLUMN totalDurationMs int NULL,
+        ADD COLUMN inputTokens int NULL,
+        ADD COLUMN cachedInputTokens int NULL,
+        ADD COLUMN outputTokens int NULL
     `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       ALTER TABLE review_runs
-        DROP COLUMN output_tokens,
-        DROP COLUMN cached_input_tokens,
-        DROP COLUMN input_tokens,
-        DROP COLUMN total_duration_ms
+        DROP COLUMN outputTokens,
+        DROP COLUMN cachedInputTokens,
+        DROP COLUMN inputTokens,
+        DROP COLUMN totalDurationMs
     `);
   }
 }

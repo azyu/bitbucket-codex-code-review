@@ -250,21 +250,21 @@ export class ReviewService {
   ): Promise<ReadonlyArray<IRepoAggregateRow>> {
     const sql = `
       SELECT
-        repository_slug AS repositorySlug,
+        repositorySlug AS repositorySlug,
         COUNT(*) AS totalCount,
-        SUM(CASE WHEN review_status = 'completed' THEN 1 ELSE 0 END) AS completedCount,
-        SUM(CASE WHEN review_status = 'failed' THEN 1 ELSE 0 END) AS failedCount,
-        SUM(CASE WHEN review_status = 'superseded' THEN 1 ELSE 0 END) AS supersededCount,
-        COALESCE(SUM(duration_ms), 0) AS codexTotalMs,
-        COALESCE(AVG(duration_ms), 0) AS codexAvgMs,
-        COALESCE(SUM(total_duration_ms), 0) AS reviewTotalMs,
-        COALESCE(AVG(total_duration_ms), 0) AS reviewAvgMs,
-        COALESCE(SUM(input_tokens), 0) AS inputTokens,
-        COALESCE(SUM(cached_input_tokens), 0) AS cachedInputTokens,
-        COALESCE(SUM(output_tokens), 0) AS outputTokens
+        SUM(CASE WHEN reviewStatus = 'completed' THEN 1 ELSE 0 END) AS completedCount,
+        SUM(CASE WHEN reviewStatus = 'failed' THEN 1 ELSE 0 END) AS failedCount,
+        SUM(CASE WHEN reviewStatus = 'superseded' THEN 1 ELSE 0 END) AS supersededCount,
+        COALESCE(SUM(durationMs), 0) AS codexTotalMs,
+        COALESCE(AVG(durationMs), 0) AS codexAvgMs,
+        COALESCE(SUM(totalDurationMs), 0) AS reviewTotalMs,
+        COALESCE(AVG(totalDurationMs), 0) AS reviewAvgMs,
+        COALESCE(SUM(inputTokens), 0) AS inputTokens,
+        COALESCE(SUM(cachedInputTokens), 0) AS cachedInputTokens,
+        COALESCE(SUM(outputTokens), 0) AS outputTokens
       FROM review_runs
-      ${repositorySlug ? "WHERE repository_slug = ?" : ""}
-      GROUP BY repository_slug
+      ${repositorySlug ? "WHERE repositorySlug = ?" : ""}
+      GROUP BY repositorySlug
     `;
 
     return this.reviewRunRepository.query(
@@ -279,26 +279,26 @@ export class ReviewService {
     const sql = `
       SELECT
         rr.id AS id,
-        rr.repository_slug AS repositorySlug,
-        rr.pull_request_id AS pullRequestId,
-        rr.review_status AS reviewStatus,
-        rr.duration_ms AS durationMs,
-        rr.total_duration_ms AS totalDurationMs,
-        rr.input_tokens AS inputTokens,
-        rr.cached_input_tokens AS cachedInputTokens,
-        rr.output_tokens AS outputTokens,
-        rr.created_at AS createdAt
+        rr.repositorySlug AS repositorySlug,
+        rr.pullRequestId AS pullRequestId,
+        rr.reviewStatus AS reviewStatus,
+        rr.durationMs AS durationMs,
+        rr.totalDurationMs AS totalDurationMs,
+        rr.inputTokens AS inputTokens,
+        rr.cachedInputTokens AS cachedInputTokens,
+        rr.outputTokens AS outputTokens,
+        rr.createdAt AS createdAt
       FROM review_runs rr
       INNER JOIN (
-        SELECT repository_slug, MAX(created_at) AS latestCreatedAt
+        SELECT repositorySlug, MAX(createdAt) AS latestCreatedAt
         FROM review_runs
-        ${repositorySlug ? "WHERE repository_slug = ?" : ""}
-        GROUP BY repository_slug
+        ${repositorySlug ? "WHERE repositorySlug = ?" : ""}
+        GROUP BY repositorySlug
       ) latest
-        ON latest.repository_slug = rr.repository_slug
-       AND latest.latestCreatedAt = rr.created_at
-      ${repositorySlug ? "WHERE rr.repository_slug = ?" : ""}
-      ORDER BY rr.created_at DESC
+        ON latest.repositorySlug = rr.repositorySlug
+       AND latest.latestCreatedAt = rr.createdAt
+      ${repositorySlug ? "WHERE rr.repositorySlug = ?" : ""}
+      ORDER BY rr.createdAt DESC
     `;
 
     const params = repositorySlug
