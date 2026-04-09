@@ -111,11 +111,18 @@ export class CodexService {
         `Codex review failed after ${durationMs}ms: ${error.message}`,
       );
 
-      let rawOutput = error.stdout || error.message;
+      // error.message from execFile includes the full command (with prompt)
+      // which must not leak into PR comments. Only trust stderr for details.
+      const exitCode = error.code || 1;
+      const sanitizedOutput = error.stderr
+        ? `Codex run failed (exit ${exitCode}): ${error.stderr.trim()}`
+        : `Codex run failed (exit ${exitCode}). Check worker logs for details.`;
+
+      let rawOutput = error.stdout || sanitizedOutput;
       try {
         rawOutput = await readFile(outputFile, "utf-8");
       } catch {
-        // keep stdout/message fallback
+        // keep stdout/sanitized fallback
       }
 
       return {
