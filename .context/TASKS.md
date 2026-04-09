@@ -1,8 +1,52 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-04-08
+> 마지막 업데이트: 2026-04-09
 
 ## 진행 중/최근 작업
+
+### Task 17: 내장 대시보드 Bootstrap 전환
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| Bootstrap 5 CDN 적용 | ✅ | `/dashboard` HTML을 Bootstrap 5.3.8 기반으로 전환 |
+| 한국어 문구 유지 | ✅ | 제목, 상태 문구, 카드/테이블 라벨을 한국어로 유지 |
+| 다크 모드 유지 | ✅ | `data-bs-theme="auto"`와 Bootstrap 변수 기반 배경/상태 스타일 적용 |
+| 실제 다크 모드 전환 추가 | ✅ | 시스템 테마 감지 + `자동/라이트/다크` 토글 + localStorage 저장 |
+| 좌측 사이드바 추가 | ✅ | 데스크톱 고정 sidebar와 모바일 접이식 메뉴 추가 |
+| 아이콘형 테마 토글 전환 | ✅ | 텍스트 버튼 대신 아이콘 버튼 + aria-label 적용 |
+| 운영 콘솔형 레이아웃 정리 | ✅ | shadcn project-management 계열의 정보 위계를 참고해 상단 유틸리티/분석 패널/테이블 구조로 재구성 |
+| Alpine.js 전환 | ✅ | sidebar/theme/data fetch/리스트 렌더링을 Alpine 상태 기반으로 이전 |
+| UI 리뷰 반영 | ✅ | 불필요한 메모 섹션 제거, 상단 보조 탐색 제거로 개행/중복 내비게이션 정리 |
+| 카드/테이블 마크업 정리 | ✅ | 요약 카드와 저장소 테이블을 Bootstrap 카드/테이블 클래스로 재구성 |
+| 테스트 갱신 | ✅ | `app.controller.spec.ts` 기대값을 Bootstrap 마크업에 맞게 업데이트 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test` 성공 |
+
+### Task 15: 리뷰 사용량 통계 + 내부 대시보드 API 준비
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| Codex usage 파싱 추가 | ✅ | `codex exec --json`의 `turn.completed.usage`에서 input/cached/output 토큰 추출 |
+| ReviewRun 메트릭 컬럼 확장 | ✅ | `totalDurationMs`, `inputTokens`, `cachedInputTokens`, `outputTokens` 추가 |
+| 실패/성공 메트릭 저장 | ✅ | 완료/실패 리뷰 모두 가능한 범위의 시간/토큰 저장 |
+| 내부 stats API 추가 | ✅ | `/api/internal/stats/repos`, `/api/internal/stats/repos/:repoSlug` 추가 |
+| migration/data-source 추가 | ✅ | TypeORM data source + 메트릭 컬럼 migration 추가 |
+| 테스트 추가 | ✅ | parser, review service, internal controller, processor 메트릭 저장 검증 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test` 성공 |
+| 커버리지 확인 | ⚠️ | `pnpm test:cov` 전체 52.92%로 DoD 80% 미달 (프로젝트 전체 기준) |
+
+### Task 16: 간단한 내장 대시보드 추가
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| `/dashboard` HTML 추가 | ✅ | NestJS가 정적 HTML 문서를 직접 반환 |
+| `/dashboard.js` 스크립트 추가 | ✅ | same-origin `/api/internal/stats/repos` fetch 후 카드/테이블 렌더링 |
+| global prefix 제외 처리 | ✅ | `/dashboard`, `/dashboard.js`는 `/api` prefix 없이 노출 |
+| 샘플 데이터 시드 파일 추가 | ✅ | `scripts/seed-review-stats.sql`로 로컬 demo 데이터 주입 가능 |
+| 로컬 컨테이너 검증 | ✅ | docker rebuild 후 `/dashboard`와 stats API 응답 확인 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test` 성공 |
 
 ### Task 14: Per-Repository Webhook Secret 지원
 - **상태**: ✅ 완료

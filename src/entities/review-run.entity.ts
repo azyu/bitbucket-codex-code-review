@@ -68,6 +68,18 @@ export class ReviewRunEntity extends BaseTableEntity {
   @Column({ type: "int", nullable: true })
   durationMs: number;
 
+  @Column({ type: "int", nullable: true })
+  totalDurationMs: number;
+
+  @Column({ type: "int", nullable: true })
+  inputTokens: number;
+
+  @Column({ type: "int", nullable: true })
+  cachedInputTokens: number;
+
+  @Column({ type: "int", nullable: true })
+  outputTokens: number;
+
   @Column({ type: "text", nullable: true })
   errorMessage: string;
 }

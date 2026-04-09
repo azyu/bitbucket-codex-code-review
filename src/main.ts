@@ -20,10 +20,45 @@ async function bootstrap(): Promise<string> {
   // Configure HTTP server
   const globalPrefix = "api";
   app.setGlobalPrefix(globalPrefix, {
-    exclude: ["/health"],
+    exclude: ["/health", "/dashboard", "/dashboard.js", "/dashboard-alpine.js"],
   });
 
-  app.use(helmet());
+  const dashboardPaths = new Set([
+    "/dashboard",
+    "/dashboard.js",
+    "/dashboard-alpine.js",
+  ]);
+
+  const defaultHelmet = helmet();
+  const dashboardHelmet = helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://cdn.jsdelivr.net",
+          "https://fonts.googleapis.com",
+        ],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        connectSrc: ["'self'"],
+        imgSrc: ["'self'", "data:"],
+      },
+    },
+  });
+
+  app.use(
+    (
+      ...args: Parameters<ReturnType<typeof helmet>>
+    ) => {
+      const [req] = args;
+      const { pathname } = new URL(req.url ?? "", "http://localhost");
+      return dashboardPaths.has(pathname)
+        ? dashboardHelmet(...args)
+        : defaultHelmet(...args);
+    },
+  );
 
   const port = process.env["PORT"]!; // Required by validation.ts
 

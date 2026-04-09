@@ -692,6 +692,50 @@ describe("ReviewProcessor publish results", () => {
       }),
     );
   });
+
+  it("should store duration and token metrics when marking completed", async () => {
+    await (
+      processor as unknown as {
+        markCompleted: (
+          data: IReviewJobData,
+          codexResult: {
+            rawOutput: string;
+            exitCode: number;
+            durationMs: number;
+            inputTokens: number | null;
+            cachedInputTokens: number | null;
+            outputTokens: number | null;
+          },
+          commentId: number | undefined,
+          totalDurationMs: number,
+        ) => Promise<void>;
+      }
+    ).markCompleted(
+      baseJobData,
+      {
+        rawOutput: "{\"summary\":\"ok\"}",
+        exitCode: 0,
+        durationMs: 1200,
+        inputTokens: 900,
+        cachedInputTokens: 200,
+        outputTokens: 80,
+      },
+      100,
+      1500,
+    );
+
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "completed",
+      expect.objectContaining({
+        durationMs: 1200,
+        totalDurationMs: 1500,
+        inputTokens: 900,
+        cachedInputTokens: 200,
+        outputTokens: 80,
+      }),
+    );
+  });
 });
 
 describe("ReviewProcessor error handling", () => {
@@ -790,5 +834,38 @@ describe("ReviewProcessor error handling", () => {
       }),
     );
     expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
+  });
+
+  it("should store available codex metrics on failure", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput: "codex failed",
+      exitCode: 2,
+      durationMs: 2200,
+      inputTokens: 1500,
+      cachedInputTokens: 300,
+      outputTokens: 50,
+    });
+
+    const job = { data: baseJobData } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("Codex run failed");
+
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.objectContaining({
+        durationMs: 2200,
+        inputTokens: 1500,
+        cachedInputTokens: 300,
+        outputTokens: 50,
+        totalDurationMs: expect.any(Number),
+        errorMessage: expect.stringContaining("Codex run failed"),
+      }),
+    );
   });
 });
