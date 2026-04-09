@@ -1,4 +1,7 @@
-import { parseCodexUsageJsonl } from "./codex-output.parser";
+import {
+  parseCodexUsageLine,
+  parseCodexUsageJsonl,
+} from "./codex-output.parser";
 
 describe("parseCodexUsageJsonl", () => {
   it("should extract token usage from turn.completed event", () => {
@@ -36,6 +39,25 @@ describe("parseCodexUsageJsonl", () => {
     });
   });
 
+  it("should use last turn.completed when multiple exist", () => {
+    const jsonl = [
+      JSON.stringify({
+        type: "turn.completed",
+        usage: { input_tokens: 100, output_tokens: 10 },
+      }),
+      JSON.stringify({
+        type: "turn.completed",
+        usage: { input_tokens: 999, output_tokens: 88 },
+      }),
+    ].join("\n");
+
+    expect(parseCodexUsageJsonl(jsonl)).toEqual({
+      inputTokens: 999,
+      cachedInputTokens: null,
+      outputTokens: 88,
+    });
+  });
+
   it("should accept partial usage payloads", () => {
     const jsonl = JSON.stringify({
       type: "turn.completed",
@@ -49,6 +71,53 @@ describe("parseCodexUsageJsonl", () => {
       inputTokens: 700,
       cachedInputTokens: null,
       outputTokens: 42,
+    });
+  });
+});
+
+describe("parseCodexUsageLine", () => {
+  it("should return metrics for a valid turn.completed line", () => {
+    const line = JSON.stringify({
+      type: "turn.completed",
+      usage: { input_tokens: 500, cached_input_tokens: 100, output_tokens: 60 },
+    });
+
+    expect(parseCodexUsageLine(line)).toEqual({
+      inputTokens: 500,
+      cachedInputTokens: 100,
+      outputTokens: 60,
+    });
+  });
+
+  it("should return null for non-turn.completed event", () => {
+    const line = JSON.stringify({ type: "thread.started", thread_id: "abc" });
+    expect(parseCodexUsageLine(line)).toBeNull();
+  });
+
+  it("should return null for invalid JSON", () => {
+    expect(parseCodexUsageLine("not-json")).toBeNull();
+  });
+
+  it("should return null for empty/whitespace line", () => {
+    expect(parseCodexUsageLine("")).toBeNull();
+    expect(parseCodexUsageLine("   ")).toBeNull();
+  });
+
+  it("should return null for turn.completed without usage", () => {
+    const line = JSON.stringify({ type: "turn.completed" });
+    expect(parseCodexUsageLine(line)).toBeNull();
+  });
+
+  it("should handle partial usage payload", () => {
+    const line = JSON.stringify({
+      type: "turn.completed",
+      usage: { input_tokens: 300 },
+    });
+
+    expect(parseCodexUsageLine(line)).toEqual({
+      inputTokens: 300,
+      cachedInputTokens: null,
+      outputTokens: null,
     });
   });
 });

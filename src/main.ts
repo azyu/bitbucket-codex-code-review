@@ -53,7 +53,8 @@ async function bootstrap(): Promise<string> {
       ...args: Parameters<ReturnType<typeof helmet>>
     ) => {
       const [req] = args;
-      return dashboardPaths.has(req.url ?? "")
+      const { pathname } = new URL(req.url ?? "", "http://localhost");
+      return dashboardPaths.has(pathname)
         ? dashboardHelmet(...args)
         : defaultHelmet(...args);
     },

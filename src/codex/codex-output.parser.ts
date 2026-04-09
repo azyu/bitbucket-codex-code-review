@@ -17,34 +17,43 @@ function toNullableNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+const NULL_USAGE: ICodexUsageMetrics = {
+  inputTokens: null,
+  cachedInputTokens: null,
+  outputTokens: null,
+};
+
+export function parseCodexUsageLine(line: string): ICodexUsageMetrics | null {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as ICodexUsageEvent;
+    if (parsed.type !== "turn.completed" || !parsed.usage) {
+      return null;
+    }
+
+    return {
+      inputTokens: toNullableNumber(parsed.usage.input_tokens),
+      cachedInputTokens: toNullableNumber(parsed.usage.cached_input_tokens),
+      outputTokens: toNullableNumber(parsed.usage.output_tokens),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function parseCodexUsageJsonl(jsonl: string): ICodexUsageMetrics {
-  const lines = jsonl
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = jsonl.split("\n").filter((l) => l.trim());
 
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index];
-
-    try {
-      const parsed = JSON.parse(line) as ICodexUsageEvent;
-      if (parsed.type !== "turn.completed" || !parsed.usage) {
-        continue;
-      }
-
-      return {
-        inputTokens: toNullableNumber(parsed.usage.input_tokens),
-        cachedInputTokens: toNullableNumber(parsed.usage.cached_input_tokens),
-        outputTokens: toNullableNumber(parsed.usage.output_tokens),
-      };
-    } catch {
-      continue;
+    const result = parseCodexUsageLine(lines[index]);
+    if (result) {
+      return result;
     }
   }
 
-  return {
-    inputTokens: null,
-    cachedInputTokens: null,
-    outputTokens: null,
-  };
+  return NULL_USAGE;
 }

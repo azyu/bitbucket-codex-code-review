@@ -1,14 +1,23 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ServiceLogger } from "@lib/logger";
-import { execFile } from "child_process";
-import { promisify } from "util";
+import { spawn } from "child_process";
 import { readFile, rm } from "fs/promises";
 import { join } from "path";
 import { ICodexReviewResult } from "./interfaces/codex.interfaces";
-import { parseCodexUsageJsonl } from "./codex-output.parser";
+import {
+  ICodexUsageMetrics,
+  parseCodexUsageLine,
+} from "./codex-output.parser";
 
-const execFileAsync = promisify(execFile);
+const MAX_STDERR_BYTES = 64 * 1024;
+const TIMEOUT_EXIT_CODE = 124;
+
+interface ISpawnResult {
+  readonly code: number;
+  readonly usage: ICodexUsageMetrics;
+  readonly stderr: string;
+}
 
 @Injectable()
 export class CodexService {
@@ -28,10 +37,116 @@ export class CodexService {
     );
   }
 
+  private buildCodexArgs(prompt: string, outputFile: string): string[] {
+    const args = [
+      "exec",
+      "--model",
+      this.model,
+      "--sandbox",
+      "read-only",
+      "--json",
+      "--output-last-message",
+      outputFile,
+    ];
+
+    if (this.reasoningEffort) {
+      args.push("-c", `model_reasoning_effort="${this.reasoningEffort}"`);
+    }
+
+    args.push(prompt);
+    return args;
+  }
+
+  private spawnCodex(
+    args: readonly string[],
+    worktreePath: string,
+  ): Promise<ISpawnResult> {
+    return new Promise((resolve) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+
+      const child = spawn(this.binaryPath, [...args], {
+        cwd: worktreePath,
+        signal: controller.signal,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+
+      let partialLine = "";
+      let lastUsage: ICodexUsageMetrics = {
+        inputTokens: null,
+        cachedInputTokens: null,
+        outputTokens: null,
+      };
+      let stderr = "";
+      let spawnError: Error | null = null;
+
+      child.stdout.on("data", (chunk: string) => {
+        const text = partialLine + chunk;
+        const lines = text.split("\n");
+        partialLine = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const usage = parseCodexUsageLine(line);
+          if (usage) {
+            lastUsage = usage;
+          }
+        }
+      });
+
+      child.stderr.on("data", (chunk: string) => {
+        if (stderr.length < MAX_STDERR_BYTES) {
+          stderr += chunk;
+        }
+      });
+
+      // Record error but do NOT resolve here — wait for `close`.
+      // On Node 24, AbortController emits `error(AbortError)` before
+      // `close(null, 'SIGTERM')`. Resolving here would race outputFile
+      // reads against a still-running process and return code 1 instead
+      // of the intended 124.
+      child.on("error", (err: Error) => {
+        spawnError = err;
+      });
+
+      child.on("close", (code, signal) => {
+        clearTimeout(timeoutId);
+
+        // Flush remaining partial line
+        if (partialLine) {
+          const usage = parseCodexUsageLine(partialLine);
+          if (usage) {
+            lastUsage = usage;
+          }
+        }
+
+        const exitCode = signal
+          ? TIMEOUT_EXIT_CODE
+          : (code ?? 1);
+
+        // For spawn startup failures (ENOENT, EACCES), inject the error
+        // message into stderr so operators see the root cause.
+        const stderrOut = stderr.slice(0, MAX_STDERR_BYTES);
+        const finalStderr = spawnError && !stderrOut
+          ? spawnError.message
+          : stderrOut;
+
+        resolve({
+          code: exitCode,
+          usage: lastUsage,
+          stderr: finalStderr,
+        });
+      });
+    });
+  }
+
   /**
    * codex exec 으로 프롬프트 실행 (non-interactive, headless)
    * worktreePath 내에서 실행하며, 호출자가 프롬프트를 지정
    * --output-last-message 로 최종 결과만 파일로 캡처
+   * stdout은 라인 스트리밍으로 usage만 추출 (메모리 버퍼 초과 방지)
    */
   async executeCodex(
     worktreePath: string,
@@ -49,92 +164,39 @@ export class CodexService {
     );
 
     try {
-      const args = [
-        "exec",
-        "--model",
-        this.model,
-        "--sandbox",
-        "read-only",
-        "--json",
-        "--output-last-message",
-        outputFile,
-      ];
-
-      if (this.reasoningEffort) {
-        args.push("-c", `model_reasoning_effort="${this.reasoningEffort}"`);
-      }
-
-      args.push(prompt);
-
-      const { stdout } = await execFileAsync(
-        this.binaryPath,
-        args,
-        {
-          cwd: worktreePath,
-          timeout: this.timeoutMs,
-          maxBuffer: 10 * 1024 * 1024, // 10MB
-        },
-      );
-
+      const args = this.buildCodexArgs(prompt, outputFile);
+      const result = await this.spawnCodex(args, worktreePath);
       const durationMs = Date.now() - startTime;
-      const usage = parseCodexUsageJsonl(stdout);
-      this.logger.log(`Codex review completed in ${durationMs}ms`);
+
+      if (result.code === 0) {
+        this.logger.log(`Codex review completed in ${durationMs}ms`);
+      } else {
+        this.logger.error(
+          `Codex review failed in ${durationMs}ms (exit ${result.code}): ${result.stderr || "no stderr"}`,
+        );
+      }
 
       let rawOutput: string;
       try {
         rawOutput = await readFile(outputFile, "utf-8");
-      } catch (err) {
-        throw new Error(
-          `Codex output file could not be read: ${(err as Error).message}`,
-        );
-      }
-
-      return {
-        rawOutput,
-        exitCode: 0,
-        durationMs,
-        inputTokens: usage.inputTokens,
-        cachedInputTokens: usage.cachedInputTokens,
-        outputTokens: usage.outputTokens,
-      };
-    } catch (err: unknown) {
-      const durationMs = Date.now() - startTime;
-      const error = err as {
-        code?: number;
-        stdout?: string;
-        stderr?: string;
-        message: string;
-      };
-      const usage = parseCodexUsageJsonl(error.stdout || "");
-
-      this.logger.error(
-        `Codex review failed after ${durationMs}ms: ${error.message}`,
-      );
-
-      // error.message from execFile includes the full command (with prompt)
-      // which must not leak into PR comments. Only trust stderr for details.
-      const exitCode = error.code || 1;
-      const sanitizedOutput = error.stderr
-        ? `Codex run failed (exit ${exitCode}): ${error.stderr.trim()}`
-        : `Codex run failed (exit ${exitCode}). Check worker logs for details.`;
-
-      let rawOutput = error.stdout || sanitizedOutput;
-      try {
-        rawOutput = await readFile(outputFile, "utf-8");
       } catch {
-        // keep stdout/sanitized fallback
+        if (result.code === 0) {
+          throw new Error("Codex output file could not be read");
+        }
+        rawOutput = result.stderr
+          ? `Codex run failed (exit ${result.code}): ${result.stderr.trim()}`
+          : `Codex run failed (exit ${result.code}). Check worker logs for details.`;
       }
 
       return {
         rawOutput,
-        exitCode: error.code || 1,
+        exitCode: result.code,
         durationMs,
-        inputTokens: usage.inputTokens,
-        cachedInputTokens: usage.cachedInputTokens,
-        outputTokens: usage.outputTokens,
+        inputTokens: result.usage.inputTokens,
+        cachedInputTokens: result.usage.cachedInputTokens,
+        outputTokens: result.usage.outputTokens,
       };
     } finally {
-      // Cleanup output file
       rm(outputFile, { force: true }).catch((err) => {
         this.logger.error(
           `Failed to cleanup output file ${outputFile}: ${(err as Error).message}`,
