@@ -1,8 +1,20 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-04-09
+> 마지막 업데이트: 2026-04-24
 
 ## 진행 중/최근 작업
+
+### Task 18: Codex CLI 0.124.0 업데이트
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 최신 버전 확인 | ✅ | `@openai/codex` 최신 버전 `0.124.0` 확인 |
+| Dockerfile 업데이트 | ✅ | runtime 이미지의 전역 Codex CLI 설치 버전을 `0.124.0`으로 변경 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test` 성공 |
+| 커버리지 확인 | ⚠️ | `pnpm test:cov` 성공, 전체 statement coverage 59.89%로 DoD 80% 미달 |
+| Docker 이미지 빌드 확인 | ⚠️ | Docker daemon 소켓 없음으로 `docker build` 실행 불가 |
+| 커밋 | ✅ | conventional commit 완료 |
 
 ### Task 17: 내장 대시보드 Bootstrap 전환
 - **상태**: ✅ 완료
