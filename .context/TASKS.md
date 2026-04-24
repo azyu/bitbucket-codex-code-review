@@ -4,6 +4,19 @@
 
 ## 진행 중/최근 작업
 
+### Task 19: 기본 리뷰 모델 gpt-5.5 전환
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 기본 설정 업데이트 | ✅ | `DEFAULTS.CODEX_MODEL`을 `gpt-5.5`로 변경 |
+| 실행/배포 기본값 업데이트 | ✅ | `.env.example`, `docker-compose.yml`, Helm values 기본 모델을 `gpt-5.5`로 변경 |
+| 문서 업데이트 | ✅ | README와 chart README의 기본 모델 표기를 `gpt-5.5`로 변경 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test` 성공 |
+| 커버리지 확인 | ⚠️ | `pnpm test:cov` 성공, 전체 statement coverage 59.89%로 DoD 80% 미달 |
+| Docker 이미지 빌드 확인 | ✅ | `docker build -t code-review-worker:gpt-5.5-default .` 성공 |
+| 커밋 | ✅ | conventional commit 완료 |
+
 ### Task 18: Codex CLI 0.124.0 업데이트
 - **상태**: ✅ 완료
 
