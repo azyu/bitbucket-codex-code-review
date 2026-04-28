@@ -312,6 +312,26 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
         transform: translateY(-1px);
       }
 
+      .utility-button--ghost {
+        min-height: 2.25rem;
+        padding: 0 0.85rem;
+        font-size: 0.85rem;
+      }
+
+      .review-output-block {
+        max-height: 18rem;
+        overflow: auto;
+        padding: 0.85rem 1rem;
+        border-radius: 0.5rem;
+        background: rgba(15, 23, 42, 0.06);
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.82rem;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 0;
+      }
+
       .toolbar-strip {
         display: flex;
         align-items: center;
@@ -692,6 +712,17 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                   </span>
                 </a>
                 <a
+                  href="#recent-reviews-section"
+                  class="nav-entry"
+                  :class="{ 'is-active': activeAnchor === '#recent-reviews-section' }"
+                  @click="handleAnchorClick('#recent-reviews-section')"
+                >
+                  <span class="nav-entry-main">
+                    ${ICON_ACTIVITY}
+                    <span class="nav-entry-label">최근 리뷰</span>
+                  </span>
+                </a>
+                <a
                   href="#api-section"
                   class="nav-entry"
                   :class="{ 'is-active': activeAnchor === '#api-section' }"
@@ -894,6 +925,112 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
             </div>
           </section>
 
+          <section id="recent-reviews-section" class="surface-panel mb-4">
+            <div class="surface-panel-header">
+              <div>
+                <h2 class="surface-panel-title">최근 리뷰
+                  <span class="info-tip" tabindex="0">${ICON_INFO}<span class="info-tip-text">최근 실행된 리뷰 ${10}건 — 토큰·지연·상태·에러 메시지를 한눈에 확인.</span></span>
+                </h2>
+                <p class="surface-panel-copy">PR 단위로 어떤 리뷰가 어떻게 처리됐는지 보여줍니다. 본문 펼치기는 토글 시 별도로 불러옵니다.</p>
+              </div>
+            </div>
+
+            <div class="table-wrapper">
+              <table class="table table-hover align-middle table-dashboard">
+                <thead>
+                  <tr>
+                    <th>실행 시각</th>
+                    <th>저장소 / PR</th>
+                    <th>상태 · 트리거</th>
+                    <th>지연(코덱스/전체)</th>
+                    <th>토큰(in / cache / out)</th>
+                    <th>커밋</th>
+                    <th>에러</th>
+                    <th class="text-end">본문</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-if="recentReviews.length === 0">
+                    <tr>
+                      <td colspan="8" class="px-4 py-5 text-center text-secondary" x-text="recentLoading ? '최근 리뷰를 불러오는 중…' : '최근 리뷰 데이터가 없습니다.'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+                <template x-for="review in recentReviews" :key="review.id">
+                  <tbody>
+                    <tr>
+                      <td x-text="formatDate(review.createdAt)"></td>
+                      <td>
+                        <div class="repo-name" x-text="review.repositorySlug"></div>
+                        <div class="repo-subcopy">
+                          PR #<span x-text="review.pullRequestId"></span>
+                        </div>
+                      </td>
+                      <td>
+                        <span
+                          class="data-badge"
+                          :class="statusClass(review.reviewStatus)"
+                          x-text="statusLabel(review.reviewStatus)"
+                        ></span>
+                        <div class="repo-subcopy" x-text="review.triggerType"></div>
+                      </td>
+                      <td>
+                        <div x-text="formatDuration(review.durationMs)"></div>
+                        <div class="repo-subcopy">
+                          전체 <span x-text="formatDuration(review.totalDurationMs)"></span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="fw-semibold" x-text="formatInteger(review.inputTokens)"></div>
+                        <div class="repo-subcopy">
+                          cache <span x-text="formatInteger(review.cachedInputTokens)"></span>
+                          · out <span x-text="formatInteger(review.outputTokens)"></span>
+                        </div>
+                      </td>
+                      <td>
+                        <code x-text="shortCommit(review.headCommitHash)"></code>
+                      </td>
+                      <td>
+                        <template x-if="review.errorMessage">
+                          <span class="repo-subcopy" x-text="review.errorMessage"></span>
+                        </template>
+                        <template x-if="!review.errorMessage">
+                          <span class="text-secondary">-</span>
+                        </template>
+                      </td>
+                      <td class="text-end">
+                        <button
+                          type="button"
+                          class="utility-button utility-button--ghost"
+                          @click="toggleReviewOutput(review.id)"
+                          x-text="expandedReviewId === review.id ? '접기' : '펼치기'"
+                        ></button>
+                      </td>
+                    </tr>
+                    <template x-if="expandedReviewId === review.id">
+                      <tr>
+                        <td colspan="8">
+                          <template x-if="expandedLoading">
+                            <div class="text-secondary">본문을 불러오는 중…</div>
+                          </template>
+                          <template x-if="!expandedLoading && expandedReviewError">
+                            <div class="text-danger" x-text="expandedReviewError"></div>
+                          </template>
+                          <template x-if="!expandedLoading && !expandedReviewError && expandedReviewOutput">
+                            <pre class="review-output-block" x-text="expandedReviewOutput"></pre>
+                          </template>
+                          <template x-if="!expandedLoading && !expandedReviewError && !expandedReviewOutput">
+                            <div class="text-secondary">본문이 비어 있습니다.</div>
+                          </template>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </template>
+              </table>
+            </div>
+          </section>
+
           <section id="api-section" class="surface-panel">
             <div class="surface-panel-header">
               <div>
@@ -916,7 +1053,23 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
 </html>`;
 
 const DASHBOARD_SCRIPT = `const endpoint = "/api/internal/stats/repos";
+const recentEndpoint = "/api/internal/reviews/recent?limit=10";
+function reviewDetailEndpoint(id) {
+  return "/api/internal/reviews/" + encodeURIComponent(String(id));
+}
+const REVIEW_OUTPUT_MAX_CHARS = 16000;
 const themeStorageKey = "dashboard-theme-preference";
+
+function shortCommit(hash) {
+  if (typeof hash !== "string" || hash.length === 0) return "-";
+  return hash.slice(0, 7);
+}
+
+function truncateReviewOutput(value) {
+  if (typeof value !== "string" || value.length === 0) return "";
+  if (value.length <= REVIEW_OUTPUT_MAX_CHARS) return value;
+  return value.slice(0, REVIEW_OUTPUT_MAX_CHARS) + "\\n\\n…(truncated, " + (value.length - REVIEW_OUTPUT_MAX_CHARS) + " more chars)";
+}
 
 function getThemePreference() {
   const storedPreference = window.localStorage.getItem(themeStorageKey);
@@ -1037,6 +1190,12 @@ document.addEventListener("alpine:init", function () {
   Alpine.data("dashboardApp", function () {
     return {
       repos: [],
+      recentReviews: [],
+      recentLoading: false,
+      expandedReviewId: null,
+      expandedReviewOutput: null,
+      expandedReviewError: null,
+      expandedLoading: false,
       statusMessage: "저장소 통계를 불러오는 중…",
       statusError: false,
       lastUpdated: null,
@@ -1198,25 +1357,102 @@ document.addEventListener("alpine:init", function () {
         return formatDate(value);
       },
 
+      shortCommit(value) {
+        return shortCommit(value);
+      },
+
       setStatus(message, isError) {
         this.statusMessage = message;
         this.statusError = isError;
       },
 
-      async loadDashboard() {
+      async loadStats() {
+        const response = await fetch(endpoint, {
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) {
+          throw new Error("HTTP " + response.status);
+        }
+        const repos = await response.json();
+        this.repos = Array.isArray(repos) ? repos : [];
+      },
+
+      async loadRecent() {
+        this.recentLoading = true;
         try {
-          this.setStatus("저장소 통계를 불러오는 중…", false);
-          const response = await fetch(endpoint, {
+          const response = await fetch(recentEndpoint, {
             headers: { Accept: "application/json" },
           });
           if (!response.ok) {
             throw new Error("HTTP " + response.status);
           }
+          const reviews = await response.json();
+          this.recentReviews = Array.isArray(reviews) ? reviews : [];
+        } catch (error) {
+          this.recentReviews = [];
+        } finally {
+          this.recentLoading = false;
+        }
+      },
 
-          const repos = await response.json();
-          this.repos = Array.isArray(repos) ? repos : [];
+      async toggleReviewOutput(id) {
+        if (this.expandedReviewId === id) {
+          this.expandedReviewId = null;
+          this.expandedReviewOutput = null;
+          this.expandedReviewError = null;
+          this.expandedLoading = false;
+          return;
+        }
+
+        this.expandedReviewId = id;
+        this.expandedReviewOutput = null;
+        this.expandedReviewError = null;
+        this.expandedLoading = true;
+
+        try {
+          const response = await fetch(reviewDetailEndpoint(id), {
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) {
+            throw new Error("HTTP " + response.status);
+          }
+          const detail = await response.json();
+          if (this.expandedReviewId !== id) {
+            return;
+          }
+          const output = detail && typeof detail.reviewOutput === "string"
+            ? truncateReviewOutput(detail.reviewOutput)
+            : "";
+          this.expandedReviewOutput = output;
+        } catch (error) {
+          if (this.expandedReviewId === id) {
+            this.expandedReviewError = "본문을 불러오지 못했습니다.";
+          }
+        } finally {
+          if (this.expandedReviewId === id) {
+            this.expandedLoading = false;
+          }
+        }
+      },
+
+      async loadDashboard() {
+        try {
+          this.setStatus("저장소 통계를 불러오는 중…", false);
+          const results = await Promise.allSettled([
+            this.loadStats(),
+            this.loadRecent(),
+          ]);
+          const statsFailed = results[0].status === "rejected";
           this.lastUpdated = new Date();
-          this.setStatus(this.repos.length + "개 저장소 · " + formatDate(this.lastUpdated), false);
+          if (statsFailed) {
+            const staleHint = " (이전 갱신 유지)";
+            this.setStatus("저장소 통계 로드에 실패했습니다." + staleHint, true);
+            return;
+          }
+          this.setStatus(
+            this.repos.length + "개 저장소 · 최근 리뷰 " + this.recentReviews.length + "건 · " + formatDate(this.lastUpdated),
+            false,
+          );
         } catch (error) {
           const staleHint = this.lastUpdated
             ? " (마지막 갱신: " + formatDate(this.lastUpdated) + ")"

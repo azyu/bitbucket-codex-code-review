@@ -1,7 +1,13 @@
-import { ReviewRunEntity, ReviewRunStatus } from "../entities/review-run.entity";
 import {
+  ReviewRunEntity,
+  ReviewRunStatus,
+  TriggerType,
+} from "../entities/review-run.entity";
+import {
+  type IRecentReview,
   type IRepoStatsOverview,
   ReviewService,
+  sanitizeErrorMessage,
 } from "./review.service";
 
 jest.mock("@lib/logger", () => ({
@@ -18,6 +24,7 @@ describe("ReviewService stats", () => {
   const mockRepository = {
     create: jest.fn(),
     save: jest.fn(),
+    find: jest.fn(),
     findOne: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
@@ -156,5 +163,185 @@ describe("ReviewService stats", () => {
     expect(result[0].latestReview?.id).toBe(21);
     expect(result[0].tokens.totalTokens).toBe(320);
     expect(result[1].tokens.totalTokens).toBe(210);
+  });
+});
+
+describe("ReviewService.listRecent", () => {
+  const mockRepository = {
+    create: jest.fn(),
+    save: jest.fn(),
+    find: jest.fn(),
+    findOne: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+    query: jest.fn(),
+  };
+
+  let service: ReviewService;
+
+  const buildRow = (overrides: Partial<ReviewRunEntity> = {}): ReviewRunEntity =>
+    ({
+      id: 1,
+      repositorySlug: "repo-a",
+      pullRequestId: 11,
+      headCommitHash: "abc1234",
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerType: TriggerType.MENTION,
+      errorMessage: null,
+      inputTokens: 100,
+      cachedInputTokens: 20,
+      outputTokens: 30,
+      durationMs: 500,
+      totalDurationMs: 700,
+      createdAt: new Date("2026-04-09T00:00:00.000Z"),
+      reviewOutput: "secret-internal-content-should-not-leak",
+      ...overrides,
+    }) as unknown as ReviewRunEntity;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new ReviewService(mockRepository as never);
+  });
+
+  it("returns empty array when repository has no rows", async () => {
+    mockRepository.find.mockResolvedValueOnce([]);
+
+    const result = await service.listRecent(10);
+
+    expect(result).toEqual([]);
+    expect(mockRepository.find).toHaveBeenCalledWith({
+      order: { createdAt: "DESC" },
+      take: 10,
+    });
+  });
+
+  it("maps rows preserving order returned by the repository (DESC)", async () => {
+    const newer = buildRow({
+      id: 2,
+      createdAt: new Date("2026-04-10T00:00:00.000Z"),
+    } as Partial<ReviewRunEntity>);
+    const older = buildRow({
+      id: 1,
+      createdAt: new Date("2026-04-09T00:00:00.000Z"),
+    } as Partial<ReviewRunEntity>);
+    mockRepository.find.mockResolvedValueOnce([newer, older]);
+
+    const result = await service.listRecent(5);
+
+    expect(result.map((item) => item.id)).toEqual([2, 1]);
+    expect(mockRepository.find).toHaveBeenCalledWith({
+      order: { createdAt: "DESC" },
+      take: 5,
+    });
+  });
+
+  it("uses default limit (10) when limit is omitted", async () => {
+    mockRepository.find.mockResolvedValueOnce([]);
+
+    await service.listRecent();
+
+    expect(mockRepository.find).toHaveBeenCalledWith({
+      order: { createdAt: "DESC" },
+      take: 10,
+    });
+  });
+
+  it("clamps limit below minimum (0 -> 1)", async () => {
+    mockRepository.find.mockResolvedValueOnce([]);
+
+    await service.listRecent(0);
+
+    expect(mockRepository.find).toHaveBeenCalledWith({
+      order: { createdAt: "DESC" },
+      take: 1,
+    });
+  });
+
+  it("clamps limit above maximum (100 -> 50)", async () => {
+    mockRepository.find.mockResolvedValueOnce([]);
+
+    await service.listRecent(100);
+
+    expect(mockRepository.find).toHaveBeenCalledWith({
+      order: { createdAt: "DESC" },
+      take: 50,
+    });
+  });
+
+  it("does NOT include reviewOutput key in the response (whitelist regression)", async () => {
+    mockRepository.find.mockResolvedValueOnce([buildRow()]);
+
+    const result = await service.listRecent(10);
+
+    expect(result).toHaveLength(1);
+    for (const row of result) {
+      expect(Object.keys(row)).not.toContain("reviewOutput");
+      expect(
+        (row as unknown as Record<string, unknown>).reviewOutput,
+      ).toBeUndefined();
+    }
+  });
+
+  it("sanitizes errorMessage in the mapped row", async () => {
+    mockRepository.find.mockResolvedValueOnce([
+      buildRow({
+        errorMessage:
+          "spawn failed at /var/lib/codex/work/run.sh contact dev@example.com",
+      } as Partial<ReviewRunEntity>),
+    ]);
+
+    const result = await service.listRecent(10);
+
+    expect(result[0].errorMessage).toBe(
+      "spawn failed at [path] contact [email]",
+    );
+  });
+});
+
+describe("sanitizeErrorMessage", () => {
+  it("returns null for null/undefined/empty", () => {
+    expect(sanitizeErrorMessage(null)).toBeNull();
+    expect(sanitizeErrorMessage(undefined)).toBeNull();
+    expect(sanitizeErrorMessage("")).toBeNull();
+    expect(sanitizeErrorMessage("   ")).toBeNull();
+  });
+
+  it("masks absolute filesystem paths", () => {
+    const out = sanitizeErrorMessage(
+      "ENOENT at /var/lib/codex/worktree/abc/run.log",
+    );
+    expect(out).toBe("ENOENT at [path]");
+  });
+
+  it("masks UUIDs", () => {
+    const out = sanitizeErrorMessage(
+      "request id 1f3a4b5c-8d2e-4a6b-9c0d-1234567890ab failed",
+    );
+    expect(out).toBe("request id [uuid] failed");
+  });
+
+  it("masks 40-char git SHAs", () => {
+    const out = sanitizeErrorMessage(
+      "head commit aaaabbbbccccddddeeeeffff0000111122223333 missing",
+    );
+    expect(out).toBe("head commit [sha] missing");
+  });
+
+  it("masks email addresses", () => {
+    const out = sanitizeErrorMessage("notify dev@example.com please");
+    expect(out).toBe("notify [email] please");
+  });
+
+  it("masks multiple sensitive tokens in one message", () => {
+    const out = sanitizeErrorMessage(
+      "fail /var/lib/foo with id 1f3a4b5c-8d2e-4a6b-9c0d-1234567890ab and sha aaaabbbbccccddddeeeeffff0000111122223333 mail dev@example.com",
+    );
+    expect(out).toBe(
+      "fail [path] with id [uuid] and sha [sha] mail [email]",
+    );
+  });
+
+  it("trims leading/trailing whitespace", () => {
+    expect(sanitizeErrorMessage("  hello  ")).toBe("hello");
   });
 });

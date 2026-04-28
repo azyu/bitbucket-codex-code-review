@@ -7,6 +7,7 @@ describe("InternalController", () => {
     findById: jest.fn(),
     getRepoStats: jest.fn(),
     listRepoStats: jest.fn(),
+    listRecent: jest.fn(),
   };
 
   let controller: InternalController;
@@ -57,5 +58,38 @@ describe("InternalController", () => {
       { repoSlug: "repo-b" },
       { repoSlug: "repo-a" },
     ]);
+  });
+
+  describe("listRecentReviews", () => {
+    it("delegates with default limit (10) when query is omitted", async () => {
+      mockReviewService.listRecent.mockResolvedValue([]);
+
+      await controller.listRecentReviews(10);
+
+      expect(mockReviewService.listRecent).toHaveBeenCalledWith(10);
+    });
+
+    it("passes custom limit through to the service unchanged", async () => {
+      mockReviewService.listRecent.mockResolvedValue([]);
+
+      await controller.listRecentReviews(25);
+
+      expect(mockReviewService.listRecent).toHaveBeenCalledWith(25);
+    });
+
+    it("returns the service result as-is", async () => {
+      const payload = [
+        {
+          id: 7,
+          repositorySlug: "repo-a",
+          pullRequestId: 42,
+          headCommitHash: "abc1234",
+          reviewStatus: ReviewRunStatus.COMPLETED,
+        },
+      ];
+      mockReviewService.listRecent.mockResolvedValue(payload);
+
+      await expect(controller.listRecentReviews(5)).resolves.toBe(payload);
+    });
   });
 });

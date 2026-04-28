@@ -5,8 +5,56 @@ import { ServiceLogger } from "@lib/logger";
 import {
   ReviewRunEntity,
   ReviewRunStatus,
+  TriggerType,
 } from "../entities/review-run.entity";
 import { ICreateReviewRunParams } from "./interfaces/review.interfaces";
+
+const RECENT_LIMIT_MIN = 1;
+const RECENT_LIMIT_MAX = 50;
+const RECENT_LIMIT_DEFAULT = 10;
+
+export interface IRecentReview {
+  readonly id: number;
+  readonly repositorySlug: string;
+  readonly pullRequestId: number;
+  readonly headCommitHash: string;
+  readonly reviewStatus: ReviewRunStatus;
+  readonly triggerType: TriggerType;
+  readonly errorMessage: string | null;
+  readonly inputTokens: number | null;
+  readonly cachedInputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly durationMs: number | null;
+  readonly totalDurationMs: number | null;
+  readonly createdAt: Date;
+}
+
+function clampLimit(raw: number | undefined | null): number {
+  const value = typeof raw === "number" && Number.isFinite(raw)
+    ? Math.floor(raw)
+    : RECENT_LIMIT_DEFAULT;
+  if (value < RECENT_LIMIT_MIN) return RECENT_LIMIT_MIN;
+  if (value > RECENT_LIMIT_MAX) return RECENT_LIMIT_MAX;
+  return value;
+}
+
+const ABSOLUTE_PATH_PATTERN = /(?:\/[A-Za-z0-9._-]+){2,}/g;
+const UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+const GIT_SHA_PATTERN = /\b[0-9a-f]{40}\b/gi;
+const EMAIL_PATTERN = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+
+export function sanitizeErrorMessage(
+  raw: string | null | undefined,
+): string | null {
+  if (raw === null || raw === undefined) return null;
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  return trimmed
+    .replace(EMAIL_PATTERN, "[email]")
+    .replace(UUID_PATTERN, "[uuid]")
+    .replace(GIT_SHA_PATTERN, "[sha]")
+    .replace(ABSOLUTE_PATH_PATTERN, "[path]");
+}
 
 export interface ILatestReviewStats {
   readonly id: number;
@@ -177,6 +225,37 @@ export class ReviewService {
   /** ID로 리뷰 조회 */
   async findById(id: number): Promise<ReviewRunEntity | null> {
     return this.reviewRunRepository.findOne({ where: { id } });
+  }
+
+  /**
+   * 최근 리뷰 목록 (대시보드 noun: "최근 리뷰 N건").
+   * reviewOutput은 의도적으로 제외 — 외부 노출되는 ingress 경계상 list 응답에는 포함하지 않음.
+   */
+  async listRecent(limit?: number): Promise<ReadonlyArray<IRecentReview>> {
+    const take = clampLimit(limit ?? RECENT_LIMIT_DEFAULT);
+    const rows = await this.reviewRunRepository.find({
+      order: { createdAt: "DESC" },
+      take,
+    });
+    return rows.map((row) => this.toRecentReview(row));
+  }
+
+  private toRecentReview(row: ReviewRunEntity): IRecentReview {
+    return {
+      id: toNumber(row.id),
+      repositorySlug: row.repositorySlug,
+      pullRequestId: toNumber(row.pullRequestId),
+      headCommitHash: row.headCommitHash,
+      reviewStatus: row.reviewStatus,
+      triggerType: row.triggerType,
+      errorMessage: sanitizeErrorMessage(row.errorMessage),
+      inputTokens: toNullableNumber(row.inputTokens),
+      cachedInputTokens: toNullableNumber(row.cachedInputTokens),
+      outputTokens: toNullableNumber(row.outputTokens),
+      durationMs: toNullableNumber(row.durationMs),
+      totalDurationMs: toNullableNumber(row.totalDurationMs),
+      createdAt: new Date(row.createdAt),
+    };
   }
 
   async getRepoStats(repositorySlug: string): Promise<IRepoStatsOverview> {

@@ -1,8 +1,22 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-04-24
+> 마지막 업데이트: 2026-04-28
 
 ## 진행 중/최근 작업
+
+### Task 20: 대시보드 "최근 리뷰 10건" 섹션 추가 (Stage 1)
+- **상태**: ✅ 완료
+- **참고**: 후속 보안/단계2 항목은 `.context/BACKLOG.md` 참조
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| `IRecentReview` + `listRecent` 추가 | ✅ | reviewOutput 제외 whitelist 매핑, limit 1~50 clamp |
+| `sanitizeErrorMessage` 헬퍼 | ✅ | 절대경로/UUID/git sha/이메일 마스킹 |
+| `GET /api/internal/reviews/recent` | ✅ | `:id` 라우트 앞에 배치 (NestJS 매칭 순서) |
+| 대시보드 UI (Alpine.js + Tailwind) | ✅ | `<tbody>` 패턴 + lazy fetch 토글, `x-text`만 사용 |
+| 단위 테스트 추가 | ✅ | listRecent 6케이스 + sanitize 7케이스 + controller 3케이스 (137 tests total) |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test` 성공 |
+| XSS grep 검증 | ✅ | `x-html`/`innerHTML`/`v-html` 0건 |
 
 ### Task 19: 기본 리뷰 모델 gpt-5.5 전환
 - **상태**: ✅ 완료
