@@ -25,7 +25,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 RUN corepack enable
-RUN apk add --no-cache git ca-certificates curl
+# tini: PID 1 init that reaps orphaned grandchildren (codex-linux-sandbox)
+# spawned by the codex CLI. Without it Node leaks zombies until cgroup
+# pids.max is hit and new threads fail to spawn (EAGAIN).
+RUN apk add --no-cache git ca-certificates curl tini
 
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --prod --frozen-lockfile
@@ -37,4 +40,5 @@ COPY --from=build /app/dist ./dist
 EXPOSE 3000
 EXPOSE 9463
 
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "dist/main"]
