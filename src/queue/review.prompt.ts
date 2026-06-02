@@ -9,8 +9,9 @@ import { readFile } from "fs/promises";
 export async function resolveReviewPrompt(
   baseBranch: string,
   customPromptFilepath: string,
+  reviewDiff = "",
 ): Promise<string> {
-  const base = buildReviewPrompt(baseBranch);
+  const base = buildReviewPrompt(baseBranch, reviewDiff);
 
   if (!customPromptFilepath) {
     return base;
@@ -26,9 +27,27 @@ export async function resolveReviewPrompt(
   }
 }
 
-export function buildReviewPrompt(baseBranch: string): string {
+export function buildReviewPrompt(baseBranch: string, reviewDiff = ""): string {
+  const diffSection = reviewDiff
+    ? [
+        "## 리뷰 대상 PR diff",
+        "",
+        "아래 diff만 이번 PR의 리뷰 대상이야. diff에 없는 파일/라인/변경사항은 절대 findings에 포함하지 마.",
+        "라인 번호는 unified diff hunk의 new-side 라인 번호를 사용해줘.",
+        "",
+        "```diff",
+        reviewDiff,
+        "```",
+      ]
+    : [
+        "## 리뷰 대상 PR diff",
+        "",
+        "diff가 비어 있으면 findings는 빈 배열 []로 반환해줘.",
+      ];
+
   return [
-    `'${baseBranch}'와 HEAD 사이의 코드 변경사항을 분석하여 한국어로 코드 리뷰해줘.`,
+    `'${baseBranch}' 기준 PR merge-base부터 HEAD까지의 코드 변경사항을 한국어로 코드 리뷰해줘.`,
+    "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.",
     "",
     "## 버그 판정 기준",
     "",
@@ -114,5 +133,7 @@ export function buildReviewPrompt(baseBranch: string): string {
     '  - "suggestion": 선택적 개선 아이디어 (리팩토링, 최적화 기회)',
     '  - "tech-debt": 향후 개선이 필요한 기술 부채',
     "- 문제가 없으면 빈 배열 []",
+    "",
+    ...diffSection,
   ].join("\n");
 }

@@ -1,8 +1,21 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-04-28
+> 마지막 업데이트: 2026-06-02
 
 ## 진행 중/최근 작업
+
+### Task 21: PR 리뷰 diff 문맥 오염 방지
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| PR #2582 원인 확인 | ✅ | `bb`로 실제 PR diff는 `tools/swagger-hub/*` 5개 파일뿐이고, 잘못된 inline comment는 #2581의 timezone 변경 문맥임을 확인 |
+| merge-base diff 생성 | ✅ | `WorkspaceService.createReviewDiff`가 `git merge-base refs/heads/<base> HEAD` 기준 diff를 생성 |
+| Codex 입력 고정 | ✅ | 프롬프트에 워커가 생성한 PR diff를 포함하고 diff 밖 파일/라인을 findings에서 제외하도록 명시 |
+| 게시 전 방어 필터 | ✅ | parsed findings 중 diff에 없는 path를 제거하고 summary table/verdict/inline posting에 필터된 결과만 사용 |
+| 회귀 테스트 추가 | ✅ | diff 밖 `libs/base/src/constants/timezone.ts` finding이 inline comment로 게시되지 않는 케이스 추가 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test` 성공 |
+| 커버리지 확인 | ⚠️ | `pnpm test:cov` 성공, 전체 statement coverage 62.12%로 DoD 80% 미달 |
 
 ### Task 20: 대시보드 "최근 리뷰 10건" 섹션 추가 (Stage 1)
 - **상태**: ✅ 완료

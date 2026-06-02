@@ -42,21 +42,27 @@ export class ReviewProcessor extends WorkerHost {
     let worktreePath: string | undefined;
     let bareRepoPath: string | undefined;
     let codexResult: ICodexReviewResult | undefined;
+    let reviewDiff = "";
 
     try {
       // Step 1: Prepare workspace
       const worktreeInfo = await this.prepareWorkspace(data);
       worktreePath = worktreeInfo.worktreePath;
       bareRepoPath = worktreeInfo.bareRepoPath;
+      reviewDiff = await this.workspaceService.createReviewDiff(
+        worktreePath,
+        data.baseBranch,
+      );
 
       // Step 2: Execute unified review (single Codex call)
       codexResult = await this.executeReview(
         worktreePath,
         data.baseBranch,
+        reviewDiff,
       );
 
       // Step 3: Publish results to Bitbucket
-      const commentId = await this.publishResults(data, codexResult);
+      const commentId = await this.publishResults(data, codexResult, reviewDiff);
 
       // Step 4: Mark completed
       await this.markCompleted(
@@ -159,12 +165,17 @@ export class ReviewProcessor extends WorkerHost {
   private async executeReview(
     worktreePath: string,
     baseBranch: string,
+    reviewDiff: string,
   ): Promise<ICodexReviewResult> {
     const customPromptFilepath = this.configService.get<string>(
       "codex.customPromptFilepath",
       "",
     );
-    const prompt = await resolveReviewPrompt(baseBranch, customPromptFilepath);
+    const prompt = await resolveReviewPrompt(
+      baseBranch,
+      customPromptFilepath,
+      reviewDiff,
+    );
 
     const result = await this.codexService.executeCodex(
       worktreePath,
@@ -191,6 +202,7 @@ export class ReviewProcessor extends WorkerHost {
   private async publishResults(
     data: IReviewJobData,
     codexResult: ICodexReviewResult,
+    reviewDiff: string,
   ): Promise<number | undefined> {
     await this.reviewService.updateStatus(
       data.reviewRunId,
@@ -202,7 +214,7 @@ export class ReviewProcessor extends WorkerHost {
     );
 
     if (unified) {
-      return this.publishUnifiedResults(data, unified);
+      return this.publishUnifiedResults(data, unified, reviewDiff);
     }
 
     return this.publishFallbackResults(data, codexResult.rawOutput);
@@ -212,12 +224,25 @@ export class ReviewProcessor extends WorkerHost {
   private async publishUnifiedResults(
     data: IReviewJobData,
     unified: IUnifiedReviewResult,
+    reviewDiff = "",
   ): Promise<number | undefined> {
+    const findings = this.filterFindingsToReviewDiff(
+      unified.findings,
+      reviewDiff,
+    );
+    const verdict =
+      unified.verdict === "request-changes" &&
+      !findings.some((item) => item.severity === "blocking")
+        ? findings.length > 0
+          ? "comment"
+          : "approve"
+        : unified.verdict;
+
     // Build summary comment body
-    const verdictBadge = buildVerdictBadge(unified.verdict, unified.confidence);
+    const verdictBadge = buildVerdictBadge(verdict, unified.confidence);
     const statsTable =
-      unified.findings.length > 0
-        ? buildSummaryTable(unified.findings)
+      findings.length > 0
+        ? buildSummaryTable(findings)
         : "";
     const normalizedSummary = normalizeSummaryMarkdown(unified.summary);
     const summaryBody = [
@@ -240,8 +265,8 @@ export class ReviewProcessor extends WorkerHost {
     this.logger.log(`Summary comment posted: ${summaryComment.id}`);
 
     // Post inline comments
-    if (unified.findings.length > 0) {
-      await this.postInlineComments(data, unified.findings);
+    if (findings.length > 0) {
+      await this.postInlineComments(data, findings);
     }
 
     return summaryComment.id;
@@ -304,6 +329,41 @@ export class ReviewProcessor extends WorkerHost {
         body: `## 🔍 코드 리뷰 상세\n\n${fallbackBody}`,
       });
     }
+  }
+
+  private filterFindingsToReviewDiff(
+    findings: ReadonlyArray<IReviewItem>,
+    reviewDiff: string,
+  ): ReadonlyArray<IReviewItem> {
+    const changedPaths = this.extractChangedPathsFromDiff(reviewDiff);
+    if (changedPaths.size === 0) {
+      if (findings.length > 0) {
+        this.logger.warn("Dropping all findings because review diff has no changed paths");
+      }
+      return [];
+    }
+
+    const filtered = findings.filter((item) => changedPaths.has(item.path));
+    const droppedCount = findings.length - filtered.length;
+    if (droppedCount > 0) {
+      this.logger.warn(
+        `Dropped ${droppedCount} findings outside reviewed diff paths`,
+      );
+    }
+    return filtered;
+  }
+
+  private extractChangedPathsFromDiff(reviewDiff: string): ReadonlySet<string> {
+    const paths = new Set<string>();
+    for (const line of reviewDiff.split("\n")) {
+      if (!line.startsWith("diff --git ")) continue;
+
+      const match = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
+      if (!match) continue;
+
+      paths.add(match[2]);
+    }
+    return paths;
   }
 
   /** Step 4: 완료 상태 저장 */

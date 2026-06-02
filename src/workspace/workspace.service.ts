@@ -101,6 +101,47 @@ export class WorkspaceService {
     }
   }
 
+  /** PR 리뷰용 diff 생성: 최신 base branch와 HEAD의 merge-base부터 HEAD까지만 비교 */
+  async createReviewDiff(
+    worktreePath: string,
+    baseBranch: string,
+  ): Promise<string> {
+    const baseRef = `refs/heads/${baseBranch}`;
+    const { stdout: mergeBase } = await execFileAsync(
+      "git",
+      ["merge-base", baseRef, "HEAD"],
+      {
+        cwd: worktreePath,
+        timeout: 30_000,
+      },
+    );
+    const baseCommit = mergeBase.trim();
+    if (!baseCommit) {
+      throw new Error(`Git merge-base failed for ${baseRef} and HEAD`);
+    }
+
+    const { stdout } = await execFileAsync(
+      "git",
+      [
+        "diff",
+        "--no-ext-diff",
+        "--find-renames",
+        "--unified=80",
+        `${baseCommit}..HEAD`,
+      ],
+      {
+        cwd: worktreePath,
+        timeout: 60_000,
+        maxBuffer: 20 * 1024 * 1024,
+      },
+    );
+
+    this.logger.debug(
+      `Review diff created from merge-base ${baseCommit.substring(0, 12)} against HEAD`,
+    );
+    return stdout;
+  }
+
   private async ensureBareRepo(
     bareRepoPath: string,
     cloneUrl: string,

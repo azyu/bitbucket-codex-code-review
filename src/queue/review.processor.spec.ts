@@ -604,6 +604,7 @@ describe("ReviewProcessor publish results", () => {
   };
   const mockWorkspaceService = {
     prepareWorktree: jest.fn(),
+    createReviewDiff: jest.fn(),
     cleanupWorktree: jest.fn(),
   };
   const mockCodexService = {
@@ -638,6 +639,9 @@ describe("ReviewProcessor publish results", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockWorkspaceService.createReviewDiff.mockResolvedValue(
+      "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
+    );
     processor = new ReviewProcessor(
       mockReviewService as never,
       mockWorkspaceService as never,
@@ -736,6 +740,77 @@ describe("ReviewProcessor publish results", () => {
       }),
     );
   });
+
+  it("should filter out findings outside the reviewed diff before posting", async () => {
+    await (
+      processor as unknown as {
+        publishUnifiedResults: (
+          data: IReviewJobData,
+          unified: {
+            summary: string;
+            verdict: "approve" | "request-changes" | "comment";
+            confidence: number;
+            findings: ReadonlyArray<IReviewItem>;
+          },
+          reviewDiff: string,
+        ) => Promise<number | undefined>;
+      }
+    ).publishUnifiedResults(
+      baseJobData,
+      {
+        summary: "### 변경 개요\n- Swagger Hub 변경",
+        verdict: "request-changes",
+        confidence: 80,
+        findings: [
+          {
+            title: "정상 diff 파일",
+            path: "tools/swagger-hub/src/main.ts",
+            lineRange: { start: 12, end: 12 },
+            severity: "recommended",
+            description: "diff 안 이슈",
+            reason: "검토 대상 파일",
+          },
+          {
+            title: "다른 PR 문맥",
+            path: "libs/base/src/constants/timezone.ts",
+            lineRange: { start: 8, end: 8 },
+            severity: "blocking",
+            description: "diff 밖 이슈",
+            reason: "이번 PR 대상 아님",
+          },
+        ],
+      },
+      [
+        "diff --git a/tools/swagger-hub/src/main.ts b/tools/swagger-hub/src/main.ts",
+        "+++ b/tools/swagger-hub/src/main.ts",
+        "@@ -10,0 +12,1 @@",
+        "+  { url: '/specs/sso-agent', name: 'SSO AGENT API' },",
+      ].join("\n"),
+    );
+
+    expect(mockBitbucketService.createInlineComment).toHaveBeenCalledTimes(1);
+    expect(mockBitbucketService.createInlineComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePath: "tools/swagger-hub/src/main.ts",
+        line: 12,
+      }),
+    );
+    expect(mockBitbucketService.createInlineComment).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePath: "libs/base/src/constants/timezone.ts",
+      }),
+    );
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("Recommended | 1건"),
+      }),
+    );
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.not.stringContaining("Blocking | 1건"),
+      }),
+    );
+  });
 });
 
 describe("ReviewProcessor error handling", () => {
@@ -747,6 +822,7 @@ describe("ReviewProcessor error handling", () => {
   };
   const mockWorkspaceService = {
     prepareWorktree: jest.fn(),
+    createReviewDiff: jest.fn(),
     cleanupWorktree: jest.fn(),
   };
   const mockCodexService = {
@@ -781,6 +857,9 @@ describe("ReviewProcessor error handling", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockWorkspaceService.createReviewDiff.mockResolvedValue(
+      "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
+    );
     processor = new ReviewProcessor(
       mockReviewService as never,
       mockWorkspaceService as never,
