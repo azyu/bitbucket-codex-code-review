@@ -1,8 +1,19 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-06-02
+> 마지막 업데이트: 2026-06-04
 
 ## 진행 중/최근 작업
+
+### Task 22: 대형 PR diff 리뷰 시 Codex spawn E2BIG 수정
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 운영 실패 원인 확인 | ✅ | PR #2602/#2608 등에서 긴 diff prompt가 argv 제한을 넘어 `spawn E2BIG` 발생 |
+| Codex 입력 방식 수정 | ✅ | `codex exec -`를 사용하고 prompt를 stdin으로 전달해 argv 크기 제한 회피 |
+| 회귀 테스트 추가 | ✅ | 대형 prompt가 spawn args에 포함되지 않고 stdin으로 전달되는 케이스 추가 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test` 성공 |
+| 커버리지 확인 | ⚠️ | `pnpm test:cov` 성공, 전체 statement coverage 62.15%로 DoD 80% 미달 |
 
 ### Task 21: PR 리뷰 diff 문맥 오염 방지
 - **상태**: ✅ 완료

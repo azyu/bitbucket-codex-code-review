@@ -37,7 +37,7 @@ export class CodexService {
     );
   }
 
-  private buildCodexArgs(prompt: string, outputFile: string): string[] {
+  private buildCodexArgs(outputFile: string): string[] {
     const args = [
       "exec",
       "--model",
@@ -53,13 +53,14 @@ export class CodexService {
       args.push("-c", `model_reasoning_effort="${this.reasoningEffort}"`);
     }
 
-    args.push(prompt);
+    args.push("-");
     return args;
   }
 
   private spawnCodex(
     args: readonly string[],
     worktreePath: string,
+    prompt: string,
   ): Promise<ISpawnResult> {
     return new Promise((resolve) => {
       const controller = new AbortController();
@@ -68,11 +69,12 @@ export class CodexService {
       const child = spawn(this.binaryPath, [...args], {
         cwd: worktreePath,
         signal: controller.signal,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
       });
 
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
+      child.stdin.end(prompt);
 
       let partialLine = "";
       let lastUsage: ICodexUsageMetrics = {
@@ -164,8 +166,8 @@ export class CodexService {
     );
 
     try {
-      const args = this.buildCodexArgs(prompt, outputFile);
-      const result = await this.spawnCodex(args, worktreePath);
+      const args = this.buildCodexArgs(outputFile);
+      const result = await this.spawnCodex(args, worktreePath, prompt);
       const durationMs = Date.now() - startTime;
 
       if (result.code === 0) {

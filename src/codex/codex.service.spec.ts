@@ -15,6 +15,9 @@ jest.mock("@lib/logger", () => ({
 interface MockChildProcess extends EventEmitter {
   stdout: EventEmitter;
   stderr: EventEmitter;
+  stdin: {
+    end: jest.Mock;
+  };
 }
 
 function createMockStream(): EventEmitter & { setEncoding: jest.Mock } {
@@ -27,6 +30,7 @@ function createMockChild(): MockChildProcess {
   const child = new EventEmitter() as MockChildProcess;
   child.stdout = createMockStream();
   child.stderr = createMockStream();
+  child.stdin = { end: jest.fn() };
   return child;
 }
 
@@ -97,6 +101,29 @@ describe("CodexService", () => {
       outputTokens: 80,
     });
     expect(rmSpy).toHaveBeenCalled();
+  });
+
+  it("should pass prompt through stdin instead of argv to avoid E2BIG", async () => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockResolvedValue("review output text");
+    const largePrompt = "review\n" + "x".repeat(300_000);
+
+    const promise = createService().executeCodex("/work", "main", largePrompt);
+
+    child.emit("close", 0, null);
+
+    await promise;
+
+    const [, args, options] = spawnSpy.mock.calls[0] as [
+      string,
+      string[],
+      { stdio: string[] },
+    ];
+    expect(args).toContain("-");
+    expect(args).not.toContain(largePrompt);
+    expect(options.stdio[0]).toBe("pipe");
+    expect(child.stdin.end).toHaveBeenCalledWith(largePrompt);
   });
 
   it("should handle large JSONL streams without crashing", async () => {
