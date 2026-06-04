@@ -4,6 +4,17 @@
 
 ## 진행 중/최근 작업
 
+### Task 23: 테스트 커버리지 80% 이상 달성
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 커버리지 병목 확인 | ✅ | `webhook.controller.ts`, `workspace.service.ts`, `bitbucket.service.ts`, validation/module wiring 중심으로 미커버 영역 확인 |
+| 컨트롤러/워크스페이스 테스트 추가 | ✅ | webhook 분기/검증/큐 등록 및 workspace git 경계/mock 테스트 추가 |
+| Bitbucket/validation/DB wiring 테스트 추가 | ✅ | reply/inline/error API, Joi validation, AppModule import, DB helper, migration 테스트 추가 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공 |
+| 커버리지 확인 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 85.43% |
+
 ### Task 22: 대형 PR diff 리뷰 시 Codex spawn E2BIG 수정
 - **상태**: ✅ 완료
 

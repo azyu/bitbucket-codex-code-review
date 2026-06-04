@@ -130,4 +130,130 @@ describe("BitbucketService", () => {
       expect(captured[0]).toBe("Bearer repo-specific");
     });
   });
+
+  describe("comment APIs", () => {
+    const baseParams = {
+      workspace: "my-workspace",
+      repoSlug: "my-repo",
+      pullRequestId: 7,
+      body: "hello",
+    };
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("creates a reply comment with parent id", async () => {
+      const service = await createService({
+        "bitbucket.baseUrl": "https://api.example.test",
+        "bitbucket.apiToken": "token",
+      });
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: 11 }),
+      });
+
+      await expect(
+        service.replyToComment({ ...baseParams, parentCommentId: 99 }),
+      ).resolves.toEqual({ id: 11 });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://api.example.test/repositories/my-workspace/my-repo/pullrequests/7/comments",
+        expect.objectContaining({
+          method: "POST",
+          headers: {
+            Authorization: "Bearer token",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            content: { raw: "hello" },
+            parent: { id: 99 },
+          }),
+        }),
+      );
+    });
+
+    it("creates an inline comment with path and destination line", async () => {
+      const service = await createService({
+        "bitbucket.baseUrl": "https://api.example.test",
+        "bitbucket.apiToken": "token",
+      });
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: 12 }),
+      });
+
+      await expect(
+        service.createInlineComment({
+          ...baseParams,
+          filePath: "src/app.ts",
+          line: 42,
+        }),
+      ).resolves.toEqual({ id: 12 });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://api.example.test/repositories/my-workspace/my-repo/pullrequests/7/comments",
+        expect.objectContaining({
+          body: JSON.stringify({
+            content: { raw: "hello" },
+            inline: {
+              path: "src/app.ts",
+              to: 42,
+            },
+          }),
+        }),
+      );
+    });
+
+    it("throws Bitbucket API error body for failed top-level comments", async () => {
+      const service = await createService({
+        "bitbucket.apiToken": "token",
+      });
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: async () => "unauthorized",
+      });
+
+      await expect(service.createComment(baseParams)).rejects.toThrow(
+        "Bitbucket API error 401: unauthorized",
+      );
+    });
+
+    it("throws Bitbucket API error body for failed replies", async () => {
+      const service = await createService({
+        "bitbucket.apiToken": "token",
+      });
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: async () => "missing parent",
+      });
+
+      await expect(
+        service.replyToComment({ ...baseParams, parentCommentId: 99 }),
+      ).rejects.toThrow("Bitbucket API error 404: missing parent");
+    });
+
+    it("throws inline-specific API error body for failed inline comments", async () => {
+      const service = await createService({
+        "bitbucket.apiToken": "token",
+      });
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: async () => "invalid line",
+      });
+
+      await expect(
+        service.createInlineComment({
+          ...baseParams,
+          filePath: "src/app.ts",
+          line: 42,
+        }),
+      ).rejects.toThrow(
+        "Bitbucket inline comment API error 400: invalid line",
+      );
+    });
+  });
 });
