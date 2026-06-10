@@ -4,6 +4,17 @@
 
 ## 진행 중/최근 작업
 
+### Task 24: Codex shell snapshot 실패 수정
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 운영 실패 원인 확인 | ✅ | `codex-code-review` Pod에서 `CODEX_AUTH_JSON` 멀티라인 env 상속 시 Codex CLI shell snapshot이 `/bin/sh` quoting 오류를 내는 것을 재현 |
+| Codex 실행 환경 정리 | ✅ | `CodexService`가 자식 프로세스에 `CODEX_AUTH_JSON`과 개행 포함 env를 전달하지 않도록 수정 |
+| 회귀 테스트 추가 | ✅ | 멀티라인 인증 env가 Codex child process env에서 제거되는 케이스 추가 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm lint`, `pnpm build`, `pnpm test --runInBand` 성공 |
+| 커버리지 확인 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 85.45% |
+
 ### Task 23: 테스트 커버리지 80% 이상 달성
 - **상태**: ✅ 완료
 

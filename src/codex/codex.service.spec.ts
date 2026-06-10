@@ -126,6 +126,33 @@ describe("CodexService", () => {
     expect(child.stdin.end).toHaveBeenCalledWith(largePrompt);
   });
 
+  it("should not pass multiline auth env to codex child process", async () => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockResolvedValue("review output text");
+    process.env["CODEX_AUTH_JSON"] = '{\n  "auth_mode": "chatgpt"\n}';
+    process.env["CODEX_SAFE_ENV"] = "safe-value";
+
+    try {
+      const promise = createService().executeCodex("/work", "main", "review");
+
+      child.emit("close", 0, null);
+
+      await promise;
+
+      const [, , options] = spawnSpy.mock.calls[0] as [
+        string,
+        string[],
+        { env: NodeJS.ProcessEnv },
+      ];
+      expect(options.env["CODEX_AUTH_JSON"]).toBeUndefined();
+      expect(options.env["CODEX_SAFE_ENV"]).toBe("safe-value");
+    } finally {
+      delete process.env["CODEX_AUTH_JSON"];
+      delete process.env["CODEX_SAFE_ENV"];
+    }
+  });
+
   it("should handle large JSONL streams without crashing", async () => {
     const child = createMockChild();
     spawnSpy.mockReturnValue(child);
