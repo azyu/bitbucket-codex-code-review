@@ -236,6 +236,12 @@ describe("WorkspaceService", () => {
         "--find-renames",
         "--unified=80",
         "basecommit123..HEAD",
+        "--",
+        ".",
+        ":(exclude,glob)**/pnpm-lock.yaml",
+        ":(exclude,glob)**/package-lock.json",
+        ":(exclude,glob)**/yarn.lock",
+        ":(exclude,glob)**/bun.lockb",
       ],
       {
         cwd: "/tmp/worktree",
