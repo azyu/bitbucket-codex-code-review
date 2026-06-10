@@ -136,7 +136,9 @@ export class WorkspaceService {
         `${baseCommit}..HEAD`,
         "--",
         ".",
-        ...REVIEW_DIFF_EXCLUDED_PATHS.map((path) => `:(exclude)${path}`),
+        ...REVIEW_DIFF_EXCLUDED_PATHS.map(
+          (path) => `:(exclude,glob)**/${path}`,
+        ),
       ],
       {
         cwd: worktreePath,
