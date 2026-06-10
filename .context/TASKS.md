@@ -4,6 +4,17 @@
 
 ## 진행 중/최근 작업
 
+### Task 25: 리뷰 diff lockfile 제외
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 대형 PR 실패 원인 확인 | ✅ | PR #2721에서 `pnpm-lock.yaml` 포함 대형 diff가 Codex context window 초과를 유발 |
+| 회귀 테스트 추가 | ✅ | `WorkspaceService.createReviewDiff`가 lockfile exclude pathspec을 `git diff`에 전달하는지 검증 |
+| diff 생성 수정 | ✅ | `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lockb`를 리뷰 입력 diff에서 제외 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm lint`, `pnpm build`, `pnpm test --runInBand` 성공 |
+| 커버리지 확인 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 85.48% |
+
 ### Task 24: Codex shell snapshot 실패 수정
 - **상태**: ✅ 완료
 

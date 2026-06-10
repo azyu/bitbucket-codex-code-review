@@ -12,6 +12,12 @@ import {
 } from "./interfaces/workspace.interfaces";
 
 const execFileAsync = promisify(execFile);
+const REVIEW_DIFF_EXCLUDED_PATHS = [
+  "pnpm-lock.yaml",
+  "package-lock.json",
+  "yarn.lock",
+  "bun.lockb",
+];
 
 @Injectable()
 export class WorkspaceService {
@@ -128,6 +134,9 @@ export class WorkspaceService {
         "--find-renames",
         "--unified=80",
         `${baseCommit}..HEAD`,
+        "--",
+        ".",
+        ...REVIEW_DIFF_EXCLUDED_PATHS.map((path) => `:(exclude)${path}`),
       ],
       {
         cwd: worktreePath,
