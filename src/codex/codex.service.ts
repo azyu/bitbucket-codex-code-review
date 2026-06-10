@@ -12,6 +12,7 @@ import {
 
 const MAX_STDERR_BYTES = 64 * 1024;
 const TIMEOUT_EXIT_CODE = 124;
+const CODEX_ENV_DENYLIST = new Set(["CODEX_AUTH_JSON"]);
 
 interface ISpawnResult {
   readonly code: number;
@@ -57,6 +58,28 @@ export class CodexService {
     return args;
   }
 
+  private buildCodexEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {};
+
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value === undefined) {
+        continue;
+      }
+
+      if (
+        CODEX_ENV_DENYLIST.has(key) ||
+        value.includes("\n") ||
+        value.includes("\r")
+      ) {
+        continue;
+      }
+
+      env[key] = value;
+    }
+
+    return env;
+  }
+
   private spawnCodex(
     args: readonly string[],
     worktreePath: string,
@@ -68,6 +91,7 @@ export class CodexService {
 
       const child = spawn(this.binaryPath, [...args], {
         cwd: worktreePath,
+        env: this.buildCodexEnv(),
         signal: controller.signal,
         stdio: ["pipe", "pipe", "pipe"],
       });
