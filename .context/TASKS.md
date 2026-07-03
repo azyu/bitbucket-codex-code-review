@@ -14,8 +14,9 @@
 | 브랜치 리뷰 모드 추가 | ✅ | 900,000자 초과 diff는 현재 worktree에서 Codex가 `git diff`를 직접 조회하도록 프롬프트 전환 |
 | PR 리뷰 피드백 반영 | ✅ | branch-diff 프롬프트의 `<merge-base>` placeholder를 실행 가능한 `merge_base=$(...)` 시퀀스로 교체 |
 | 추가 PR 리뷰 피드백 반영 | ✅ | branch-diff 프롬프트의 base ref를 shell-quote해 `&`, `'` 포함 브랜치명에서도 실행 가능하게 수정 |
-| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공 |
-| 커버리지 확인 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 85.66% |
+| custom prompt 크기 피드백 반영 | ✅ | inline diff와 custom prompt를 합친 최종 프롬프트 길이가 임계값을 넘으면 branch-diff 모드로 재전환 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공 (175 tests) |
+| 커버리지 확인 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 85.74% |
 
 ### Task 25: 리뷰 diff lockfile 제외
 - **상태**: ✅ 완료

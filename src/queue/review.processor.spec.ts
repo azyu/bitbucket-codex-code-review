@@ -13,6 +13,7 @@ import { ReviewProcessor } from "./review.processor";
 import type { ICodexReviewResult } from "../codex/interfaces/codex.interfaces";
 import { TriggerType } from "../entities/review-run.entity";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
+import { rm, writeFile } from "node:fs/promises";
 
 jest.mock("@lib/logger", () => ({
   ServiceLogger: jest.fn().mockImplementation(() => ({
@@ -734,6 +735,52 @@ describe("ReviewProcessor publish results", () => {
         expect(prompt).toMatch(/git diff/);
         expect(prompt).toMatch(/worktree|현재 브랜치|체크아웃된 브랜치/);
         expect(prompt).toMatch(/base\s*branch|기준\s*브랜치/);
+      }
+    });
+    it("should switch to branch diff when the custom prompt makes the final inline prompt too large", async () => {
+      const tmpFile = `/tmp/test-custom-prompt-${Date.now()}.txt`;
+      const customPrompt = `추가 리뷰 지시사항:\n${"A".repeat(950_000)}`;
+      await writeFile(tmpFile, customPrompt);
+
+      try {
+        mockConfigService.get.mockImplementationOnce(
+          (key: string, defaultValue?: string) =>
+            key === "codex.customPromptFilepath"
+              ? tmpFile
+              : defaultValue ?? "",
+        );
+        mockCodexService.executeCodex.mockResolvedValueOnce({
+          rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+          exitCode: 0,
+          durationMs: 1,
+          inputTokens: null,
+          cachedInputTokens: null,
+          outputTokens: null,
+        });
+
+        const reviewDiff = [
+          "diff --git a/src/app.ts b/src/app.ts",
+          "index 1111111..2222222 100644",
+          "--- a/src/app.ts",
+          "+++ b/src/app.ts",
+          "@@ -1 +1 @@",
+          "+INLINE_DIFF_MARKER",
+          `${"x".repeat(119_950)}`,
+        ].join("\n");
+
+        await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
+          "/worktree",
+          "main",
+          reviewDiff,
+        );
+
+        const prompt = mockCodexService.executeCodex.mock.calls[0][2];
+
+        expect(prompt).toContain("프롬프트에 diff를 첨부하지 않는다.");
+        expect(prompt).not.toContain("```diff");
+        expect(prompt).not.toContain("INLINE_DIFF_MARKER");
+      } finally {
+        await rm(tmpFile, { force: true });
       }
     });
   });
