@@ -10,6 +10,7 @@ import {
 import { type IReviewItem } from "./review.types";
 import { buildReviewPrompt, resolveReviewPrompt } from "./review.prompt";
 import { ReviewProcessor } from "./review.processor";
+import type { ICodexReviewResult } from "../codex/interfaces/codex.interfaces";
 import { TriggerType } from "../entities/review-run.entity";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
 
@@ -621,6 +622,14 @@ describe("ReviewProcessor publish results", () => {
   };
 
   let processor: ReviewProcessor;
+  type ReviewProcessorWithExecuteReview = {
+    executeReview(
+      worktreePath: string,
+      baseBranch: string,
+      reviewDiff: string,
+    ): Promise<ICodexReviewResult>;
+  };
+
 
   const baseJobData: IReviewJobData = {
     reviewRunId: 1,
@@ -649,6 +658,67 @@ describe("ReviewProcessor publish results", () => {
       mockBitbucketService as never,
       mockConfigService as never,
     );
+  });
+
+  describe("executeReview prompt shaping", () => {
+    it.each([
+      {
+        name: "small diff",
+        reviewDiff: [
+          "diff --git a/src/app.ts b/src/app.ts",
+          "index 1111111..2222222 100644",
+          "--- a/src/app.ts",
+          "+++ b/src/app.ts",
+          "@@ -1 +1 @@",
+          "+console.log('ok')",
+        ].join("\n"),
+        expectInlineDiff: true,
+      },
+      {
+        name: "large diff",
+        reviewDiff: Array.from(
+          { length: 32_000 },
+          (_, index) => `+generated-change-${index} ${"x".repeat(40)}`,
+        ).join("\n"),
+        expectInlineDiff: false,
+      },
+    ])("should shape prompt for $name", async ({ reviewDiff, expectInlineDiff }) => {
+      mockCodexService.executeCodex.mockResolvedValue({
+        rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+        exitCode: 0,
+        durationMs: 1,
+        inputTokens: null,
+        cachedInputTokens: null,
+        outputTokens: null,
+      });
+
+      await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
+        "/worktree",
+        "main",
+        reviewDiff,
+      );
+
+      const prompt = mockCodexService.executeCodex.mock.calls[0][2];
+
+      expect(prompt).toContain(
+        "'main' 기준 PR merge-base부터 HEAD까지의 코드 변경사항을 한국어로 코드 리뷰해줘.",
+      );
+      if (expectInlineDiff) {
+        expect(prompt).toContain(
+          "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.",
+        );
+        expect(prompt).toContain("```diff");
+        expect(prompt).toContain(reviewDiff);
+      } else {
+        expect(prompt).not.toContain(
+          "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.",
+        );
+        expect(prompt).not.toContain("generated-change-2048");
+        expect(prompt).toMatch(/git diff/);
+        expect(prompt).toMatch(/worktree|현재 브랜치|체크아웃된 브랜치/);
+        expect(prompt).toMatch(/base\s*branch|기준\s*브랜치/);
+      }
+    });
   });
 
   it("should normalize summary into Bitbucket-friendly markdown before posting", async () => {

@@ -1,8 +1,19 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-06-04
+> 마지막 업데이트: 2026-07-03
 
 ## 진행 중/최근 작업
+
+### Task 26: 대형 PR Codex 브랜치 리뷰 모드
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 운영 실패 원인 확인 | ✅ | PR #177 diff가 약 2.3MB로 Codex `turn/start` 입력 제한 1,048,576자를 초과 |
+| 회귀 테스트 추가 | ✅ | 대형 diff에서는 Codex 프롬프트에 diff 본문을 포함하지 않고, 소형 diff는 기존 inline diff 유지 |
+| 브랜치 리뷰 모드 추가 | ✅ | 900,000자 초과 diff는 현재 worktree에서 Codex가 `git diff`를 직접 조회하도록 프롬프트 전환 |
+| 빌드/린트/테스트 통과 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공 |
+| 커버리지 확인 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 85.66% |
 
 ### Task 25: 리뷰 diff lockfile 제외
 - **상태**: ✅ 완료
