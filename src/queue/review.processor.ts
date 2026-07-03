@@ -18,7 +18,11 @@ import {
   normalizeSummaryMarkdown,
   parseUnifiedReviewJson,
 } from "./review.formatter";
-import { resolveReviewPrompt } from "./review.prompt";
+import { type ReviewPromptMode, resolveReviewPrompt } from "./review.prompt";
+
+// Codex turn/start currently rejects input above 1,048,576 chars.
+// Keep margin for base instructions, custom prompt text, and JSON schema.
+const MAX_INLINE_REVIEW_PROMPT_CHARS = 900_000;
 
 @Processor(REVIEW_QUEUE_NAME)
 export class ReviewProcessor extends WorkerHost {
@@ -171,11 +175,36 @@ export class ReviewProcessor extends WorkerHost {
       "codex.customPromptFilepath",
       "",
     );
-    const prompt = await resolveReviewPrompt(
+    let reviewPromptMode: ReviewPromptMode =
+      reviewDiff.length > MAX_INLINE_REVIEW_PROMPT_CHARS
+        ? "branch-diff"
+        : "inline-diff";
+    if (reviewPromptMode === "branch-diff") {
+      this.logger.warn(
+        `Review diff is ${reviewDiff.length} characters; omitting diff from Codex prompt and using branch diff mode`,
+      );
+    }
+    let prompt = await resolveReviewPrompt(
       baseBranch,
       customPromptFilepath,
       reviewDiff,
+      reviewPromptMode,
     );
+    if (
+      reviewPromptMode === "inline-diff" &&
+      prompt.length > MAX_INLINE_REVIEW_PROMPT_CHARS
+    ) {
+      reviewPromptMode = "branch-diff";
+      this.logger.warn(
+        `Review prompt is ${prompt.length} characters after custom instructions; omitting diff from Codex prompt and using branch diff mode`,
+      );
+      prompt = await resolveReviewPrompt(
+        baseBranch,
+        customPromptFilepath,
+        reviewDiff,
+        reviewPromptMode,
+      );
+    }
 
     const result = await this.codexService.executeCodex(
       worktreePath,

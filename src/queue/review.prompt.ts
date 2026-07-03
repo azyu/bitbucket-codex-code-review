@@ -2,6 +2,12 @@
 
 import { readFile } from "fs/promises";
 
+export type ReviewPromptMode = "inline-diff" | "branch-diff";
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 /**
  * 기본 프롬프트를 빌드한 뒤, customPromptFilepath가 있으면
  * 해당 파일 내용을 추가 지시사항으로 append.
@@ -10,8 +16,9 @@ export async function resolveReviewPrompt(
   baseBranch: string,
   customPromptFilepath: string,
   reviewDiff = "",
+  mode: ReviewPromptMode = "inline-diff",
 ): Promise<string> {
-  const base = buildReviewPrompt(baseBranch, reviewDiff);
+  const base = buildReviewPrompt(baseBranch, reviewDiff, mode);
 
   if (!customPromptFilepath) {
     return base;
@@ -27,27 +34,52 @@ export async function resolveReviewPrompt(
   }
 }
 
-export function buildReviewPrompt(baseBranch: string, reviewDiff = ""): string {
-  const diffSection = reviewDiff
+export function buildReviewPrompt(
+  baseBranch: string,
+  reviewDiff = "",
+  mode: ReviewPromptMode = "inline-diff",
+): string {
+  const isBranchDiffMode = mode === "branch-diff";
+  const quotedBaseRef = shellQuote(`refs/heads/${baseBranch}`);
+  const targetInstruction = isBranchDiffMode
+    ? "프롬프트에 diff를 첨부하지 않는다. 현재 worktree의 체크아웃된 브랜치에서 Git으로 PR diff를 직접 조회하고, 조회한 변경사항만 근거로 사용해줘."
+    : "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.";
+  const diffSection = isBranchDiffMode
     ? [
         "## 리뷰 대상 PR diff",
         "",
-        "아래 diff만 이번 PR의 리뷰 대상이야. diff에 없는 파일/라인/변경사항은 절대 findings에 포함하지 마.",
-        "라인 번호는 unified diff hunk의 new-side 라인 번호를 사용해줘.",
+        "대형 PR이라 diff 본문은 입력 크기 제한을 피하기 위해 첨부하지 않는다.",
+        `기준 브랜치(base branch): ${baseBranch}`,
+        "현재 worktree에서 다음 방식으로 PR 변경사항을 직접 조사해줘:",
         "",
-        "```diff",
-        reviewDiff,
+        "```bash",
+        `merge_base=$(git merge-base ${quotedBaseRef} HEAD)`,
+        'git diff --no-ext-diff --find-renames --unified=80 "${merge_base}..HEAD" -- . \':(exclude,glob)**/pnpm-lock.yaml\' \':(exclude,glob)**/package-lock.json\' \':(exclude,glob)**/yarn.lock\' \':(exclude,glob)**/bun.lockb\'',
         "```",
-      ]
-    : [
-        "## 리뷰 대상 PR diff",
         "",
-        "diff가 비어 있으면 findings는 빈 배열 []로 반환해줘.",
-      ];
+        "필요하면 변경 파일을 직접 읽되, 위 diff 범위에 포함된 이번 브랜치 변경만 findings에 포함해줘.",
+        "라인 번호는 직접 조회한 unified diff hunk의 new-side 라인 번호를 사용해줘.",
+      ]
+    : reviewDiff
+      ? [
+          "## 리뷰 대상 PR diff",
+          "",
+          "아래 diff만 이번 PR의 리뷰 대상이야. diff에 없는 파일/라인/변경사항은 절대 findings에 포함하지 마.",
+          "라인 번호는 unified diff hunk의 new-side 라인 번호를 사용해줘.",
+          "",
+          "```diff",
+          reviewDiff,
+          "```",
+        ]
+      : [
+          "## 리뷰 대상 PR diff",
+          "",
+          "diff가 비어 있으면 findings는 빈 배열 []로 반환해줘.",
+        ];
 
   return [
     `'${baseBranch}' 기준 PR merge-base부터 HEAD까지의 코드 변경사항을 한국어로 코드 리뷰해줘.`,
-    "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.",
+    targetInstruction,
     "",
     "## 버그 판정 기준",
     "",

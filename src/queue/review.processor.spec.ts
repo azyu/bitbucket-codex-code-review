@@ -10,8 +10,10 @@ import {
 import { type IReviewItem } from "./review.types";
 import { buildReviewPrompt, resolveReviewPrompt } from "./review.prompt";
 import { ReviewProcessor } from "./review.processor";
+import type { ICodexReviewResult } from "../codex/interfaces/codex.interfaces";
 import { TriggerType } from "../entities/review-run.entity";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
+import { rm, writeFile } from "node:fs/promises";
 
 jest.mock("@lib/logger", () => ({
   ServiceLogger: jest.fn().mockImplementation(() => ({
@@ -24,15 +26,27 @@ jest.mock("@lib/logger", () => ({
 }));
 
 describe("review.prompt", () => {
-  it("should build a prompt string containing baseBranch", () => {
-    const prompt = buildReviewPrompt("main");
+  it.each([
+    {
+      baseBranch: "release&hotfix",
+      quotedBaseRef: "'refs/heads/release&hotfix'",
+      unsafeToken: "refs/heads/release&hotfix HEAD",
+    },
+    {
+      baseBranch: "base'quote",
+      quotedBaseRef: "'refs/heads/base'\\''quote'",
+      unsafeToken: "refs/heads/base'quote HEAD",
+    },
+  ])(
+    "should shell-quote metacharacters in branch-diff base ref $baseBranch",
+    ({ baseBranch, quotedBaseRef, unsafeToken }) => {
+      const prompt = buildReviewPrompt(baseBranch, "", "branch-diff");
 
-    expect(prompt).toContain("'main'");
-    expect(prompt).toContain("버그 판정 기준");
-    expect(prompt).toContain("line_range");
-    expect(prompt).toContain("severity");
-    expect(prompt).toContain("title");
-  });
+      expect(prompt).toContain(`기준 브랜치(base branch): ${baseBranch}`);
+      expect(prompt).not.toContain(`git merge-base ${unsafeToken}`);
+      expect(prompt).toContain(`git merge-base ${quotedBaseRef} HEAD`);
+    },
+  );
 
   describe("resolveReviewPrompt", () => {
     it("should return default prompt when filepath is empty", async () => {
@@ -621,6 +635,14 @@ describe("ReviewProcessor publish results", () => {
   };
 
   let processor: ReviewProcessor;
+  type ReviewProcessorWithExecuteReview = {
+    executeReview(
+      worktreePath: string,
+      baseBranch: string,
+      reviewDiff: string,
+    ): Promise<ICodexReviewResult>;
+  };
+
 
   const baseJobData: IReviewJobData = {
     reviewRunId: 1,
@@ -649,6 +671,118 @@ describe("ReviewProcessor publish results", () => {
       mockBitbucketService as never,
       mockConfigService as never,
     );
+  });
+
+  describe("executeReview prompt shaping", () => {
+    it.each([
+      {
+        name: "small diff",
+        reviewDiff: [
+          "diff --git a/src/app.ts b/src/app.ts",
+          "index 1111111..2222222 100644",
+          "--- a/src/app.ts",
+          "+++ b/src/app.ts",
+          "@@ -1 +1 @@",
+          "+console.log('ok')",
+        ].join("\n"),
+        expectInlineDiff: true,
+      },
+      {
+        name: "large diff",
+        reviewDiff: Array.from(
+          { length: 32_000 },
+          (_, index) => `+generated-change-${index} ${"x".repeat(40)}`,
+        ).join("\n"),
+        expectInlineDiff: false,
+      },
+    ])("should shape prompt for $name", async ({ reviewDiff, expectInlineDiff }) => {
+      mockCodexService.executeCodex.mockResolvedValue({
+        rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+        exitCode: 0,
+        durationMs: 1,
+        inputTokens: null,
+        cachedInputTokens: null,
+        outputTokens: null,
+      });
+
+      await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
+        "/worktree",
+        "main",
+        reviewDiff,
+      );
+
+      const prompt = mockCodexService.executeCodex.mock.calls[0][2];
+
+      expect(prompt).toContain(
+        "'main' 기준 PR merge-base부터 HEAD까지의 코드 변경사항을 한국어로 코드 리뷰해줘.",
+      );
+      if (expectInlineDiff) {
+        expect(prompt).toContain(
+          "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.",
+        );
+        expect(prompt).toContain("```diff");
+        expect(prompt).toContain(reviewDiff);
+      } else {
+        expect(prompt).not.toContain("<merge-base>..HEAD");
+        expect(prompt).toContain("git merge-base 'refs/heads/main' HEAD");
+        expect(prompt).toMatch(
+          /git diff[^\n]*(?:\$\([^\n]*git merge-base[^\n]*\)|\$\{[A-Za-z_][A-Za-z0-9_]*\})\.\.HEAD/,
+        );
+        expect(prompt).not.toContain(
+          "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.",
+        );
+        expect(prompt).not.toContain("generated-change-2048");
+        expect(prompt).toMatch(/git diff/);
+        expect(prompt).toMatch(/worktree|현재 브랜치|체크아웃된 브랜치/);
+        expect(prompt).toMatch(/base\s*branch|기준\s*브랜치/);
+      }
+    });
+    it("should switch to branch diff when the custom prompt makes the final inline prompt too large", async () => {
+      const tmpFile = `/tmp/test-custom-prompt-${Date.now()}.txt`;
+      const customPrompt = `추가 리뷰 지시사항:\n${"A".repeat(950_000)}`;
+      await writeFile(tmpFile, customPrompt);
+
+      try {
+        mockConfigService.get.mockImplementationOnce(
+          (key: string, defaultValue?: string) =>
+            key === "codex.customPromptFilepath"
+              ? tmpFile
+              : defaultValue ?? "",
+        );
+        mockCodexService.executeCodex.mockResolvedValueOnce({
+          rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+          exitCode: 0,
+          durationMs: 1,
+          inputTokens: null,
+          cachedInputTokens: null,
+          outputTokens: null,
+        });
+
+        const reviewDiff = [
+          "diff --git a/src/app.ts b/src/app.ts",
+          "index 1111111..2222222 100644",
+          "--- a/src/app.ts",
+          "+++ b/src/app.ts",
+          "@@ -1 +1 @@",
+          "+INLINE_DIFF_MARKER",
+          `${"x".repeat(119_950)}`,
+        ].join("\n");
+
+        await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
+          "/worktree",
+          "main",
+          reviewDiff,
+        );
+
+        const prompt = mockCodexService.executeCodex.mock.calls[0][2];
+
+        expect(prompt).toContain("프롬프트에 diff를 첨부하지 않는다.");
+        expect(prompt).not.toContain("```diff");
+        expect(prompt).not.toContain("INLINE_DIFF_MARKER");
+      } finally {
+        await rm(tmpFile, { force: true });
+      }
+    });
   });
 
   it("should normalize summary into Bitbucket-friendly markdown before posting", async () => {
