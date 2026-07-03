@@ -710,6 +710,11 @@ describe("ReviewProcessor publish results", () => {
         expect(prompt).toContain("```diff");
         expect(prompt).toContain(reviewDiff);
       } else {
+        expect(prompt).not.toContain("<merge-base>..HEAD");
+        expect(prompt).toContain("git merge-base refs/heads/main HEAD");
+        expect(prompt).toMatch(
+          /git diff[^\n]*(?:\$\([^\n]*git merge-base[^\n]*\)|\$\{[A-Za-z_][A-Za-z0-9_]*\})\.\.HEAD/,
+        );
         expect(prompt).not.toContain(
           "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.",
         );
