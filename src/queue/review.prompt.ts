@@ -4,6 +4,10 @@ import { readFile } from "fs/promises";
 
 export type ReviewPromptMode = "inline-diff" | "branch-diff";
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 /**
  * 기본 프롬프트를 빌드한 뒤, customPromptFilepath가 있으면
  * 해당 파일 내용을 추가 지시사항으로 append.
@@ -36,6 +40,7 @@ export function buildReviewPrompt(
   mode: ReviewPromptMode = "inline-diff",
 ): string {
   const isBranchDiffMode = mode === "branch-diff";
+  const quotedBaseRef = shellQuote(`refs/heads/${baseBranch}`);
   const targetInstruction = isBranchDiffMode
     ? "프롬프트에 diff를 첨부하지 않는다. 현재 worktree의 체크아웃된 브랜치에서 Git으로 PR diff를 직접 조회하고, 조회한 변경사항만 근거로 사용해줘."
     : "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.";
@@ -48,7 +53,7 @@ export function buildReviewPrompt(
         "현재 worktree에서 다음 방식으로 PR 변경사항을 직접 조사해줘:",
         "",
         "```bash",
-        `merge_base=$(git merge-base refs/heads/${baseBranch} HEAD)`,
+        `merge_base=$(git merge-base ${quotedBaseRef} HEAD)`,
         'git diff --no-ext-diff --find-renames --unified=80 "${merge_base}..HEAD" -- . \':(exclude,glob)**/pnpm-lock.yaml\' \':(exclude,glob)**/package-lock.json\' \':(exclude,glob)**/yarn.lock\' \':(exclude,glob)**/bun.lockb\'',
         "```",
         "",

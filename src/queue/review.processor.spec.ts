@@ -25,15 +25,27 @@ jest.mock("@lib/logger", () => ({
 }));
 
 describe("review.prompt", () => {
-  it("should build a prompt string containing baseBranch", () => {
-    const prompt = buildReviewPrompt("main");
+  it.each([
+    {
+      baseBranch: "release&hotfix",
+      quotedBaseRef: "'refs/heads/release&hotfix'",
+      unsafeToken: "refs/heads/release&hotfix HEAD",
+    },
+    {
+      baseBranch: "base'quote",
+      quotedBaseRef: "'refs/heads/base'\\''quote'",
+      unsafeToken: "refs/heads/base'quote HEAD",
+    },
+  ])(
+    "should shell-quote metacharacters in branch-diff base ref $baseBranch",
+    ({ baseBranch, quotedBaseRef, unsafeToken }) => {
+      const prompt = buildReviewPrompt(baseBranch, "", "branch-diff");
 
-    expect(prompt).toContain("'main'");
-    expect(prompt).toContain("버그 판정 기준");
-    expect(prompt).toContain("line_range");
-    expect(prompt).toContain("severity");
-    expect(prompt).toContain("title");
-  });
+      expect(prompt).toContain(`기준 브랜치(base branch): ${baseBranch}`);
+      expect(prompt).not.toContain(`git merge-base ${unsafeToken}`);
+      expect(prompt).toContain(`git merge-base ${quotedBaseRef} HEAD`);
+    },
+  );
 
   describe("resolveReviewPrompt", () => {
     it("should return default prompt when filepath is empty", async () => {
@@ -711,7 +723,7 @@ describe("ReviewProcessor publish results", () => {
         expect(prompt).toContain(reviewDiff);
       } else {
         expect(prompt).not.toContain("<merge-base>..HEAD");
-        expect(prompt).toContain("git merge-base refs/heads/main HEAD");
+        expect(prompt).toContain("git merge-base 'refs/heads/main' HEAD");
         expect(prompt).toMatch(
           /git diff[^\n]*(?:\$\([^\n]*git merge-base[^\n]*\)|\$\{[A-Za-z_][A-Za-z0-9_]*\})\.\.HEAD/,
         );
