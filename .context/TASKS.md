@@ -4,6 +4,23 @@
 
 ## 진행 중/최근 작업
 
+### Task 28: GPT-5.6 모델 패밀리 전환
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 전환 설계/계획 승인 | ✅ | 기본 모델 `gpt-5.6-sol`, 런타임 버전 probe 없이 클린 전환하는 설계와 단계별 계획 확정 |
+| Codex CLI 업그레이드 | ✅ | Docker runtime을 공식 최소 `0.144.0` 이상인 `@openai/codex@0.144.1`로 고정, npm 레지스트리 버전 확인 |
+| 기본 모델 전환 | ✅ | 애플리케이션, `.env.example`, Compose, Helm, README 기본값을 `gpt-5.6-sol`로 일괄 변경 |
+| Reasoning 검증 | ✅ | `none`/`low`/`medium`/`high`/`xhigh`/`max`만 허용하고 기본값 `medium` 유지 |
+| 모델 전달 회귀 테스트 | ✅ | `gpt-5.6`, Sol, Terra, Luna가 정확한 `--model` argv와 `medium` 설정으로 전달되는 4케이스 추가 |
+| 배포 설정 검증 | ✅ | 기본/Sol/Terra/Luna Helm 렌더링, `helm lint`, `docker compose config --quiet` 성공 |
+| 독립 코드 리뷰 | ✅ | 호환성·보안 차단 finding 없음 |
+| 빌드/린트/테스트 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공 (187 tests) |
+| 커버리지 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 85.92% |
+| 보안 체크리스트 | ✅ | 하드코딩 시크릿 없음, reasoning 입력을 Joi enum으로 검증, 신규 에러 누출 없음 |
+| Docker 이미지 검증 | ⚠️ | OrbStack Docker 소켓이 없어 이미지 빌드 및 컨테이너 내부 `codex --version` 확인은 실행하지 못함 |
+
 ### Task 27: GPT-5.6 모델 패밀리 호환성 검토
 - **상태**: ✅ 검토 완료 (현재 운영 이미지 기준 미대응)
 
