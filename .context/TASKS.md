@@ -1,8 +1,21 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-07-03
+> 마지막 업데이트: 2026-07-10
 
 ## 진행 중/최근 작업
+
+### Task 27: GPT-5.6 모델 패밀리 호환성 검토
+- **상태**: ✅ 검토 완료 (현재 운영 이미지 기준 미대응)
+
+| 검토 항목 | 판정 | 근거 |
+|-----------|------|------|
+| 모델 ID 전달 경로 | ✅ | `CODEX_MODEL`은 임의 문자열로 수용되어 `codex exec --model`에 그대로 전달되고, Helm에서 `gpt-5.6-sol`/`terra`/`luna` 렌더링 확인 |
+| 공식 Codex 최소 버전 | ❌ | OpenAI 공식 요구사항은 Codex CLI `0.144.0` 이상이나 Dockerfile은 `@openai/codex@0.124.0` 고정 |
+| 기본 설정/배포 예시 | ⚠️ | 애플리케이션, `.env.example`, Compose, Helm, 문서의 기본 모델은 모두 `gpt-5.5` |
+| Reasoning 호환성 | ⚠️ | 기본 `medium`은 세 변형에서 유효하지만 `CODEX_REASONING_EFFORT` 검증이 없고 CLI `0.124.0`은 GPT-5.6의 `max`를 정식 지원하지 않음 |
+| 회귀 테스트 | ⚠️ | Codex 실행/설정 테스트는 통과하지만 GPT-5.6 세 모델 ID 전달 및 최소 CLI 버전을 직접 검증하는 테스트는 없음 |
+| 집중 검증 | ✅ | 관련 Jest 27 tests 통과, Helm에서 세 모델 ID의 ConfigMap 전달 확인 |
+| 전체 DoD | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 175 tests, `pnpm test:cov --runInBand` statement 85.74% 통과 |
 
 ### Task 26: 대형 PR Codex 브랜치 리뷰 모드
 - **상태**: ✅ 완료
