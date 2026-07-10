@@ -42,6 +42,9 @@ export const validationSchema = Joi.object({
   CODEX_BINARY_PATH: Joi.string().default(DEFAULTS.CODEX_BINARY_PATH),
   CODEX_TIMEOUT_MS: Joi.number().default(DEFAULTS.CODEX_TIMEOUT_MS),
   CODEX_MODEL: Joi.string().default(DEFAULTS.CODEX_MODEL),
+  CODEX_REASONING_EFFORT: Joi.string()
+    .valid("none", "low", "medium", "high", "xhigh", "max")
+    .default(DEFAULTS.CODEX_REASONING_EFFORT),
   BITBUCKET_BASE_URL: Joi.string().default(DEFAULTS.BITBUCKET_BASE_URL),
   BITBUCKET_API_TOKEN: Joi.string().allow("").default(""),
   BITBUCKET_REPO_TOKENS: Joi.string()

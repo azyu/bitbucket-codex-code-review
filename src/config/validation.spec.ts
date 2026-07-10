@@ -21,6 +21,8 @@ describe("validationSchema", () => {
       expect.objectContaining({
         PORT: 3000,
         CODEX_BINARY_PATH: "codex",
+        CODEX_MODEL: "gpt-5.6-sol",
+        CODEX_REASONING_EFFORT: "medium",
         BITBUCKET_REPO_TOKENS: "",
         REVIEW_TRIGGER_MODE: "mention",
       }),
@@ -70,6 +72,31 @@ describe("validationSchema", () => {
 
     expect(error?.message).toContain("REVIEW_TRIGGER_MODE");
   });
+
+  it("rejects unsupported Codex reasoning effort", () => {
+    const { error } = validationSchema.validate(
+      {
+        ...validEnv,
+        CODEX_REASONING_EFFORT: "ultra",
+      },
+      { allowUnknown: true },
+    );
+
+    expect(error?.message).toContain("CODEX_REASONING_EFFORT");
+  });
+
+  it.each(["none", "low", "medium", "high", "xhigh", "max"])(
+    "accepts Codex reasoning effort %s",
+    (reasoningEffort) => {
+      const { error, value } = validationSchema.validate({
+        ...validEnv,
+        CODEX_REASONING_EFFORT: reasoningEffort,
+      });
+
+      expect(error).toBeUndefined();
+      expect(value.CODEX_REASONING_EFFORT).toBe(reasoningEffort);
+    },
+  );
 
   it("requires NODE_ENV", () => {
     const { NODE_ENV: _nodeEnv, ...envWithoutNodeEnv } = validEnv;
