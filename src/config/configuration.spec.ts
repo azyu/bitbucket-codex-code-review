@@ -1,4 +1,28 @@
-import { parseJsonRecord } from "./configuration";
+import configuration, { parseJsonRecord } from "./configuration";
+
+describe("configuration", () => {
+  const originalCodexModel = process.env["CODEX_MODEL"];
+
+  afterEach(() => {
+    if (originalCodexModel === undefined) {
+      delete process.env["CODEX_MODEL"];
+    } else {
+      process.env["CODEX_MODEL"] = originalCodexModel;
+    }
+  });
+
+  it("defaults Codex to GPT-5.6 Sol", () => {
+    delete process.env["CODEX_MODEL"];
+
+    const config = configuration();
+
+    expect(config).toEqual(
+      expect.objectContaining({
+        codex: expect.objectContaining({ model: "gpt-5.6-sol" }),
+      }),
+    );
+  });
+});
 
 describe("parseJsonRecord", () => {
   let warnSpy: jest.SpyInstance;
