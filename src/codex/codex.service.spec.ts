@@ -103,6 +103,36 @@ describe("CodexService", () => {
     expect(rmSpy).toHaveBeenCalled();
   });
 
+  it.each([
+    "gpt-5.6",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+  ])("forwards GPT-5.6 model %s to Codex", async (model) => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockResolvedValue("review output text");
+
+    const promise = createService({
+      "codex.model": model,
+      "codex.reasoningEffort": "medium",
+    }).executeCodex("/work", "main", "review this");
+
+    child.emit("close", 0, null);
+    await promise;
+
+    const [, args] = spawnSpy.mock.calls[0] as [string, string[]];
+    const modelArgIndex = args.indexOf("--model");
+    const configArgIndex = args.indexOf("-c");
+
+    expect(modelArgIndex).toBeGreaterThan(-1);
+    expect(args[modelArgIndex + 1]).toBe(model);
+    expect(configArgIndex).toBeGreaterThan(-1);
+    expect(args[configArgIndex + 1]).toBe(
+      'model_reasoning_effort="medium"',
+    );
+  });
+
   it("should pass prompt through stdin instead of argv to avoid E2BIG", async () => {
     const child = createMockChild();
     spawnSpy.mockReturnValue(child);
