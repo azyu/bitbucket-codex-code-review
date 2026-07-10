@@ -20,7 +20,7 @@
 | 커버리지 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 85.92% |
 | 보안 체크리스트 | ✅ | 하드코딩 시크릿 없음, reasoning 입력을 Joi enum으로 검증, 신규 에러 누출 없음 |
 | Docker 이미지 검증 | ⚠️ | OrbStack Docker 소켓이 없어 이미지 빌드 및 컨테이너 내부 `codex --version` 확인은 실행하지 못함 |
-| Pull Request | ✅ | GitHub PR [#1](https://github.com/azuyamat/code-review-worker/pull/1) 생성 |
+| Pull Request | ✅ | GitHub PR [#17](https://github.com/azyu/bitbucket-codex-code-review/pull/17) 생성, CI `lint-and-build` 성공 |
 
 ### Task 27: GPT-5.6 모델 패밀리 호환성 검토
 - **상태**: ✅ 검토 완료 (현재 운영 이미지 기준 미대응)
