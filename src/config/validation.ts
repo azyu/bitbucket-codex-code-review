@@ -45,6 +45,10 @@ export const validationSchema = Joi.object({
   CODEX_REASONING_EFFORT: Joi.string()
     .valid("none", "low", "medium", "high", "xhigh", "max")
     .default(DEFAULTS.CODEX_REASONING_EFFORT),
+  REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS: Joi.string()
+    .allow("")
+    .default("")
+    .custom(jsonObjectValidator("REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS")),
   BITBUCKET_BASE_URL: Joi.string().default(DEFAULTS.BITBUCKET_BASE_URL),
   BITBUCKET_API_TOKEN: Joi.string().allow("").default(""),
   BITBUCKET_REPO_TOKENS: Joi.string()

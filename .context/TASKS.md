@@ -360,3 +360,15 @@
 | helm lint 통과 | ✅ | 0 chart(s) failed |
 | helm template 렌더링 | ✅ | 정상 출력 확인 |
 | pnpm build + test | ✅ | 42 tests passed |
+
+### repo별 커스텀 리뷰 프롬프트 매핑
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS 설정 추가 | ✅ | configuration.ts, parseJsonRecord 재사용 (slug→filepath JSON 맵) |
+| executeReview repo별 프롬프트 해석 | ✅ | repoMap[slug] → REVIEW_CUSTOM_PROMPT_FILEPATH fallback |
+| 테스트 (TDD RED→GREEN) | ✅ | 맵 매칭/전역 fallback/파일 누락 reject 3케이스, 190 tests passed |
+| 문서 업데이트 | ✅ | README.md env 테이블, .env.example |
+| pnpm build + lint + test:cov | ✅ | 커버리지 85.93% (기준 80%) |
+| PR #18 Codex 리뷰 반영 | ✅ | validation.ts에 jsonObjectValidator 추가 (부팅 시 fail-fast), 192 tests passed |
