@@ -640,6 +640,7 @@ describe("ReviewProcessor publish results", () => {
       worktreePath: string,
       baseBranch: string,
       reviewDiff: string,
+      repositorySlug: string,
     ): Promise<ICodexReviewResult>;
   };
 
@@ -661,6 +662,7 @@ describe("ReviewProcessor publish results", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockConfigService.get.mockReturnValue("");
     mockWorkspaceService.createReviewDiff.mockResolvedValue(
       "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
     );
@@ -709,6 +711,7 @@ describe("ReviewProcessor publish results", () => {
         "/worktree",
         "main",
         reviewDiff,
+        "my-repo",
       );
 
       const prompt = mockCodexService.executeCodex.mock.calls[0][2];
@@ -743,7 +746,7 @@ describe("ReviewProcessor publish results", () => {
       await writeFile(tmpFile, customPrompt);
 
       try {
-        mockConfigService.get.mockImplementationOnce(
+        mockConfigService.get.mockImplementation(
           (key: string, defaultValue?: string) =>
             key === "codex.customPromptFilepath"
               ? tmpFile
@@ -772,6 +775,7 @@ describe("ReviewProcessor publish results", () => {
           "/worktree",
           "main",
           reviewDiff,
+          "my-repo",
         );
 
         const prompt = mockCodexService.executeCodex.mock.calls[0][2];
@@ -782,6 +786,102 @@ describe("ReviewProcessor publish results", () => {
       } finally {
         await rm(tmpFile, { force: true });
       }
+    });
+
+    it("should append per-repo custom prompt when repository slug is mapped", async () => {
+      const tmpFile = `/tmp/test-repo-prompt-${Date.now()}.md`;
+      await writeFile(tmpFile, "REPO_SPECIFIC_GUIDELINE_MARKER");
+
+      try {
+        mockConfigService.get.mockImplementation(
+          (key: string, defaultValue?: string) =>
+            key === "codex.repoCustomPromptFilepaths"
+              ? { "my-repo": tmpFile }
+              : defaultValue ?? "",
+        );
+        mockCodexService.executeCodex.mockResolvedValueOnce({
+          rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+          exitCode: 0,
+          durationMs: 1,
+          inputTokens: null,
+          cachedInputTokens: null,
+          outputTokens: null,
+        });
+
+        await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
+          "/worktree",
+          "main",
+          "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n+ok",
+          "my-repo",
+        );
+
+        const prompt = mockCodexService.executeCodex.mock.calls[0][2];
+        expect(prompt).toContain("## 추가 리뷰 지시사항");
+        expect(prompt).toContain("REPO_SPECIFIC_GUIDELINE_MARKER");
+      } finally {
+        await rm(tmpFile, { force: true });
+      }
+    });
+
+    it("should fall back to global custom prompt when repository slug is not mapped", async () => {
+      const repoFile = `/tmp/test-repo-prompt-other-${Date.now()}.md`;
+      const globalFile = `/tmp/test-global-prompt-${Date.now()}.md`;
+      await writeFile(repoFile, "OTHER_REPO_MARKER");
+      await writeFile(globalFile, "GLOBAL_GUIDELINE_MARKER");
+
+      try {
+        mockConfigService.get.mockImplementation(
+          (key: string, defaultValue?: string) => {
+            if (key === "codex.repoCustomPromptFilepaths") {
+              return { "other-repo": repoFile };
+            }
+            if (key === "codex.customPromptFilepath") {
+              return globalFile;
+            }
+            return defaultValue ?? "";
+          },
+        );
+        mockCodexService.executeCodex.mockResolvedValueOnce({
+          rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+          exitCode: 0,
+          durationMs: 1,
+          inputTokens: null,
+          cachedInputTokens: null,
+          outputTokens: null,
+        });
+
+        await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
+          "/worktree",
+          "main",
+          "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n+ok",
+          "my-repo",
+        );
+
+        const prompt = mockCodexService.executeCodex.mock.calls[0][2];
+        expect(prompt).toContain("GLOBAL_GUIDELINE_MARKER");
+        expect(prompt).not.toContain("OTHER_REPO_MARKER");
+      } finally {
+        await rm(repoFile, { force: true });
+        await rm(globalFile, { force: true });
+      }
+    });
+
+    it("should reject when the mapped per-repo prompt file is missing", async () => {
+      mockConfigService.get.mockImplementation(
+        (key: string, defaultValue?: string) =>
+          key === "codex.repoCustomPromptFilepaths"
+            ? { "my-repo": "/nonexistent/repo-prompt.md" }
+            : defaultValue ?? "",
+      );
+
+      await expect(
+        (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
+          "/worktree",
+          "main",
+          "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n+ok",
+          "my-repo",
+        ),
+      ).rejects.toThrow(/Failed to read custom prompt file/);
     });
   });
 
@@ -991,6 +1091,7 @@ describe("ReviewProcessor error handling", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockConfigService.get.mockReturnValue("");
     mockWorkspaceService.createReviewDiff.mockResolvedValue(
       "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
     );

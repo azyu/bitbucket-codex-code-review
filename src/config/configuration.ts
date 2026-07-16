@@ -82,6 +82,7 @@ export default (): Record<string, unknown> => ({
     model: process.env["CODEX_MODEL"] || DEFAULTS.CODEX_MODEL,
     reasoningEffort: process.env["CODEX_REASONING_EFFORT"] || DEFAULTS.CODEX_REASONING_EFFORT,
     customPromptFilepath: process.env["REVIEW_CUSTOM_PROMPT_FILEPATH"] || DEFAULTS.REVIEW_CUSTOM_PROMPT_FILEPATH,
+    repoCustomPromptFilepaths: parseJsonRecord(process.env["REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS"], "REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS"),
   },
   bitbucket: {
     baseUrl: process.env["BITBUCKET_BASE_URL"] || DEFAULTS.BITBUCKET_BASE_URL,

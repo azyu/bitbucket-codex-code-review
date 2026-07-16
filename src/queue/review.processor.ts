@@ -63,6 +63,7 @@ export class ReviewProcessor extends WorkerHost {
         worktreePath,
         data.baseBranch,
         reviewDiff,
+        data.repositorySlug,
       );
 
       // Step 3: Publish results to Bitbucket
@@ -170,11 +171,16 @@ export class ReviewProcessor extends WorkerHost {
     worktreePath: string,
     baseBranch: string,
     reviewDiff: string,
+    repositorySlug: string,
   ): Promise<ICodexReviewResult> {
-    const customPromptFilepath = this.configService.get<string>(
-      "codex.customPromptFilepath",
-      "",
-    );
+    // Resolve prompt file: repoCustomPromptFilepaths[repoSlug] → customPromptFilepath
+    const repoCustomPromptFilepaths =
+      this.configService.get<Record<string, string>>(
+        "codex.repoCustomPromptFilepaths",
+      ) ?? {};
+    const customPromptFilepath =
+      repoCustomPromptFilepaths[repositorySlug] ||
+      this.configService.get<string>("codex.customPromptFilepath", "");
     let reviewPromptMode: ReviewPromptMode =
       reviewDiff.length > MAX_INLINE_REVIEW_PROMPT_CHARS
         ? "branch-diff"

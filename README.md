@@ -112,7 +112,8 @@ docker compose up -d
 | `CODEX_TIMEOUT_MS` | 실행 타임아웃 (ms) | `600000` |
 | `OPENAI_API_KEY` | OpenAI API 키 (Codex CLI 인증) | - |
 | `OPENAI_BASE_URL` | OpenAI API 엔드포인트 URL (커스텀 엔드포인트용) | - |
-| `REVIEW_CUSTOM_PROMPT_FILEPATH` | 커스텀 리뷰 프롬프트 파일 경로 (기본 프롬프트에 append) | - |
+| `REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS` | repo slug별 커스텀 프롬프트 파일 경로 JSON 맵 (예: `{"frontend-app":"/prompts/js.md"}`). 매핑된 repo에 우선 적용 | - |
+| `REVIEW_CUSTOM_PROMPT_FILEPATH` | 전역 커스텀 리뷰 프롬프트 파일 경로 (기본 프롬프트에 append). repo별 매핑이 없는 repo의 fallback | - |
 
 ### Bitbucket
 
