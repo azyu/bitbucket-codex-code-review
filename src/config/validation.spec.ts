@@ -64,6 +64,29 @@ describe("validationSchema", () => {
     );
   });
 
+  it("accepts repo custom prompt filepath JSON objects", () => {
+    const { error, value } = validationSchema.validate({
+      ...validEnv,
+      REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS: '{"repo-a":"/prompts/a.md"}',
+    });
+
+    expect(error).toBeUndefined();
+    expect(value.REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS).toBe(
+      '{"repo-a":"/prompts/a.md"}',
+    );
+  });
+
+  it("rejects invalid repo custom prompt filepath JSON", () => {
+    const { error } = validationSchema.validate({
+      ...validEnv,
+      REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS: "{invalid}",
+    });
+
+    expect(error?.message).toContain(
+      "Invalid REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS",
+    );
+  });
+
   it("rejects unsupported trigger modes", () => {
     const { error } = validationSchema.validate({
       ...validEnv,
