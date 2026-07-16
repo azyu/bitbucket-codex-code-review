@@ -371,3 +371,4 @@
 | 테스트 (TDD RED→GREEN) | ✅ | 맵 매칭/전역 fallback/파일 누락 reject 3케이스, 190 tests passed |
 | 문서 업데이트 | ✅ | README.md env 테이블, .env.example |
 | pnpm build + lint + test:cov | ✅ | 커버리지 85.93% (기준 80%) |
+| PR #18 Codex 리뷰 반영 | ✅ | validation.ts에 jsonObjectValidator 추가 (부팅 시 fail-fast), 192 tests passed |
