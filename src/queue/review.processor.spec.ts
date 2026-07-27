@@ -48,6 +48,37 @@ describe("review.prompt", () => {
     },
   );
 
+  describe("excluded changed files section", () => {
+    it.each(["inline-diff", "branch-diff"] as const)(
+      "should list excluded but changed files in %s mode",
+      (mode) => {
+        const prompt = buildReviewPrompt("main", "diff --git a/a b/a", mode, [
+          "M pnpm-lock.yaml",
+        ]);
+
+        expect(prompt).toContain("## diff에서 제외된 변경 파일");
+        expect(prompt).toContain("- M pnpm-lock.yaml");
+        expect(prompt).toContain('"변경되지 않았다"');
+      },
+    );
+
+    it("should state that no excluded file changed when the list is empty", () => {
+      const prompt = buildReviewPrompt("main", "diff --git a/a b/a");
+
+      expect(prompt).toContain("## diff에서 제외된 변경 파일");
+      expect(prompt).toContain("그중 변경된 파일이 없어");
+      expect(prompt).not.toContain("- M pnpm-lock.yaml");
+    });
+
+    it("should forward excluded files through resolveReviewPrompt", async () => {
+      const result = await resolveReviewPrompt("main", "", "diff", "inline-diff", [
+        "M pnpm-lock.yaml",
+      ]);
+
+      expect(result).toContain("- M pnpm-lock.yaml");
+    });
+  });
+
   describe("resolveReviewPrompt", () => {
     it("should return default prompt when filepath is empty", async () => {
       const result = await resolveReviewPrompt("main", "");
@@ -641,6 +672,7 @@ describe("ReviewProcessor publish results", () => {
       baseBranch: string,
       reviewDiff: string,
       repositorySlug: string,
+      excludedChangedFiles: readonly string[],
     ): Promise<ICodexReviewResult>;
   };
 
@@ -663,9 +695,10 @@ describe("ReviewProcessor publish results", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockConfigService.get.mockReturnValue("");
-    mockWorkspaceService.createReviewDiff.mockResolvedValue(
-      "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
-    );
+    mockWorkspaceService.createReviewDiff.mockResolvedValue({
+      diff: "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
+      excludedChangedFiles: [],
+    });
     processor = new ReviewProcessor(
       mockReviewService as never,
       mockWorkspaceService as never,
@@ -712,6 +745,7 @@ describe("ReviewProcessor publish results", () => {
         "main",
         reviewDiff,
         "my-repo",
+        [],
       );
 
       const prompt = mockCodexService.executeCodex.mock.calls[0][2];
@@ -776,6 +810,7 @@ describe("ReviewProcessor publish results", () => {
           "main",
           reviewDiff,
           "my-repo",
+          [],
         );
 
         const prompt = mockCodexService.executeCodex.mock.calls[0][2];
@@ -813,6 +848,7 @@ describe("ReviewProcessor publish results", () => {
           "main",
           "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n+ok",
           "my-repo",
+          [],
         );
 
         const prompt = mockCodexService.executeCodex.mock.calls[0][2];
@@ -855,6 +891,7 @@ describe("ReviewProcessor publish results", () => {
           "main",
           "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n+ok",
           "my-repo",
+          [],
         );
 
         const prompt = mockCodexService.executeCodex.mock.calls[0][2];
@@ -880,6 +917,7 @@ describe("ReviewProcessor publish results", () => {
           "main",
           "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n+ok",
           "my-repo",
+          [],
         ),
       ).rejects.toThrow(/Failed to read custom prompt file/);
     });
@@ -928,6 +966,32 @@ describe("ReviewProcessor publish results", () => {
       expect.objectContaining({
         body: expect.not.stringContaining("1) 변경 개요"),
       }),
+    );
+  });
+
+  it("should forward excluded changed files from the review diff into the Codex prompt", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/worktree",
+      bareRepoPath: "/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockWorkspaceService.createReviewDiff.mockResolvedValue({
+      diff: "diff --git a/package.json b/package.json\n@@ -1 +1 @@\n+dep",
+      excludedChangedFiles: ["M pnpm-lock.yaml"],
+    });
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 1,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+
+    await processor.process({ data: baseJobData } as never);
+
+    expect(mockCodexService.executeCodex.mock.calls[0][2]).toContain(
+      "- M pnpm-lock.yaml",
     );
   });
 
@@ -1092,9 +1156,10 @@ describe("ReviewProcessor error handling", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockConfigService.get.mockReturnValue("");
-    mockWorkspaceService.createReviewDiff.mockResolvedValue(
-      "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
-    );
+    mockWorkspaceService.createReviewDiff.mockResolvedValue({
+      diff: "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
+      excludedChangedFiles: [],
+    });
     processor = new ReviewProcessor(
       mockReviewService as never,
       mockWorkspaceService as never,

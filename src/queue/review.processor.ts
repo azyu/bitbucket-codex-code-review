@@ -53,10 +53,12 @@ export class ReviewProcessor extends WorkerHost {
       const worktreeInfo = await this.prepareWorkspace(data);
       worktreePath = worktreeInfo.worktreePath;
       bareRepoPath = worktreeInfo.bareRepoPath;
-      reviewDiff = await this.workspaceService.createReviewDiff(
-        worktreePath,
-        data.baseBranch,
-      );
+      const { diff, excludedChangedFiles } =
+        await this.workspaceService.createReviewDiff(
+          worktreePath,
+          data.baseBranch,
+        );
+      reviewDiff = diff;
 
       // Step 2: Execute unified review (single Codex call)
       codexResult = await this.executeReview(
@@ -64,6 +66,7 @@ export class ReviewProcessor extends WorkerHost {
         data.baseBranch,
         reviewDiff,
         data.repositorySlug,
+        excludedChangedFiles,
       );
 
       // Step 3: Publish results to Bitbucket
@@ -172,6 +175,7 @@ export class ReviewProcessor extends WorkerHost {
     baseBranch: string,
     reviewDiff: string,
     repositorySlug: string,
+    excludedChangedFiles: readonly string[],
   ): Promise<ICodexReviewResult> {
     // Resolve prompt file: repoCustomPromptFilepaths[repoSlug] → customPromptFilepath
     const repoCustomPromptFilepaths =
@@ -195,6 +199,7 @@ export class ReviewProcessor extends WorkerHost {
       customPromptFilepath,
       reviewDiff,
       reviewPromptMode,
+      excludedChangedFiles,
     );
     if (
       reviewPromptMode === "inline-diff" &&
@@ -209,6 +214,7 @@ export class ReviewProcessor extends WorkerHost {
         customPromptFilepath,
         reviewDiff,
         reviewPromptMode,
+        excludedChangedFiles,
       );
     }
 

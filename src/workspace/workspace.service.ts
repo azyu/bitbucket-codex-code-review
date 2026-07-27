@@ -9,6 +9,7 @@ import { existsSync } from "fs";
 import {
   IWorktreeInfo,
   IPrepareWorktreeParams,
+  IReviewDiff,
 } from "./interfaces/workspace.interfaces";
 
 const execFileAsync = promisify(execFile);
@@ -18,6 +19,12 @@ const REVIEW_DIFF_EXCLUDED_PATHS = [
   "yarn.lock",
   "bun.lockb",
 ];
+const excludePathspecs = REVIEW_DIFF_EXCLUDED_PATHS.map(
+  (path) => `:(exclude,glob)**/${path}`,
+);
+const includePathspecs = REVIEW_DIFF_EXCLUDED_PATHS.map(
+  (path) => `:(glob)**/${path}`,
+);
 
 @Injectable()
 export class WorkspaceService {
@@ -111,7 +118,7 @@ export class WorkspaceService {
   async createReviewDiff(
     worktreePath: string,
     baseBranch: string,
-  ): Promise<string> {
+  ): Promise<IReviewDiff> {
     const baseRef = `refs/heads/${baseBranch}`;
     const { stdout: mergeBase } = await execFileAsync(
       "git",
@@ -136,9 +143,7 @@ export class WorkspaceService {
         `${baseCommit}..HEAD`,
         "--",
         ".",
-        ...REVIEW_DIFF_EXCLUDED_PATHS.map(
-          (path) => `:(exclude,glob)**/${path}`,
-        ),
+        ...excludePathspecs,
       ],
       {
         cwd: worktreePath,
@@ -147,10 +152,60 @@ export class WorkspaceService {
       },
     );
 
+    const excludedChangedFiles = await this.listExcludedChangedFiles(
+      worktreePath,
+      baseCommit,
+    );
+
     this.logger.debug(
       `Review diff created from merge-base ${baseCommit.substring(0, 12)} against HEAD`,
     );
-    return stdout;
+    return { diff: stdout, excludedChangedFiles };
+  }
+
+  /**
+   * diff 본문에서 제외한 경로 중 이번 PR에서 실제로 변경된 파일 목록.
+   * 프롬프트에 명시해 "diff에 없음 = 변경 없음" 오탐을 막는다.
+   */
+  private async listExcludedChangedFiles(
+    worktreePath: string,
+    baseCommit: string,
+  ): Promise<string[]> {
+    try {
+      const { stdout } = await execFileAsync(
+        "git",
+        [
+          "diff",
+          "--no-ext-diff",
+          "--find-renames",
+          "--name-status",
+          `${baseCommit}..HEAD`,
+          "--",
+          ...includePathspecs,
+        ],
+        {
+          cwd: worktreePath,
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024,
+        },
+      );
+
+      return stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const fields = line.split("\t");
+          const status = fields[0];
+          const path = fields[fields.length - 1];
+          return `${status} ${path}`;
+        });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to list excluded changed files: ${(err as Error).message}`,
+      );
+      return [];
+    }
   }
 
   private async ensureBareRepo(
