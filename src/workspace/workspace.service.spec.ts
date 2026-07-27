@@ -322,7 +322,7 @@ describe("WorkspaceService", () => {
     expect(result.excludedChangedFiles).toEqual([]);
   });
 
-  it("keeps the diff when listing excluded changed files fails", async () => {
+  it("returns null excluded files when the lookup fails", async () => {
     execFileMock
       .mockImplementationOnce(
         (
@@ -352,7 +352,7 @@ describe("WorkspaceService", () => {
     const result = await service.createReviewDiff("/tmp/worktree", "main");
 
     expect(result.diff).toBe("diff --git a/file b/file");
-    expect(result.excludedChangedFiles).toEqual([]);
+    expect(result.excludedChangedFiles).toBeNull();
   });
 
   it("throws when merge-base returns an empty commit", async () => {

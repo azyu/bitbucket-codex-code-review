@@ -17,7 +17,7 @@ export async function resolveReviewPrompt(
   customPromptFilepath: string,
   reviewDiff = "",
   mode: ReviewPromptMode = "inline-diff",
-  excludedChangedFiles: readonly string[] = [],
+  excludedChangedFiles: readonly string[] | null = [],
 ): Promise<string> {
   const base = buildReviewPrompt(
     baseBranch,
@@ -40,37 +40,59 @@ export async function resolveReviewPrompt(
   }
 }
 
+/**
+ * diff 본문에서 제외한 파일에 대한 안내 섹션.
+ * null은 "조회 실패로 알 수 없음" — 변경 없음으로 단정하면 안 된다.
+ */
+function buildExcludedSection(
+  excludedChangedFiles: readonly string[] | null,
+): string[] {
+  const heading = ["## diff에서 제외된 변경 파일", ""];
+
+  if (excludedChangedFiles === null) {
+    return [
+      ...heading,
+      "제외 대상 파일(lock 파일) 목록을 조회하지 못해서, 이번 PR에서 lock 파일이 바뀌었는지 알 수 없어.",
+      "lock 갱신 누락 여부는 판단하지 말고 findings에도 포함하지 마.",
+      "",
+    ];
+  }
+
+  if (excludedChangedFiles.length === 0) {
+    return [
+      ...heading,
+      "lock 파일(pnpm-lock.yaml, package-lock.json, yarn.lock, bun.lockb)은 diff 본문에서 항상 제외되지만, 이번 PR에서는 그중 변경된 파일이 없어.",
+      "의존성 매니페스트 변경에 lock 갱신이 빠졌다고 지적할 경우, path는 반드시 diff에 포함된 파일(예: package.json)로 지정해줘.",
+      "",
+    ];
+  }
+
+  return [
+    ...heading,
+    "아래 파일들은 이번 PR에서 실제로 변경됐지만, 입력 크기를 줄이려고 diff 본문에서 의도적으로 제외했어.",
+    "",
+    ...excludedChangedFiles.map((file) => `- ${file}`),
+    "",
+    "각 줄 앞 문자는 `git diff --name-status` 상태값이야 (M=수정, A=추가, D=삭제, R=이름 변경).",
+    'M/A 상태 파일은 정상적으로 갱신된 것이니 "변경되지 않았다" / "갱신이 누락됐다"고 단정하지 마.',
+    "D/R처럼 삭제·이름 변경 상태라면 문제가 될 수 있으니 필요하면 지적해도 돼.",
+    "단 findings의 path는 반드시 diff에 포함된 파일(예: package.json)로 지정해줘 — 제외된 파일 경로로 단 findings는 게시 단계에서 폐기돼.",
+    "",
+  ];
+}
+
 export function buildReviewPrompt(
   baseBranch: string,
   reviewDiff = "",
   mode: ReviewPromptMode = "inline-diff",
-  excludedChangedFiles: readonly string[] = [],
+  excludedChangedFiles: readonly string[] | null = [],
 ): string {
   const isBranchDiffMode = mode === "branch-diff";
   const quotedBaseRef = shellQuote(`refs/heads/${baseBranch}`);
   const targetInstruction = isBranchDiffMode
     ? "프롬프트에 diff를 첨부하지 않는다. 현재 worktree의 체크아웃된 브랜치에서 Git으로 PR diff를 직접 조회하고, 조회한 변경사항만 근거로 사용해줘."
     : "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.";
-  const excludedSection =
-    excludedChangedFiles.length > 0
-      ? [
-          "## diff에서 제외된 변경 파일",
-          "",
-          "아래 파일들은 이번 PR에서 실제로 변경됐지만, 입력 크기를 줄이려고 diff 본문에서 의도적으로 제외했어.",
-          "",
-          ...excludedChangedFiles.map((file) => `- ${file}`),
-          "",
-          '이 파일들이 "변경되지 않았다" / "갱신이 누락됐다"고 단정하지 마.',
-          "이 파일들 자체에 대한 findings도 만들지 마 (게시 단계에서 폐기됨).",
-          "",
-        ]
-      : [
-          "## diff에서 제외된 변경 파일",
-          "",
-          "lock 파일(pnpm-lock.yaml, package-lock.json, yarn.lock, bun.lockb)은 diff 본문에서 항상 제외되지만, 이번 PR에서는 그중 변경된 파일이 없어.",
-          "의존성 매니페스트 변경에 lock 갱신이 빠졌다고 지적할 경우, path는 반드시 diff에 포함된 파일(예: package.json)로 지정해줘.",
-          "",
-        ];
+  const excludedSection = buildExcludedSection(excludedChangedFiles);
   const diffSection = isBranchDiffMode
     ? [
         "## 리뷰 대상 PR diff",

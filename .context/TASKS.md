@@ -385,3 +385,4 @@
 | 테스트 | ✅ | workspace 3케이스 + 프롬프트 4케이스 + process() 배선 1케이스, 199 tests passed |
 | pnpm build + lint + test:cov | ✅ | 커버리지 86.7% (기준 80%) |
 | 실물 검증 | ✅ | `171df0940`에 positive pathspec 실행 → `M pnpm-lock.yaml` 출력 확인 |
+| PR #19 Codex 리뷰 반영 (P2 2건) | ✅ | ① 조회 실패를 `null`(알 수 없음)로 구분해 "변경 없음" 단정 제거 ② 상태값(M/A/D/R) 설명 추가로 lock 삭제·이름 변경은 계속 지적 가능, 201 tests passed |

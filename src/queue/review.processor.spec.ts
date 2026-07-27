@@ -70,6 +70,32 @@ describe("review.prompt", () => {
       expect(prompt).not.toContain("- M pnpm-lock.yaml");
     });
 
+    it("should not claim absence when the excluded file lookup failed", () => {
+      const prompt = buildReviewPrompt(
+        "main",
+        "diff --git a/a b/a",
+        "inline-diff",
+        null,
+      );
+
+      expect(prompt).toContain("목록을 조회하지 못해서");
+      expect(prompt).toContain("lock 갱신 누락 여부는 판단하지 말고");
+      expect(prompt).not.toContain("그중 변경된 파일이 없어");
+    });
+
+    it("should allow reporting deleted lock files while explaining status codes", () => {
+      const prompt = buildReviewPrompt(
+        "main",
+        "diff --git a/package.json b/package.json",
+        "inline-diff",
+        ["D pnpm-lock.yaml"],
+      );
+
+      expect(prompt).toContain("- D pnpm-lock.yaml");
+      expect(prompt).toContain("M=수정, A=추가, D=삭제, R=이름 변경");
+      expect(prompt).toContain("D/R처럼 삭제·이름 변경 상태라면");
+    });
+
     it("should forward excluded files through resolveReviewPrompt", async () => {
       const result = await resolveReviewPrompt("main", "", "diff", "inline-diff", [
         "M pnpm-lock.yaml",
@@ -672,7 +698,7 @@ describe("ReviewProcessor publish results", () => {
       baseBranch: string,
       reviewDiff: string,
       repositorySlug: string,
-      excludedChangedFiles: readonly string[],
+      excludedChangedFiles: readonly string[] | null,
     ): Promise<ICodexReviewResult>;
   };
 

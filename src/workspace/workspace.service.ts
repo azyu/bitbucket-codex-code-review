@@ -166,11 +166,12 @@ export class WorkspaceService {
   /**
    * diff 본문에서 제외한 경로 중 이번 PR에서 실제로 변경된 파일 목록.
    * 프롬프트에 명시해 "diff에 없음 = 변경 없음" 오탐을 막는다.
+   * 조회 실패 시 null — 빈 배열(변경 없음)로 단정하면 같은 오탐이 재발한다.
    */
   private async listExcludedChangedFiles(
     worktreePath: string,
     baseCommit: string,
-  ): Promise<string[]> {
+  ): Promise<string[] | null> {
     try {
       const { stdout } = await execFileAsync(
         "git",
@@ -204,7 +205,7 @@ export class WorkspaceService {
       this.logger.warn(
         `Failed to list excluded changed files: ${(err as Error).message}`,
       );
-      return [];
+      return null;
     }
   }
 

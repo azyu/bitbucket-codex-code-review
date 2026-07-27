@@ -175,7 +175,7 @@ export class ReviewProcessor extends WorkerHost {
     baseBranch: string,
     reviewDiff: string,
     repositorySlug: string,
-    excludedChangedFiles: readonly string[],
+    excludedChangedFiles: readonly string[] | null,
   ): Promise<ICodexReviewResult> {
     // Resolve prompt file: repoCustomPromptFilepaths[repoSlug] → customPromptFilepath
     const repoCustomPromptFilepaths =
