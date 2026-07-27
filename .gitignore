@@ -17,5 +17,6 @@ coverage/
 .DS_Store
 *.tsbuildinfo
 .claude
+.serena/
 
 .worktrees/
