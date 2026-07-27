@@ -372,3 +372,17 @@
 | 문서 업데이트 | ✅ | README.md env 테이블, .env.example |
 | pnpm build + lint + test:cov | ✅ | 커버리지 85.93% (기준 80%) |
 | PR #18 Codex 리뷰 반영 | ✅ | validation.ts에 jsonObjectValidator 추가 (부팅 시 fail-fast), 192 tests passed |
+
+### lock 파일 제외로 인한 리뷰 오탐 제거
+- **상태**: ✅ 완료
+- **배경**: lxp_services `171df0940` 리뷰에서 "pnpm-lock.yaml 갱신 없음" blocking 오탐 발생. 실제로는 3535줄 변경됨. `REVIEW_DIFF_EXCLUDED_PATHS`가 lock 파일을 diff에서 제거하는데, 프롬프트가 그 사실을 모델에게 알려주지 않아 "diff에 없음 = 변경 없음"으로 오독됨.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| createReviewDiff가 IReviewDiff 반환 | ✅ | diff + excludedChangedFiles (`git diff --name-status`, exclude pathspec을 positive로 반전) |
+| 제외 목록 조회 실패 시 degrade | ✅ | warn 로그 후 빈 배열, 리뷰는 계속 진행 |
+| 프롬프트에 "diff에서 제외된 변경 파일" 섹션 | ✅ | inline-diff/branch-diff 두 모드 공통, 목록 없으면 "변경된 파일 없음"으로 명시해 진짜 lock 미갱신은 계속 지적 가능 |
+| 테스트 | ✅ | workspace 3케이스 + 프롬프트 4케이스 + process() 배선 1케이스, 199 tests passed |
+| pnpm build + lint + test:cov | ✅ | 커버리지 86.7% (기준 80%) |
+| 실물 검증 | ✅ | `171df0940`에 positive pathspec 실행 → `M pnpm-lock.yaml` 출력 확인 |
+| PR #19 Codex 리뷰 반영 (P2 2건) | ✅ | ① 조회 실패를 `null`(알 수 없음)로 구분해 "변경 없음" 단정 제거 ② 상태값(M/A/D/R) 설명 추가로 lock 삭제·이름 변경은 계속 지적 가능, 201 tests passed |

@@ -215,11 +215,27 @@ describe("WorkspaceService", () => {
           _options: Record<string, unknown>,
           callback: ExecFileCallback,
         ) => callback(null, { stdout: "diff --git a/file b/file", stderr: "" }),
+      )
+      .mockImplementationOnce(
+        (
+          _command: string,
+          _args: string[],
+          _options: Record<string, unknown>,
+          callback: ExecFileCallback,
+        ) =>
+          callback(null, {
+            stdout: "M\tpnpm-lock.yaml\nR100\told.lock\tapps/web/yarn.lock\n",
+            stderr: "",
+          }),
       );
 
-    const diff = await service.createReviewDiff("/tmp/worktree", "main");
+    const result = await service.createReviewDiff("/tmp/worktree", "main");
 
-    expect(diff).toBe("diff --git a/file b/file");
+    expect(result.diff).toBe("diff --git a/file b/file");
+    expect(result.excludedChangedFiles).toEqual([
+      "M pnpm-lock.yaml",
+      "R100 apps/web/yarn.lock",
+    ]);
     expect(execFileMock).toHaveBeenNthCalledWith(
       1,
       "git",
@@ -250,6 +266,93 @@ describe("WorkspaceService", () => {
       },
       expect.any(Function),
     );
+    expect(execFileMock).toHaveBeenNthCalledWith(
+      3,
+      "git",
+      [
+        "diff",
+        "--no-ext-diff",
+        "--find-renames",
+        "--name-status",
+        "basecommit123..HEAD",
+        "--",
+        ":(glob)**/pnpm-lock.yaml",
+        ":(glob)**/package-lock.json",
+        ":(glob)**/yarn.lock",
+        ":(glob)**/bun.lockb",
+      ],
+      {
+        cwd: "/tmp/worktree",
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024,
+      },
+      expect.any(Function),
+    );
+  });
+
+  it("returns an empty excluded file list when no lock file changed", async () => {
+    execFileMock
+      .mockImplementationOnce(
+        (
+          _command: string,
+          _args: string[],
+          _options: Record<string, unknown>,
+          callback: ExecFileCallback,
+        ) => callback(null, { stdout: "basecommit123\n", stderr: "" }),
+      )
+      .mockImplementationOnce(
+        (
+          _command: string,
+          _args: string[],
+          _options: Record<string, unknown>,
+          callback: ExecFileCallback,
+        ) => callback(null, { stdout: "diff --git a/file b/file", stderr: "" }),
+      )
+      .mockImplementationOnce(
+        (
+          _command: string,
+          _args: string[],
+          _options: Record<string, unknown>,
+          callback: ExecFileCallback,
+        ) => callback(null, { stdout: "\n", stderr: "" }),
+      );
+
+    const result = await service.createReviewDiff("/tmp/worktree", "main");
+
+    expect(result.excludedChangedFiles).toEqual([]);
+  });
+
+  it("returns null excluded files when the lookup fails", async () => {
+    execFileMock
+      .mockImplementationOnce(
+        (
+          _command: string,
+          _args: string[],
+          _options: Record<string, unknown>,
+          callback: ExecFileCallback,
+        ) => callback(null, { stdout: "basecommit123\n", stderr: "" }),
+      )
+      .mockImplementationOnce(
+        (
+          _command: string,
+          _args: string[],
+          _options: Record<string, unknown>,
+          callback: ExecFileCallback,
+        ) => callback(null, { stdout: "diff --git a/file b/file", stderr: "" }),
+      )
+      .mockImplementationOnce(
+        (
+          _command: string,
+          _args: string[],
+          _options: Record<string, unknown>,
+          callback: ExecFileCallback,
+        ) => callback(new Error("git failed")),
+      );
+
+    const result = await service.createReviewDiff("/tmp/worktree", "main");
+
+    expect(result.diff).toBe("diff --git a/file b/file");
+    expect(result.excludedChangedFiles).toBeNull();
   });
 
   it("throws when merge-base returns an empty commit", async () => {
