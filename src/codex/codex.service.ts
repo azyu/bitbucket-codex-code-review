@@ -12,6 +12,8 @@ import {
 } from "./codex-output.parser";
 
 const MAX_STDERR_BYTES = 64 * 1024;
+const CAPACITY_ERROR_MESSAGE =
+  "Selected model is at capacity. Please try a different model.";
 const TIMEOUT_EXIT_CODE = 124;
 const CODEX_ENV_DENYLIST = new Set(["CODEX_AUTH_JSON"]);
 
@@ -19,6 +21,7 @@ interface ISpawnResult {
   readonly code: number;
   readonly usage: ICodexUsageMetrics;
   readonly stderr: string;
+  readonly codexError: string;
 }
 
 @Injectable()
@@ -162,16 +165,14 @@ export class CodexService {
           ? TIMEOUT_EXIT_CODE
           : (code ?? 1);
 
-        // For spawn startup failures (ENOENT, EACCES), inject the error
-        // message into stderr so operators see the root cause.
         const stderrOut = stderr.slice(0, MAX_STDERR_BYTES);
-        const finalStderr =
-          stderrOut || codexError.slice(0, MAX_STDERR_BYTES) || spawnError?.message || "";
+        const finalStderr = stderrOut || spawnError?.message || "";
 
         resolve({
           code: exitCode,
           usage: lastUsage,
           stderr: finalStderr,
+          codexError: codexError.slice(0, MAX_STDERR_BYTES),
         });
       });
     });
@@ -207,7 +208,7 @@ export class CodexService {
         this.logger.log(`Codex review completed in ${durationMs}ms`);
       } else {
         this.logger.error(
-          `Codex review failed in ${durationMs}ms (exit ${result.code}): ${result.stderr || "no stderr"}`,
+          `Codex review failed in ${durationMs}ms (exit ${result.code}): ${result.codexError || result.stderr || "no error details"}`,
         );
       }
 
@@ -218,8 +219,12 @@ export class CodexService {
         if (result.code === 0) {
           throw new Error("Codex output file could not be read");
         }
-        rawOutput = result.stderr
-          ? `Codex run failed (exit ${result.code}): ${result.stderr.trim()}`
+        const publicError =
+          result.codexError === CAPACITY_ERROR_MESSAGE
+            ? result.codexError
+            : result.stderr;
+        rawOutput = publicError
+          ? `Codex run failed (exit ${result.code}): ${publicError.trim()}`
           : `Codex run failed (exit ${result.code}). Check worker logs for details.`;
       }
 
