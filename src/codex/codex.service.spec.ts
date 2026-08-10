@@ -278,6 +278,49 @@ describe("CodexService", () => {
     expect(result.inputTokens).toBe(300);
   });
 
+  it.each([
+    { type: "error", message: "Selected model is at capacity. Please try a different model." },
+    {
+      type: "turn.failed",
+      error: { message: "Selected model is at capacity. Please try a different model." },
+    },
+  ])("should return the Codex JSON error message from $type", async (event) => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockRejectedValue(new Error("ENOENT"));
+
+    const promise = createService().executeCodex("/work", "main", "review");
+
+    child.stdout.emit("data", `${JSON.stringify(event)}\n`);
+    child.emit("close", 1, null);
+
+    const result = await promise;
+
+    expect(result.rawOutput).toBe(
+      "Codex run failed (exit 1): Selected model is at capacity. Please try a different model.",
+    );
+  });
+
+  it("should not publish unrecognized structured error messages", async () => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockRejectedValue(new Error("ENOENT"));
+
+    const promise = createService().executeCodex("/work", "main", "review");
+
+    child.stdout.emit(
+      "data",
+      `${JSON.stringify({ type: "error", message: "Request failed with api_key=secret" })}\n`,
+    );
+    child.emit("close", 1, null);
+
+    const result = await promise;
+
+    expect(result.rawOutput).toBe(
+      "Codex run failed (exit 1). Check worker logs for details.",
+    );
+  });
+
   it("should throw when output file unreadable on success exit", async () => {
     const child = createMockChild();
     spawnSpy.mockReturnValue(child);

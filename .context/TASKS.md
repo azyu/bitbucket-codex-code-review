@@ -1,8 +1,20 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-07-10
+> 마지막 업데이트: 2026-08-10
 
 ## 진행 중/최근 작업
+
+### Task 29: Codex 실제 실패 메시지 노출
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 실패 원인 추출 | ✅ | `codex exec --json` stdout의 `error`와 `turn.failed` 이벤트에서 실제 오류 메시지 추출 |
+| 사용자 오류 코멘트 전달 | ✅ | allowlist된 capacity 오류만 기존 실패 코멘트와 DB 오류 메시지 경로로 전달, 나머지는 워커 로그에만 기록 |
+| 회귀 테스트 | ✅ | 두 JSON 오류 이벤트와 Bitbucket capacity 답글을 검증하고 미승인 구조화 오류의 비공개를 검증 |
+| 빌드/린트/테스트 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공 (204 tests) |
+| 커버리지 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 86.77% |
+| 보안 체크리스트 | ✅ | 구조화 오류는 capacity 문구만 allowlist, 그 외 메시지는 PR/DB에 노출하지 않음 |
 
 ### Task 28: GPT-5.6 모델 패밀리 전환
 - **상태**: ✅ 완료

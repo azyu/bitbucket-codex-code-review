@@ -1248,7 +1248,8 @@ describe("ReviewProcessor error handling", () => {
     });
     mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
     mockCodexService.executeCodex.mockResolvedValue({
-      rawOutput: "codex failed",
+      rawOutput:
+        "Codex run failed (exit 2): Selected model is at capacity. Please try a different model.",
       exitCode: 2,
       durationMs: 2200,
       inputTokens: 1500,
@@ -1270,6 +1271,13 @@ describe("ReviewProcessor error handling", () => {
         outputTokens: 50,
         totalDurationMs: expect.any(Number),
         errorMessage: expect.stringContaining("Codex run failed"),
+      }),
+    );
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining(
+          "Selected model is at capacity. Please try a different model.",
+        ),
       }),
     );
   });
