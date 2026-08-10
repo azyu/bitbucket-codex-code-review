@@ -17,6 +17,25 @@ function toNullableNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+export function parseCodexErrorLine(line: string): string | null {
+  try {
+    const parsed = JSON.parse(line) as {
+      readonly type?: unknown;
+      readonly message?: unknown;
+      readonly error?: { readonly message?: unknown };
+    };
+    const message =
+      parsed.type === "error"
+        ? parsed.message
+        : parsed.type === "turn.failed"
+          ? parsed.error?.message
+          : null;
+    return typeof message === "string" && message.trim() ? message.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 const NULL_USAGE: ICodexUsageMetrics = {
   inputTokens: null,
   cachedInputTokens: null,

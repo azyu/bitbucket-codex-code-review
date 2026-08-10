@@ -7,6 +7,7 @@ import { join } from "path";
 import { ICodexReviewResult } from "./interfaces/codex.interfaces";
 import {
   ICodexUsageMetrics,
+  parseCodexErrorLine,
   parseCodexUsageLine,
 } from "./codex-output.parser";
 
@@ -108,6 +109,7 @@ export class CodexService {
       };
       let stderr = "";
       let spawnError: Error | null = null;
+      let codexError = "";
 
       child.stdout.on("data", (chunk: string) => {
         const text = partialLine + chunk;
@@ -118,6 +120,10 @@ export class CodexService {
           const usage = parseCodexUsageLine(line);
           if (usage) {
             lastUsage = usage;
+          }
+          const error = parseCodexErrorLine(line);
+          if (error) {
+            codexError = error;
           }
         }
       });
@@ -146,6 +152,10 @@ export class CodexService {
           if (usage) {
             lastUsage = usage;
           }
+          const error = parseCodexErrorLine(partialLine);
+          if (error) {
+            codexError = error;
+          }
         }
 
         const exitCode = signal
@@ -155,9 +165,8 @@ export class CodexService {
         // For spawn startup failures (ENOENT, EACCES), inject the error
         // message into stderr so operators see the root cause.
         const stderrOut = stderr.slice(0, MAX_STDERR_BYTES);
-        const finalStderr = spawnError && !stderrOut
-          ? spawnError.message
-          : stderrOut;
+        const finalStderr =
+          stderrOut || codexError.slice(0, MAX_STDERR_BYTES) || spawnError?.message || "";
 
         resolve({
           code: exitCode,
