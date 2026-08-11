@@ -156,12 +156,13 @@ describe("CodexService", () => {
     expect(child.stdin.end).toHaveBeenCalledWith(largePrompt);
   });
 
-  it("should not pass multiline auth env to codex child process", async () => {
+  it("should only pass allowlisted env to codex child process", async () => {
     const child = createMockChild();
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("review output text");
-    process.env["CODEX_AUTH_JSON"] = '{\n  "auth_mode": "chatgpt"\n}';
-    process.env["CODEX_SAFE_ENV"] = "safe-value";
+    process.env["BITBUCKET_API_TOKEN"] = "bitbucket-secret";
+    process.env["DB_PASSWORD"] = "database-secret";
+    process.env["OPENAI_API_KEY"] = "codex-credential";
 
     try {
       const promise = createService().executeCodex("/work", "main", "review");
@@ -175,11 +176,13 @@ describe("CodexService", () => {
         string[],
         { env: NodeJS.ProcessEnv },
       ];
-      expect(options.env["CODEX_AUTH_JSON"]).toBeUndefined();
-      expect(options.env["CODEX_SAFE_ENV"]).toBe("safe-value");
+      expect(options.env["BITBUCKET_API_TOKEN"]).toBeUndefined();
+      expect(options.env["DB_PASSWORD"]).toBeUndefined();
+      expect(options.env["OPENAI_API_KEY"]).toBe("codex-credential");
     } finally {
-      delete process.env["CODEX_AUTH_JSON"];
-      delete process.env["CODEX_SAFE_ENV"];
+      delete process.env["BITBUCKET_API_TOKEN"];
+      delete process.env["DB_PASSWORD"];
+      delete process.env["OPENAI_API_KEY"];
     }
   });
 

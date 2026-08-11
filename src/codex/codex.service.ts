@@ -15,7 +15,15 @@ const MAX_STDERR_BYTES = 64 * 1024;
 const CAPACITY_ERROR_MESSAGE =
   "Selected model is at capacity. Please try a different model.";
 const TIMEOUT_EXIT_CODE = 124;
-const CODEX_ENV_DENYLIST = new Set(["CODEX_AUTH_JSON"]);
+const CODEX_ENV_ALLOWLIST = new Set([
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "PATH",
+  "TMPDIR",
+]);
 
 interface ISpawnResult {
   readonly code: number;
@@ -70,11 +78,7 @@ export class CodexService {
         continue;
       }
 
-      if (
-        CODEX_ENV_DENYLIST.has(key) ||
-        value.includes("\n") ||
-        value.includes("\r")
-      ) {
+      if (!CODEX_ENV_ALLOWLIST.has(key)) {
         continue;
       }
 

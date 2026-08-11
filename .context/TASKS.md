@@ -4,6 +4,18 @@
 
 ## 진행 중/최근 작업
 
+### Task 30: Codex 자식 프로세스 환경 격리
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 취약점 재검증 | ✅ | Codex 실행 환경이 denylist 외의 모든 워커 환경 변수를 상속하는 상태 확인 |
+| 환경 변수 허용 목록 | ✅ | Codex 실행에 필요한 런타임·인증 변수만 명시적으로 전달하고 DB/Redis/Bitbucket/webhook 등 서비스 변수를 차단 |
+| 회귀 테스트 | ✅ | DB 비밀번호와 Bitbucket 토큰이 자식 환경에서 제거되고 Codex 인증 변수는 유지됨을 검증 |
+| 빌드/린트/테스트 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공 (204 tests) |
+| 커버리지 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 86.77% |
+| 보안 체크리스트 | ✅ | 하드코딩 시크릿 없음, 서비스 비밀은 Codex 환경에서 제외, 신규 입력·오류 노출 경로 없음 |
+
 ### Task 29: Codex 실제 실패 메시지 노출
 - **상태**: ✅ 완료
 
