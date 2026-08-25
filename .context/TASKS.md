@@ -4,6 +4,24 @@
 
 ## 진행 중/최근 작업
 
+### Task 30: 리뷰 근거 범위 분리 + 검증 가능성 게이트
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 오탐 근본 원인 확인 | ✅ | inline-diff 분기가 `"diff만 근거로 사용해줘"`로 증거 수집을 봉쇄하면서 판정기준 6번은 "검증 불가 가정 금지"를 요구 — 검증 수단을 뺏고 검증을 요구하는 구조. branch-diff 분기는 파일 읽기를 허용해 같은 봇이 모드에 따라 증거 권한이 달랐음 |
+| 봇 실행 능력 실측 | ✅ | read-only 샌드박스에서 셸 실행·파일 읽기 가능, 네트워크는 차단(`curl` → DNS 실패). worktree는 `git clone --bare` 전체 클론이라 `git log` 조회 가능 |
+| 지적 범위/근거 범위 분리 | ✅ | `scopeInstruction`(지적은 diff 안) + `evidenceInstruction`(근거는 worktree 파일·git 이력)으로 분리. 파일 읽기는 "diff에 안 보이는 레포 전역 동작에 의존하는 지적"에 한해 조건부 |
+| 검증 가능성 게이트 | ✅ | 판정기준 6번에 런타임 동작 주장의 확인 수단(`git log -- <경로>` / `git show`)을 명시하고, findings에 "확인 못 하면 blocking → suggestion 강등" 규칙 추가 |
+| 회귀 테스트 | ✅ | `verifiability gate` 3케이스 추가. 수정 전 프롬프트에 대해 3건 모두 실패(RED) → 수정 후 통과(GREEN) 확인 |
+| 빌드/린트/테스트 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공 (207 tests) |
+| 커버리지 | ✅ | `pnpm test:cov --runInBand` statement 86.78%, `review.prompt.ts` 100% |
+| 보안 체크리스트 | ✅ | 프롬프트 문구 변경만, 시크릿·신규 입력·에러 누출 없음 |
+| 한계 | ⚠️ | 단위 테스트는 "지시문이 프롬프트에 들어갔는지"까지만 검증. 모델이 실제로 강등하는지는 오탐 4건 diff를 실환경에 태워야 확인 가능 |
+| 운영 `trigger.mode` 확인 | ✅ | 멘션 없이 PR 생성만으로 봇이 동작한 관측으로 `auto` 계열 확정. 차트 기본값 `mention`과 다름. CI 게이트를 채택하지 않았으므로 이번 수정 내용에는 영향 없음 |
+| Pull Request | ✅ | GitHub PR [#22](https://github.com/azyu/bitbucket-codex-code-review/pull/22) 생성, CI `lint-and-build` 성공 |
+| PR 리뷰 피드백 반영 | ✅ | 머지 전례를 "그 자체가 반증"으로 넓게 쓰면 기존 패턴의 새 인스턴스에 대한 정상 지적까지 억제될 수 있어, 자동 검사 거부 주장에 한정하고 "코드가 옳다는 근거는 아니다"를 명시 |
+
 ### Task 29: Codex 실제 실패 메시지 노출
 - **상태**: ✅ 완료
 
