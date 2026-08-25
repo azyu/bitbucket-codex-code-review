@@ -89,9 +89,13 @@ export function buildReviewPrompt(
 ): string {
   const isBranchDiffMode = mode === "branch-diff";
   const quotedBaseRef = shellQuote(`refs/heads/${baseBranch}`);
-  const targetInstruction = isBranchDiffMode
-    ? "프롬프트에 diff를 첨부하지 않는다. 현재 worktree의 체크아웃된 브랜치에서 Git으로 PR diff를 직접 조회하고, 조회한 변경사항만 근거로 사용해줘."
-    : "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.";
+  // 지적 범위(diff 안)와 근거 범위(worktree 파일 + git 이력)는 분리한다.
+  // 둘을 묶으면 diff에 안 보이는 레포 전역 동작을 추론으로 단정하는 오탐이 난다.
+  const scopeInstruction = isBranchDiffMode
+    ? "프롬프트에 diff를 첨부하지 않는다. 현재 worktree의 체크아웃된 브랜치에서 Git으로 PR diff를 직접 조회하고, 조회한 변경 범위만 지적 대상으로 삼아줘."
+    : "지적 대상은 이 프롬프트 하단의 `리뷰 대상 PR diff`에 포함된 변경으로 한정해줘.";
+  const evidenceInstruction =
+    "단, 근거까지 diff 텍스트로 제한되는 건 아니야. diff에 드러나지 않는 레포 전역 동작(설정 파일, 무시 규칙, 이 레포의 기존 관례)에 의존하는 지적을 하려는 경우에 한해, 현재 worktree의 실제 파일과 git 이력을 읽어 전제를 먼저 확인해줘. 그 외에는 diff만 보고 판단해도 돼.";
   const excludedSection = buildExcludedSection(excludedChangedFiles);
   const diffSection = isBranchDiffMode
     ? [
@@ -128,7 +132,8 @@ export function buildReviewPrompt(
 
   return [
     `'${baseBranch}' 기준 PR merge-base부터 HEAD까지의 코드 변경사항을 한국어로 코드 리뷰해줘.`,
-    targetInstruction,
+    scopeInstruction,
+    evidenceInstruction,
     "",
     "## 버그 판정 기준",
     "",
@@ -139,7 +144,7 @@ export function buildReviewPrompt(
     "3. 코드베이스 전반 수준에 맞는 **리거(rigor)**를 적용",
     "4. **이번 커밋에서 도입된 버그만** 지적 (기존 버그 무시)",
     "5. 원작자가 알면 **스스로 고칠 법한 것만** 지적",
-    "6. 코드베이스나 의도에 대한 **검증 불가 가정 금지**",
+    "6. 코드베이스나 의도에 대한 **검증 불가 가정 금지** — 도구·프레임워크·설정 파일의 런타임 동작(무엇이 무시되는지, 어떤 검사가 실패하는지, 어떤 옵션이 호환되는지, 어떤 문법이 유효한지)을 전제로 삼으려면 worktree의 실제 설정 파일이나 `git log -- <경로>` / `git show`로 먼저 확인해줘. 같은 서식·패턴·설정이 이 레포에 이미 머지돼 있다면 그 자체가 반증이야",
     "7. 다른 코드에 미치는 영향은 **구체적 증거** 필요",
     "8. 의도적 변경은 **버그로 판정하지 않음**",
     "",
@@ -213,6 +218,7 @@ export function buildReviewPrompt(
     '  - "recommended": 권장 개선 사항 (성능, 가독성, 베스트 프랙티스)',
     '  - "suggestion": 선택적 개선 아이디어 (리팩토링, 최적화 기회)',
     '  - "tech-debt": 향후 개선이 필요한 기술 부채',
+    '- 판정기준 6의 런타임 동작 주장을 실제로 확인하지 못했으면 "blocking"으로 올리지 말고 "suggestion"으로 낮추고, 무엇을 확인해야 하는지 description에 적어줘',
     "- 문제가 없으면 빈 배열 []",
     "",
     ...excludedSection,

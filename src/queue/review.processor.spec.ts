@@ -105,6 +105,33 @@ describe("review.prompt", () => {
     });
   });
 
+  describe("verifiability gate", () => {
+    it.each(["inline-diff", "branch-diff"] as const)(
+      "should separate finding scope from evidence scope in %s mode",
+      (mode) => {
+        const prompt = buildReviewPrompt("main", "diff --git a/a b/a", mode);
+
+        expect(prompt).toContain("지적 대상");
+        expect(prompt).toContain("근거까지 diff 텍스트로 제한되는 건 아니야");
+        expect(prompt).toContain("현재 worktree의 실제 파일과 git 이력을 읽어");
+        // 조건부 — 모든 리뷰에 파일 읽기 왕복을 붙이지 않는다
+        expect(prompt).toContain("그 외에는 diff만 보고 판단해도 돼");
+        expect(prompt).not.toContain("만 근거로 사용해줘");
+      },
+    );
+
+    it("should require verification before blocking on runtime-behavior claims", () => {
+      const prompt = buildReviewPrompt("main", "diff --git a/a b/a");
+
+      expect(prompt).toContain("런타임 동작");
+      expect(prompt).toContain("`git log -- <경로>` / `git show`");
+      expect(prompt).toContain("이미 머지돼 있다면 그 자체가 반증");
+      expect(prompt).toContain(
+        '확인하지 못했으면 "blocking"으로 올리지 말고 "suggestion"으로 낮추고',
+      );
+    });
+  });
+
   describe("resolveReviewPrompt", () => {
     it("should return default prompt when filepath is empty", async () => {
       const result = await resolveReviewPrompt("main", "");
@@ -781,7 +808,7 @@ describe("ReviewProcessor publish results", () => {
       );
       if (expectInlineDiff) {
         expect(prompt).toContain(
-          "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.",
+          "지적 대상은 이 프롬프트 하단의 `리뷰 대상 PR diff`에 포함된 변경으로 한정해줘.",
         );
         expect(prompt).toContain("```diff");
         expect(prompt).toContain(reviewDiff);
@@ -792,7 +819,7 @@ describe("ReviewProcessor publish results", () => {
           /git diff[^\n]*(?:\$\([^\n]*git merge-base[^\n]*\)|\$\{[A-Za-z_][A-Za-z0-9_]*\})\.\.HEAD/,
         );
         expect(prompt).not.toContain(
-          "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.",
+          "지적 대상은 이 프롬프트 하단의 `리뷰 대상 PR diff`에 포함된 변경으로 한정해줘.",
         );
         expect(prompt).not.toContain("generated-change-2048");
         expect(prompt).toMatch(/git diff/);
