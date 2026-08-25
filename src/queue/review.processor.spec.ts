@@ -125,7 +125,9 @@ describe("review.prompt", () => {
 
       expect(prompt).toContain("런타임 동작");
       expect(prompt).toContain("`git log -- <경로>` / `git show`");
-      expect(prompt).toContain("이미 머지돼 있다면 그 자체가 반증");
+      expect(prompt).toContain("같은 검사를 거쳐 이미 머지돼 있는지가 직접적인 반증");
+      // 머지 전례를 정당성 근거로 확대 해석해 정상 지적을 억제하면 안 된다
+      expect(prompt).toContain("코드가 옳다는 근거는 아니야");
       expect(prompt).toContain(
         '확인하지 못했으면 "blocking"으로 올리지 말고 "suggestion"으로 낮추고',
       );
