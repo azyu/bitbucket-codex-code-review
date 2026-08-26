@@ -64,6 +64,7 @@ export const validationSchema = Joi.object({
     .custom(jsonObjectValidator("BITBUCKET_REPO_WEBHOOK_SECRETS")),
   WORKSPACE_BASE_PATH: Joi.string().default(DEFAULTS.WORKSPACE_BASE_PATH),
   WORKSPACE_MAX_CONCURRENT: Joi.number().default(DEFAULTS.WORKSPACE_MAX_CONCURRENT),
+  GIT_CLONE_TIMEOUT_MS: Joi.number().default(DEFAULTS.GIT_CLONE_TIMEOUT_MS),
   REVIEW_TRIGGER_MODE: Joi.string()
     .valid("mention", "auto", "both")
     .default(DEFAULTS.TRIGGER_MODE),

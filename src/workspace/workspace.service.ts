@@ -30,11 +30,16 @@ const includePathspecs = REVIEW_DIFF_EXCLUDED_PATHS.map(
 export class WorkspaceService {
   private readonly logger = new ServiceLogger(WorkspaceService.name);
   private readonly basePath: string;
+  private readonly cloneTimeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
     this.basePath = this.configService.get<string>(
       "workspace.basePath",
       "/tmp/code-review-workspaces",
+    );
+    this.cloneTimeoutMs = this.configService.get<number>(
+      "workspace.cloneTimeoutMs",
+      600_000,
     );
   }
 
@@ -222,11 +227,13 @@ export class WorkspaceService {
     this.logger.log(`Cloning bare repo: ${cloneUrl}`);
 
     try {
+      // 최초 clone은 서버측 pack 생성 대기까지 포함해 수 분이 걸릴 수 있고,
+      // 타임아웃으로 죽으면 부분 디렉토리가 정리되어 재시도도 0부터 다시 받는다.
       await execFileAsync(
         "git",
         ["clone", "--bare", cloneUrl, bareRepoPath],
         {
-          timeout: 120_000,
+          timeout: this.cloneTimeoutMs,
           env: { ...process.env, ...gitAuthEnv },
         },
       );
@@ -248,7 +255,8 @@ export class WorkspaceService {
       ["fetch", "origin", "+refs/heads/*:refs/heads/*", "--prune"],
       {
         cwd: bareRepoPath,
-        timeout: 60_000,
+        // 오래 방치된 repo의 증분 fetch도 같은 서버측 pack 생성 대기를 겪는다
+        timeout: 300_000,
         env: { ...process.env, ...gitAuthEnv },
       },
     );
