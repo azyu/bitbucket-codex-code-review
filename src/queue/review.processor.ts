@@ -1,5 +1,5 @@
 import { Processor, WorkerHost, OnWorkerEvent } from "@nestjs/bullmq";
-import { Job } from "bullmq";
+import { Job, UnrecoverableError } from "bullmq";
 import { ConfigService } from "@nestjs/config";
 import { ServiceLogger } from "@lib/logger";
 import { REVIEW_QUEUE_NAME } from "../constants/queue.constants";
@@ -47,6 +47,7 @@ export class ReviewProcessor extends WorkerHost {
     let bareRepoPath: string | undefined;
     let codexResult: ICodexReviewResult | undefined;
     let reviewDiff = "";
+    let publishStarted = false;
 
     try {
       // Step 1: Prepare workspace
@@ -70,6 +71,7 @@ export class ReviewProcessor extends WorkerHost {
       );
 
       // Step 3: Publish results to Bitbucket
+      publishStarted = true;
       const commentId = await this.publishResults(data, codexResult, reviewDiff);
 
       // Step 4: Mark completed
@@ -85,6 +87,13 @@ export class ReviewProcessor extends WorkerHost {
         codexResult ||
         (err as Error & { codexResult?: ICodexReviewResult }).codexResult;
       this.logger.error(`Review failed: ${error.message}`);
+
+      // 게시 전 실패이고 시도가 남았으면 FAILED 기록·실패 코멘트를 보류한다.
+      // 지금 FAILED로 적으면 ① 사용자에게 실패 코멘트가 먼저 나가고 뒤늦게 리뷰가 붙는다
+      // ② 백오프 중 같은 웹훅이 FAILED 레코드를 지우고 재시도 잡을 제거해버린다.
+      if (!publishStarted && job.attemptsMade + 1 < (job.opts?.attempts ?? 1)) {
+        throw err;
+      }
 
       await this.reviewService.updateStatus(
         data.reviewRunId,
@@ -132,6 +141,11 @@ export class ReviewProcessor extends WorkerHost {
           });
       }
 
+      // 게시 단계에 진입한 뒤 실패했으면 재시도하면 리뷰 코멘트가 중복 게시되고
+      // Codex도 다시 돌아간다. 재시도 없이 여기서 끊는다.
+      if (publishStarted) {
+        throw new UnrecoverableError(error.message);
+      }
       throw err; // Re-throw to let BullMQ handle retry
     } finally {
       // Cleanup worktree
@@ -145,10 +159,16 @@ export class ReviewProcessor extends WorkerHost {
     }
   }
 
+  // BullMQ는 재시도로 이어지는 실패에도 "failed"를 emit한다 — 최종 실패와 구분해서 남긴다.
   @OnWorkerEvent("failed")
   onFailed(job: Job<IReviewJobData>, error: Error): void {
+    const attempts = job.opts?.attempts ?? 1;
+    const willRetry =
+      job.attemptsMade < attempts && error.name !== "UnrecoverableError";
     this.logger.error(
-      `Job ${job.id} failed permanently after ${job.attemptsMade} attempts: ${error.message}`,
+      willRetry
+        ? `Job ${job.id} failed attempt ${job.attemptsMade}/${attempts}, retrying: ${error.message}`
+        : `Job ${job.id} failed permanently after ${job.attemptsMade} attempts: ${error.message}`,
     );
   }
 

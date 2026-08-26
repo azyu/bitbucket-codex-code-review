@@ -14,6 +14,7 @@ import type { ICodexReviewResult } from "../codex/interfaces/codex.interfaces";
 import { TriggerType } from "../entities/review-run.entity";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
 import { rm, writeFile } from "node:fs/promises";
+import { UnrecoverableError } from "bullmq";
 
 jest.mock("@lib/logger", () => ({
   ServiceLogger: jest.fn().mockImplementation(() => ({
@@ -1307,6 +1308,100 @@ describe("ReviewProcessor error handling", () => {
         body: expect.stringContaining(
           "Selected model is at capacity. Please try a different model.",
         ),
+      }),
+    );
+  });
+
+  it("should defer failure reporting while retries remain", async () => {
+    mockWorkspaceService.prepareWorktree.mockRejectedValue(
+      new Error("Git clone failed"),
+    );
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("Git clone failed");
+
+    expect(mockReviewService.updateStatus).not.toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.anything(),
+    );
+    expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
+    expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+  });
+
+  it("should report failure on the last attempt", async () => {
+    mockWorkspaceService.prepareWorktree.mockRejectedValue(
+      new Error("Git clone failed"),
+    );
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 2,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("Git clone failed");
+
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.objectContaining({
+        errorMessage: expect.stringContaining("Git clone failed"),
+      }),
+    );
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("Code Review 실패"),
+      }),
+    );
+  });
+
+  it("should not retry after review results were published", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput:
+        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+    mockReviewService.updateStatus.mockImplementation(
+      (_id: number, status: string) =>
+        status === "completed"
+          ? Promise.reject(new Error("db unavailable"))
+          : Promise.resolve(undefined),
+    );
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    // 재시도하면 summary/inline 코멘트가 중복 게시된다 → UnrecoverableError로 차단
+    await expect(processor.process(job)).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+
+    expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.objectContaining({
+        errorMessage: expect.stringContaining("db unavailable"),
       }),
     );
   });
