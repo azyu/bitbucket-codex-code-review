@@ -1173,6 +1173,7 @@ describe("ReviewProcessor error handling", () => {
     existsByIdempotencyKey: jest.fn(),
     createReviewRun: jest.fn(),
     supersedeActivePrReviews: jest.fn(),
+    findById: jest.fn(),
   };
   const mockWorkspaceService = {
     prepareWorktree: jest.fn(),
@@ -1212,6 +1213,10 @@ describe("ReviewProcessor error handling", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockConfigService.get.mockReturnValue("");
+    mockReviewService.findById.mockResolvedValue({
+      id: 1,
+      reviewStatus: "preparing",
+    });
     mockWorkspaceService.createReviewDiff.mockResolvedValue({
       diff: "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
       excludedChangedFiles: [],
@@ -1404,6 +1409,27 @@ describe("ReviewProcessor error handling", () => {
         errorMessage: expect.stringContaining("db unavailable"),
       }),
     );
+  });
+
+  it.each([
+    { name: "superseded by a newer run", run: { id: 1, reviewStatus: "superseded" } },
+    { name: "deleted", run: null },
+  ])("should skip a retry whose run was $name", async ({ run }) => {
+    mockReviewService.findById.mockResolvedValue(run);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 1,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).resolves.toBeUndefined();
+
+    // 구버전 커밋 리뷰가 새 리뷰 뒤에 게시되면 안 된다
+    expect(mockWorkspaceService.prepareWorktree).not.toHaveBeenCalled();
+    expect(mockCodexService.executeCodex).not.toHaveBeenCalled();
+    expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+    expect(mockReviewService.updateStatus).not.toHaveBeenCalled();
   });
 
   it("should stay retriable when the publishing status update fails", async () => {

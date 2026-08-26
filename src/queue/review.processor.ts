@@ -43,6 +43,18 @@ export class ReviewProcessor extends WorkerHost {
     const processStartTime = Date.now();
     this.logger.log(`Processing review job: ${data.idempotencyKey}`);
 
+    // 백오프 대기 중 새 커밋 리뷰가 이 런을 대체했으면 구버전 리뷰를 게시하지 않는다.
+    // prepareWorkspace()가 SUPERSEDED를 PREPARING으로 되돌리기 전에 확인해야 한다.
+    if (job.attemptsMade > 0) {
+      const run = await this.reviewService.findById(data.reviewRunId);
+      if (!run || run.reviewStatus === ReviewRunStatus.SUPERSEDED) {
+        this.logger.log(
+          `Skipping retry for inactive review run ${data.reviewRunId}: ${data.idempotencyKey}`,
+        );
+        return;
+      }
+    }
+
     let worktreePath: string | undefined;
     let bareRepoPath: string | undefined;
     let codexResult: ICodexReviewResult | undefined;

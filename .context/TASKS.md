@@ -21,6 +21,8 @@
 | PR #25 Codex 리뷰 반영 (P1 2건) | ✅ | 재시도를 실제로 켜면서 생긴 노출 2건. ① 게시 전 실패는 마지막 시도에서만 FAILED 기록·실패 코멘트 → 중간 시도의 "❌ 실패" 코멘트와, 백오프 중 `existsByIdempotencyKey`가 FAILED 행을 지우고 재시도 잡을 제거하는 경로를 차단 ② 게시 단계 진입 후 실패는 `UnrecoverableError`로 재시도 차단(리뷰 코멘트 중복 게시 + Codex 재실행 방지). `onFailed` 로그도 재시도/최종 실패를 구분 — BullMQ는 재시도로 이어지는 실패에도 `failed`를 emit한다 |
 | PR #25 Codex 재리뷰 반영 (P1 1건) | ✅ | catch의 `updateStatus(FAILED)`가 던지면 `UnrecoverableError` 분기에 도달하지 못해 게시 이후 실패가 재시도된다(DB 장애면 `markCompleted`와 이 쓰기가 같이 실패하는 상관 케이스). 상태 기록을 try/catch로 감싸 재시도 판단이 DB 성공 여부에 의존하지 않게 했다. 회귀 테스트 1케이스 추가 |
 | PR #25 Codex 3차 리뷰 반영 (P1 1건) | ✅ | `publishStarted`를 `publishResults()` 진입 시점에 세우면 그 안의 `updateStatus(PUBLISHING)` DB 실패까지 재시도 불가로 처리되어 리뷰가 유실된다. 상태 전이를 `process()`로 끌어올려 **Bitbucket 쓰기 직전**에만 플래그를 세운다 — 남은 구간은 파싱·포맷팅(순수 연산)뿐. 회귀 테스트 1케이스 추가 |
+| PR #25 Codex 4차 리뷰 반영 (P1 1건) | ✅ | 백오프 중 새 커밋 리뷰가 `supersedeActivePrReviews`로 이 런을 `SUPERSEDED`로 바꿔도, 재시도가 `prepareWorkspace()`에서 `PREPARING`으로 되살리고 구버전 리뷰를 게시했다. 재시도(`attemptsMade > 0`)일 때만 `findById`로 상태를 확인해 `SUPERSEDED`/행 삭제면 작업 없이 종료. 회귀 테스트 2케이스 |
+| 후속 과제 (B안, 이 PR 범위 밖) | ⚠️ | supersede를 게시 경로 전반에서 존중하는 문제는 이 PR 이전부터 있다 — `idempotencyKey`에 head commit이 들어가므로 새 커밋 웹훅은 실행 중인 이전 잡의 `jobId`를 찾지 못하고(`webhook.controller.ts:149`) 제거하지 못한다. 즉 **실행 중**인 구버전 리뷰는 지금도 끝까지 게시된다. idempotency 모델 손질이 필요해 별도 이슈로 남긴다 |
 | 미포함 | ⚠️ | `GIT_CLONE_TIMEOUT_MS`를 charts/docker-compose에는 추가하지 않음(기본값이 튜닝된 값이고 운영 env는 tools-infra가 관리). `REVIEW_DLQ_NAME`은 기존 미사용 상수로 손대지 않음 |
 
 ### Task 30: 리뷰 근거 범위 분리 + 검증 가능성 게이트
