@@ -19,6 +19,7 @@
 | 빌드/린트/테스트 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test:cov` 성공 (210 tests, statement 86.82%) |
 | 보안 체크리스트 | ✅ | 시크릿·신규 외부 입력 없음, clone 에러 URL 마스킹 로직 유지 |
 | PR #25 Codex 리뷰 반영 (P1 2건) | ✅ | 재시도를 실제로 켜면서 생긴 노출 2건. ① 게시 전 실패는 마지막 시도에서만 FAILED 기록·실패 코멘트 → 중간 시도의 "❌ 실패" 코멘트와, 백오프 중 `existsByIdempotencyKey`가 FAILED 행을 지우고 재시도 잡을 제거하는 경로를 차단 ② 게시 단계 진입 후 실패는 `UnrecoverableError`로 재시도 차단(리뷰 코멘트 중복 게시 + Codex 재실행 방지). `onFailed` 로그도 재시도/최종 실패를 구분 — BullMQ는 재시도로 이어지는 실패에도 `failed`를 emit한다 |
+| PR #25 Codex 재리뷰 반영 (P1 1건) | ✅ | catch의 `updateStatus(FAILED)`가 던지면 `UnrecoverableError` 분기에 도달하지 못해 게시 이후 실패가 재시도된다(DB 장애면 `markCompleted`와 이 쓰기가 같이 실패하는 상관 케이스). 상태 기록을 try/catch로 감싸 재시도 판단이 DB 성공 여부에 의존하지 않게 했다. 회귀 테스트 1케이스 추가 |
 | 미포함 | ⚠️ | `GIT_CLONE_TIMEOUT_MS`를 charts/docker-compose에는 추가하지 않음(기본값이 튜닝된 값이고 운영 env는 tools-infra가 관리). `REVIEW_DLQ_NAME`은 기존 미사용 상수로 손대지 않음 |
 
 ### Task 30: 리뷰 근거 범위 분리 + 검증 가능성 게이트

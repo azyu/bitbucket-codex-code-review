@@ -95,20 +95,27 @@ export class ReviewProcessor extends WorkerHost {
         throw err;
       }
 
-      await this.reviewService.updateStatus(
-        data.reviewRunId,
-        ReviewRunStatus.FAILED,
-        {
-          reviewOutput: failedCodexResult?.rawOutput,
-          durationMs: failedCodexResult?.durationMs,
-          totalDurationMs: Date.now() - processStartTime,
-          inputTokens: failedCodexResult?.inputTokens ?? undefined,
-          cachedInputTokens:
-            failedCodexResult?.cachedInputTokens ?? undefined,
-          outputTokens: failedCodexResult?.outputTokens ?? undefined,
-          errorMessage: error.message.substring(0, 2000),
-        },
-      );
+      // 상태 기록 실패가 재시도 여부를 뒤집으면 안 된다 — 던지면 아래 UnrecoverableError
+      // 분기에 도달하지 못해 게시 이후 실패가 재시도되고 리뷰가 중복 게시된다.
+      try {
+        await this.reviewService.updateStatus(
+          data.reviewRunId,
+          ReviewRunStatus.FAILED,
+          {
+            reviewOutput: failedCodexResult?.rawOutput,
+            durationMs: failedCodexResult?.durationMs,
+            totalDurationMs: Date.now() - processStartTime,
+            inputTokens: failedCodexResult?.inputTokens ?? undefined,
+            cachedInputTokens: failedCodexResult?.cachedInputTokens ?? undefined,
+            outputTokens: failedCodexResult?.outputTokens ?? undefined,
+            errorMessage: error.message.substring(0, 2000),
+          },
+        );
+      } catch (statusErr) {
+        this.logger.error(
+          `Failed to persist FAILED status: ${(statusErr as Error).message}`,
+        );
+      }
 
       // Notify user about the failure
       const errorBody = `❌ Code Review 실패\n\n\`\`\`\n${error.message.substring(0, 500)}\n\`\`\``;

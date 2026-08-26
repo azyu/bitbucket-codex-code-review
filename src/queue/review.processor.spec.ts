@@ -1405,4 +1405,40 @@ describe("ReviewProcessor error handling", () => {
       }),
     );
   });
+
+  it("should stay unrecoverable when persisting the failed status also fails", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput:
+        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+    // DB 장애: markCompleted도, 뒤따르는 FAILED 기록도 실패한다
+    mockReviewService.updateStatus.mockImplementation(
+      (_id: number, status: string) =>
+        status === "completed" || status === "failed"
+          ? Promise.reject(new Error("db unavailable"))
+          : Promise.resolve(undefined),
+    );
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+
+    expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
+  });
 });
