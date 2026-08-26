@@ -71,6 +71,11 @@ export class ReviewProcessor extends WorkerHost {
       );
 
       // Step 3: Publish results to Bitbucket
+      // 상태 전이(DB)까지는 재시도해도 안전하다 — Bitbucket 쓰기 직전에만 플래그를 세운다.
+      await this.reviewService.updateStatus(
+        data.reviewRunId,
+        ReviewRunStatus.PUBLISHING,
+      );
       publishStarted = true;
       const commentId = await this.publishResults(data, codexResult, reviewDiff);
 
@@ -272,11 +277,6 @@ export class ReviewProcessor extends WorkerHost {
     codexResult: ICodexReviewResult,
     reviewDiff: string,
   ): Promise<number | undefined> {
-    await this.reviewService.updateStatus(
-      data.reviewRunId,
-      ReviewRunStatus.PUBLISHING,
-    );
-
     const unified = parseUnifiedReviewJson(codexResult.rawOutput, (msg) =>
       this.logger.error(msg),
     );

@@ -1406,6 +1406,42 @@ describe("ReviewProcessor error handling", () => {
     );
   });
 
+  it("should stay retriable when the publishing status update fails", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput:
+        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+    // Bitbucket 쓰기 전 DB 전이 실패 — 재시도해도 중복 게시 위험이 없다
+    mockReviewService.updateStatus.mockImplementation(
+      (_id: number, status: string) =>
+        status === "publishing"
+          ? Promise.reject(new Error("db unavailable"))
+          : Promise.resolve(undefined),
+    );
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    const rejection = await processor.process(job).catch((err) => err);
+
+    expect(rejection).not.toBeInstanceOf(UnrecoverableError);
+    expect((rejection as Error).message).toContain("db unavailable");
+    expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+  });
+
   it("should stay unrecoverable when persisting the failed status also fails", async () => {
     mockWorkspaceService.prepareWorktree.mockResolvedValue({
       worktreePath: "/tmp/worktree",
