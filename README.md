@@ -99,8 +99,8 @@ docker compose up -d
 | `REDIS_QUEUE_PORT` | Redis 포트 | `6379` |
 | `REDIS_QUEUE_PASSWORD` | Redis 비밀번호 | - |
 | `REDIS_QUEUE_DB` | Redis DB 번호 | `0` |
-| `QUEUE_RETRY_ATTEMPTS` | 재시도 횟수 | `3` |
-| `QUEUE_RETRY_DELAY` | 재시도 딜레이 (ms) | `5000` |
+| `QUEUE_RETRY_ATTEMPTS` | 잡 총 시도 횟수 (BullMQ `attempts`) | `3` |
+| `QUEUE_RETRY_DELAY` | 재시도 백오프 기준 딜레이 (ms, exponential) | `5000` |
 
 ### Codex CLI
 
@@ -141,6 +141,7 @@ docker compose up -d
 |---|---|---|
 | `WORKSPACE_BASE_PATH` | 워크스페이스 경로 | `/tmp/code-review-workspaces` |
 | `WORKSPACE_MAX_CONCURRENT` | 최대 동시 워크스페이스 수 | `3` |
+| `GIT_CLONE_TIMEOUT_MS` | 최초 bare clone 타임아웃 (ms) | `600000` |
 
 > [!TIP]
 > 전체 설정은 [`.env.example`](.env.example) 참조.

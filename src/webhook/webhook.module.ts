@@ -1,18 +1,14 @@
 import { Module } from "@nestjs/common";
-import { BullModule } from "@nestjs/bullmq";
-import { REVIEW_QUEUE_NAME } from "../constants/queue.constants";
 import { WebhookController } from "./webhook.controller";
 import { WebhookGuard } from "./webhook.guard";
 import { TriggerService } from "./trigger.service";
+import { QueueModule } from "../queue/queue.module";
 import { ReviewModule } from "../review/review.module";
 import { BitbucketModule } from "../bitbucket/bitbucket.module";
 
 @Module({
-  imports: [
-    BullModule.registerQueue({ name: REVIEW_QUEUE_NAME }),
-    ReviewModule,
-    BitbucketModule,
-  ],
+  // 큐는 QueueModule이 등록한 인스턴스를 재사용한다 (defaultJobOptions 유지)
+  imports: [QueueModule, ReviewModule, BitbucketModule],
   controllers: [WebhookController],
   providers: [WebhookGuard, TriggerService],
 })

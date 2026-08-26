@@ -1,8 +1,24 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-08-10
+> 마지막 업데이트: 2026-08-26
 
 ## 진행 중/최근 작업
+
+### Task 31: 최초 clone 타임아웃 + 큐 재시도 미배선 수정
+- **상태**: ✅ 완료
+- **배경**: 운영에서 `todoeng-academy-web` PR #31 리뷰가 정확히 120.005초에 `Git clone failed`로 실패. 인증·인스턴스 병목 아님(같은 순간 API 코멘트 성공, CPU 1.9%). 같은 컨테이너에서 수동 재현 시 28초/29MB 성공 — 최초 pack 생성 대기로 **추정**. 로그는 `failed permanently after 1 attempts`로, 정의된 재시도도 실효 없었음.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| clone 타임아웃 설정화 | ✅ | `ensureBareRepo` 120s 하드코딩 → `workspace.cloneTimeoutMs`(`GIT_CLONE_TIMEOUT_MS`, 기본 600s). 타임아웃 kill 시 git이 부분 디렉토리를 정리해 재시도도 0부터 다시 받는 구조라 넉넉한 값이 필요 |
+| fetchLatest 타임아웃 | ✅ | 60s → 300s 하드코딩 유지. 오래 방치된 repo의 증분 fetch도 같은 서버측 pack 생성 대기를 겪음. clone과 달리 실패해도 bare repo가 남아 재시도가 저렴하므로 env 노출은 생략 |
+| 큐 등록 일원화 | ✅ | `WebhookModule`의 중복 `registerQueue`(defaultJobOptions 없음) 제거 → `QueueModule` import. producer(`webhook.controller.ts`의 `@InjectQueue`)가 옵션 없는 별개 인스턴스를 쓰던 원인 |
+| QUEUE_RETRY_* 실제 배선 | ✅ | `registerQueueAsync` + `ConfigService`로 `attempts`=`queue.retryAttempts`, exponential backoff delay=`queue.retryDelay`. 죽은 설정 2개를 살리는 쪽을 선택. `REVIEW_QUEUE_CONFIG`의 `attempts: 2`/`delay: 10_000`은 producer 경로에 적용된 적이 없어 제거(단일 출처 = env) |
+| 회귀 테스트 | ✅ | `queue.module.spec.ts` 3케이스 — 등록된 큐의 `attempts>1`, env override 반영, producer가 자체 `registerQueue`를 하지 않음. 수정 전 상태 재현 시 RED 확인 |
+| clone 타임아웃 테스트 | ✅ | `workspace.service.spec.ts` clone 호출이 config 값(900s)을 `timeout`으로 받는지 검증 |
+| 빌드/린트/테스트 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test:cov` 성공 (210 tests, statement 86.82%) |
+| 보안 체크리스트 | ✅ | 시크릿·신규 외부 입력 없음, clone 에러 URL 마스킹 로직 유지 |
+| 미포함 | ⚠️ | `GIT_CLONE_TIMEOUT_MS`를 charts/docker-compose에는 추가하지 않음(기본값이 튜닝된 값이고 운영 env는 tools-infra가 관리). `REVIEW_DLQ_NAME`은 기존 미사용 상수로 손대지 않음 |
 
 ### Task 30: 리뷰 근거 범위 분리 + 검증 가능성 게이트
 - **상태**: ✅ 완료
