@@ -64,7 +64,12 @@ export const validationSchema = Joi.object({
     .custom(jsonObjectValidator("BITBUCKET_REPO_WEBHOOK_SECRETS")),
   WORKSPACE_BASE_PATH: Joi.string().default(DEFAULTS.WORKSPACE_BASE_PATH),
   WORKSPACE_MAX_CONCURRENT: Joi.number().default(DEFAULTS.WORKSPACE_MAX_CONCURRENT),
-  GIT_CLONE_TIMEOUT_MS: Joi.number().default(DEFAULTS.GIT_CLONE_TIMEOUT_MS),
+  // execFile은 음수·소수 timeout에 ERR_OUT_OF_RANGE를 던진다 — 부팅 시 걸러낸다.
+  // 0(타임아웃 없음)도 허용하지 않는다: 멈춘 clone이 워커 슬롯을 영구 점유한다.
+  GIT_CLONE_TIMEOUT_MS: Joi.number()
+    .integer()
+    .positive()
+    .default(DEFAULTS.GIT_CLONE_TIMEOUT_MS),
   REVIEW_TRIGGER_MODE: Joi.string()
     .valid("mention", "auto", "both")
     .default(DEFAULTS.TRIGGER_MODE),

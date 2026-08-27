@@ -43,6 +43,26 @@ describe("validationSchema", () => {
     );
   });
 
+  it.each([-1, 0, 1.5])(
+    "rejects GIT_CLONE_TIMEOUT_MS=%s",
+    (timeout) => {
+      const { error } = validationSchema.validate({
+        ...validEnv,
+        GIT_CLONE_TIMEOUT_MS: timeout,
+      });
+
+      // execFile은 음수·소수 timeout에 ERR_OUT_OF_RANGE를 던진다 — 부팅에서 막는다
+      expect(error?.message).toContain("GIT_CLONE_TIMEOUT_MS");
+    },
+  );
+
+  it("defaults GIT_CLONE_TIMEOUT_MS to 600000ms", () => {
+    const { error, value } = validationSchema.validate(validEnv);
+
+    expect(error).toBeUndefined();
+    expect(value.GIT_CLONE_TIMEOUT_MS).toBe(600_000);
+  });
+
   it("rejects repo token JSON arrays", () => {
     const { error } = validationSchema.validate({
       ...validEnv,
