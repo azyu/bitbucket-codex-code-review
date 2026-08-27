@@ -26,7 +26,7 @@
 | PR #25 Codex 5차 리뷰 반영 (P2 1건) | ✅ | `GIT_CLONE_TIMEOUT_MS`가 `Joi.number()`라 음수·소수를 통과시키고, `execFile`이 git 실행 전에 `ERR_OUT_OF_RANGE`를 던져 모든 clone이 실패한다. `.integer().positive()`로 부팅 시 차단. 0(타임아웃 없음)도 불허 — 멈춘 clone이 워커 슬롯을 영구 점유한다. 회귀 테스트 4케이스 |
 | PR #25 Codex 6차 리뷰 반영 (P2 2건) | ✅ | ① `QUEUE_RETRY_DELAY=-1`이 Joi를 통과하면 BullMQ가 계산된 백오프 `-1`을 "재시도 안 함" 신호로 읽어, 이 PR이 켠 재시도가 조용히 죽는다. 게다가 `process()`의 "시도가 남았으면 보류" 분기는 여전히 참이라 FAILED 기록·실패 코멘트가 생략되고 런이 `preparing`으로 잔류한다. `QUEUE_RETRY_ATTEMPTS`는 0·음수·소수도 통과. → attempts `.integer().positive()`, delay `.integer().min(0)` ② `GIT_CLONE_TIMEOUT_MS` 상한 없음 — 2^31-1 초과는 Node 타이머가 ~1ms로 접어 타임아웃이 되레 짧아진다. `.max(2_147_483_647)` 추가. 회귀 테스트 7케이스 |
 | 미적용 (기존 스키마) | ⚠️ | `CODEX_TIMEOUT_MS`·`WORKSPACE_MAX_CONCURRENT`도 같은 laxity를 갖지만 손대지 않았다. `QUEUE_RETRY_*`는 이 PR이 BullMQ에 실제로 주입하기 시작해 잘못된 값이 곧 기능 상실이라 예외로 조였다(운영값 3/5000은 통과 확인) |
-| 후속 과제 (B안, 이 PR 범위 밖) | ⚠️ | supersede를 게시 경로 전반에서 존중하는 문제는 이 PR 이전부터 있다 — `idempotencyKey`에 head commit이 들어가므로 새 커밋 웹훅은 실행 중인 이전 잡의 `jobId`를 찾지 못하고(`webhook.controller.ts:149`) 제거하지 못한다. 즉 **실행 중**인 구버전 리뷰는 지금도 끝까지 게시된다. idempotency 모델 손질이 필요해 별도 이슈로 남긴다 |
+| 후속 과제 (이 PR 범위 밖) | ⚠️ | 코드로 확인한 뒤 이슈로 분리했다 — #26 supersede/idempotency 모델(실행 중 구버전 게시 + 사전조회 TOCTOU + 워커 SIGKILL 우회), #27 게시 후 상태 기록 실패 시 웹훅 재수신으로 중복 게시(`existsByIdempotencyKey`가 FAILED 행 삭제), #28 Bitbucket 첫 쓰기 429/503에도 남은 재시도 폐기(현재는 안전한 쪽 실패), #29 인라인 코멘트 부분 실패 삼킴, #30 재시도 시 중간 시도의 Codex 토큰·소요시간 통계 누락 |
 | 미포함 | ⚠️ | `GIT_CLONE_TIMEOUT_MS`를 charts/docker-compose에는 추가하지 않음(기본값이 튜닝된 값이고 운영 env는 tools-infra가 관리). `REVIEW_DLQ_NAME`은 기존 미사용 상수로 손대지 않음 |
 
 ### Task 30: 리뷰 근거 범위 분리 + 검증 가능성 게이트
