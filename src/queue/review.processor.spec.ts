@@ -1432,6 +1432,33 @@ describe("ReviewProcessor error handling", () => {
     expect(mockReviewService.updateStatus).not.toHaveBeenCalled();
   });
 
+  it("should report failure when the retry precheck lookup fails on the last attempt", async () => {
+    mockReviewService.findById.mockRejectedValue(new Error("db unavailable"));
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 2,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("db unavailable");
+
+    // 조회 실패가 최종 실패 보고를 건너뛰면 런이 preparing으로 영구 잔류한다
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.objectContaining({
+        errorMessage: expect.stringContaining("db unavailable"),
+      }),
+    );
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("Code Review 실패"),
+      }),
+    );
+  });
+
   it("should stay retriable when the publishing status update fails", async () => {
     mockWorkspaceService.prepareWorktree.mockResolvedValue({
       worktreePath: "/tmp/worktree",
