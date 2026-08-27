@@ -53,6 +53,7 @@ describe("WorkspaceService", () => {
     basePath = await mkdtemp(join(tmpdir(), "workspace-service-spec-"));
     configValues = {
       "workspace.basePath": basePath,
+      "workspace.cloneTimeoutMs": 900_000,
       "bitbucket.repoTokens": {},
       "bitbucket.apiToken": "",
       "bitbucket.username": "",
@@ -93,6 +94,7 @@ describe("WorkspaceService", () => {
         join(basePath, "repos", "repoa.git"),
       ],
       expect.objectContaining({
+        timeout: 900_000,
         env: expect.objectContaining({
           GIT_TERMINAL_PROMPT: "0",
         }),

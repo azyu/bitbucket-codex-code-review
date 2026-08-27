@@ -19,6 +19,7 @@ export const DEFAULTS = {
   BITBUCKET_BASE_URL: "https://api.bitbucket.org/2.0",
   WORKSPACE_BASE_PATH: "/tmp/code-review-workspaces",
   WORKSPACE_MAX_CONCURRENT: 3,
+  GIT_CLONE_TIMEOUT_MS: 600_000,
   TRIGGER_MODE: "mention",
   LOG_LEVEL: "info",
 } as const;
@@ -96,6 +97,7 @@ export default (): Record<string, unknown> => ({
   workspace: {
     basePath: process.env["WORKSPACE_BASE_PATH"] || DEFAULTS.WORKSPACE_BASE_PATH,
     maxConcurrent: parseInt(process.env["WORKSPACE_MAX_CONCURRENT"] || String(DEFAULTS.WORKSPACE_MAX_CONCURRENT), 10),
+    cloneTimeoutMs: parseInt(process.env["GIT_CLONE_TIMEOUT_MS"] || String(DEFAULTS.GIT_CLONE_TIMEOUT_MS), 10),
   },
   trigger: {
     mode: process.env["REVIEW_TRIGGER_MODE"] || DEFAULTS.TRIGGER_MODE,

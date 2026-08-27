@@ -14,6 +14,7 @@ import type { ICodexReviewResult } from "../codex/interfaces/codex.interfaces";
 import { TriggerType } from "../entities/review-run.entity";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
 import { rm, writeFile } from "node:fs/promises";
+import { UnrecoverableError } from "bullmq";
 
 jest.mock("@lib/logger", () => ({
   ServiceLogger: jest.fn().mockImplementation(() => ({
@@ -1172,6 +1173,7 @@ describe("ReviewProcessor error handling", () => {
     existsByIdempotencyKey: jest.fn(),
     createReviewRun: jest.fn(),
     supersedeActivePrReviews: jest.fn(),
+    findById: jest.fn(),
   };
   const mockWorkspaceService = {
     prepareWorktree: jest.fn(),
@@ -1211,6 +1213,10 @@ describe("ReviewProcessor error handling", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockConfigService.get.mockReturnValue("");
+    mockReviewService.findById.mockResolvedValue({
+      id: 1,
+      reviewStatus: "preparing",
+    });
     mockWorkspaceService.createReviewDiff.mockResolvedValue({
       diff: "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
       excludedChangedFiles: [],
@@ -1309,5 +1315,219 @@ describe("ReviewProcessor error handling", () => {
         ),
       }),
     );
+  });
+
+  it("should defer failure reporting while retries remain", async () => {
+    mockWorkspaceService.prepareWorktree.mockRejectedValue(
+      new Error("Git clone failed"),
+    );
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("Git clone failed");
+
+    expect(mockReviewService.updateStatus).not.toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.anything(),
+    );
+    expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
+    expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+  });
+
+  it("should report failure on the last attempt", async () => {
+    mockWorkspaceService.prepareWorktree.mockRejectedValue(
+      new Error("Git clone failed"),
+    );
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 2,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("Git clone failed");
+
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.objectContaining({
+        errorMessage: expect.stringContaining("Git clone failed"),
+      }),
+    );
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("Code Review 실패"),
+      }),
+    );
+  });
+
+  it("should not retry after review results were published", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput:
+        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+    mockReviewService.updateStatus.mockImplementation(
+      (_id: number, status: string) =>
+        status === "completed"
+          ? Promise.reject(new Error("db unavailable"))
+          : Promise.resolve(undefined),
+    );
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    // 재시도하면 summary/inline 코멘트가 중복 게시된다 → UnrecoverableError로 차단
+    await expect(processor.process(job)).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+
+    expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.objectContaining({
+        errorMessage: expect.stringContaining("db unavailable"),
+      }),
+    );
+  });
+
+  it.each([
+    { name: "superseded by a newer run", run: { id: 1, reviewStatus: "superseded" } },
+    { name: "deleted", run: null },
+  ])("should skip a retry whose run was $name", async ({ run }) => {
+    mockReviewService.findById.mockResolvedValue(run);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 1,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).resolves.toBeUndefined();
+
+    // 구버전 커밋 리뷰가 새 리뷰 뒤에 게시되면 안 된다
+    expect(mockWorkspaceService.prepareWorktree).not.toHaveBeenCalled();
+    expect(mockCodexService.executeCodex).not.toHaveBeenCalled();
+    expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+    expect(mockReviewService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("should report failure when the retry precheck lookup fails on the last attempt", async () => {
+    mockReviewService.findById.mockRejectedValue(new Error("db unavailable"));
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 2,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("db unavailable");
+
+    // 조회 실패가 최종 실패 보고를 건너뛰면 런이 preparing으로 영구 잔류한다
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.objectContaining({
+        errorMessage: expect.stringContaining("db unavailable"),
+      }),
+    );
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("Code Review 실패"),
+      }),
+    );
+  });
+
+  it("should stay retriable when the publishing status update fails", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput:
+        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+    // Bitbucket 쓰기 전 DB 전이 실패 — 재시도해도 중복 게시 위험이 없다
+    mockReviewService.updateStatus.mockImplementation(
+      (_id: number, status: string) =>
+        status === "publishing"
+          ? Promise.reject(new Error("db unavailable"))
+          : Promise.resolve(undefined),
+    );
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    const rejection = await processor.process(job).catch((err) => err);
+
+    expect(rejection).not.toBeInstanceOf(UnrecoverableError);
+    expect((rejection as Error).message).toContain("db unavailable");
+    expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+  });
+
+  it("should stay unrecoverable when persisting the failed status also fails", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput:
+        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+    // DB 장애: markCompleted도, 뒤따르는 FAILED 기록도 실패한다
+    mockReviewService.updateStatus.mockImplementation(
+      (_id: number, status: string) =>
+        status === "completed" || status === "failed"
+          ? Promise.reject(new Error("db unavailable"))
+          : Promise.resolve(undefined),
+    );
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+
+    expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
   });
 });

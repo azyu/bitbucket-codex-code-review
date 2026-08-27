@@ -43,6 +43,68 @@ describe("validationSchema", () => {
     );
   });
 
+  it.each([-1, 0, 1.5])(
+    "rejects GIT_CLONE_TIMEOUT_MS=%s",
+    (timeout) => {
+      const { error } = validationSchema.validate({
+        ...validEnv,
+        GIT_CLONE_TIMEOUT_MS: timeout,
+      });
+
+      // execFile은 음수·소수 timeout에 ERR_OUT_OF_RANGE를 던진다 — 부팅에서 막는다
+      expect(error?.message).toContain("GIT_CLONE_TIMEOUT_MS");
+    },
+  );
+
+  it("defaults GIT_CLONE_TIMEOUT_MS to 600000ms", () => {
+    const { error, value } = validationSchema.validate(validEnv);
+
+    expect(error).toBeUndefined();
+    expect(value.GIT_CLONE_TIMEOUT_MS).toBe(600_000);
+  });
+
+  it("rejects GIT_CLONE_TIMEOUT_MS above the Node timer ceiling", () => {
+    const { error } = validationSchema.validate({
+      ...validEnv,
+      GIT_CLONE_TIMEOUT_MS: 2_147_483_648,
+    });
+
+    // 2^31-1 초과는 Node 타이머가 ~1ms로 접어버려 타임아웃이 되레 짧아진다
+    expect(error?.message).toContain("GIT_CLONE_TIMEOUT_MS");
+  });
+
+  it.each([0, -1, 1.5])("rejects QUEUE_RETRY_ATTEMPTS=%s", (attempts) => {
+    const { error } = validationSchema.validate({
+      ...validEnv,
+      QUEUE_RETRY_ATTEMPTS: attempts,
+    });
+
+    // 0/음수는 재시도를 통째로 없애고, 소수는 BullMQ 비교에서 예측 불가다
+    expect(error?.message).toContain("QUEUE_RETRY_ATTEMPTS");
+  });
+
+  it.each([-1, 1.5])("rejects QUEUE_RETRY_DELAY=%s", (delay) => {
+    const { error } = validationSchema.validate({
+      ...validEnv,
+      QUEUE_RETRY_DELAY: delay,
+    });
+
+    // BullMQ는 계산된 백오프가 음수면 "재시도 안 함" 신호로 읽는다
+    expect(error?.message).toContain("QUEUE_RETRY_DELAY");
+  });
+
+  it("accepts the retry settings used in production", () => {
+    const { error, value } = validationSchema.validate({
+      ...validEnv,
+      QUEUE_RETRY_ATTEMPTS: 3,
+      QUEUE_RETRY_DELAY: 5000,
+    });
+
+    expect(error).toBeUndefined();
+    expect(value.QUEUE_RETRY_ATTEMPTS).toBe(3);
+    expect(value.QUEUE_RETRY_DELAY).toBe(5000);
+  });
+
   it("rejects repo token JSON arrays", () => {
     const { error } = validationSchema.validate({
       ...validEnv,
