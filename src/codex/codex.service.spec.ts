@@ -160,9 +160,25 @@ describe("CodexService", () => {
     const child = createMockChild();
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("review output text");
+    const expectedEnv = {
+      CODEX_HOME: "/custom/codex",
+      HTTP_PROXY: "http://proxy.example",
+      HTTPS_PROXY: "http://secure-proxy.example",
+      NO_PROXY: "localhost,127.0.0.1",
+      SSL_CERT_FILE: "/etc/ssl/cert.pem",
+      SSL_CERT_DIR: "/etc/ssl/certs",
+      http_proxy: "http://lowercase-proxy.example",
+      https_proxy: "http://lowercase-secure-proxy.example",
+      no_proxy: "localhost",
+      OPENAI_API_KEY: "codex-credential",
+      OPENAI_BASE_URL: "https://api.example.com/v1",
+    };
+    const originalEnv = Object.fromEntries(
+      Object.keys(expectedEnv).map((key) => [key, process.env[key]]),
+    );
+    Object.assign(process.env, expectedEnv);
     process.env["BITBUCKET_API_TOKEN"] = "bitbucket-secret";
     process.env["DB_PASSWORD"] = "database-secret";
-    process.env["OPENAI_API_KEY"] = "codex-credential";
 
     try {
       const promise = createService().executeCodex("/work", "main", "review");
@@ -176,13 +192,19 @@ describe("CodexService", () => {
         string[],
         { env: NodeJS.ProcessEnv },
       ];
+      expect(options.env).toEqual(expect.objectContaining(expectedEnv));
       expect(options.env["BITBUCKET_API_TOKEN"]).toBeUndefined();
       expect(options.env["DB_PASSWORD"]).toBeUndefined();
-      expect(options.env["OPENAI_API_KEY"]).toBe("codex-credential");
     } finally {
+      for (const [key, value] of Object.entries(originalEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
       delete process.env["BITBUCKET_API_TOKEN"];
       delete process.env["DB_PASSWORD"];
-      delete process.env["OPENAI_API_KEY"];
     }
   });
 
