@@ -15,7 +15,7 @@
 | 빌드/린트/테스트 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공 (204 tests) |
 | 커버리지 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 86.77% |
 | 보안 체크리스트 | ✅ | 하드코딩 시크릿 없음, 서비스 비밀은 Codex 환경에서 제외, 신규 입력·오류 노출 경로 없음 |
-| PR #21 리뷰 보완 | ✅ | `CODEX_HOME`과 HTTP(S) proxy/`NO_PROXY`, CA 인증서 경로 및 대소문자 proxy 변형을 Codex 자식 환경에 유지하고 회귀 테스트로 검증 |
+| PR #21 리뷰 보완 | ✅ | `CODEX_HOME`과 HTTP(S) proxy/`NO_PROXY`, CA 인증서 경로 및 대소문자 proxy 변형을 Codex 자식 환경에 유지하고 allowlist 변수의 CR/LF 값은 계속 차단하도록 회귀 테스트로 검증 |
 
 ### Task 32: 게시 후 상태 기록 실패 중복 리뷰 차단
 - **상태**: ✅ 완료

@@ -87,7 +87,11 @@ export class CodexService {
         continue;
       }
 
-      if (!Object.hasOwn(CODEX_ENV_ALLOWLIST, key)) {
+      if (
+        !Object.hasOwn(CODEX_ENV_ALLOWLIST, key) ||
+        value.includes("\n") ||
+        value.includes("\r")
+      ) {
         continue;
       }
 

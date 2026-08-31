@@ -207,6 +207,38 @@ describe("CodexService", () => {
       delete process.env["DB_PASSWORD"];
     }
   });
+  it.each(["codex-credential\n", "codex-credential\r"])(
+    "should reject multiline values from allowlisted env (%j)",
+    async (multilineValue) => {
+      const child = createMockChild();
+      spawnSpy.mockReturnValue(child);
+      readFileSpy.mockResolvedValue("review output text");
+      const originalValue = process.env["OPENAI_API_KEY"];
+      process.env["OPENAI_API_KEY"] = multilineValue;
+
+      try {
+        const promise = createService().executeCodex("/work", "main", "review");
+
+        child.emit("close", 0, null);
+
+        await promise;
+
+        const [, , options] = spawnSpy.mock.calls[0] as [
+          string,
+          string[],
+          { env: NodeJS.ProcessEnv },
+        ];
+        expect(options.env["OPENAI_API_KEY"]).toBeUndefined();
+      } finally {
+        if (originalValue === undefined) {
+          delete process.env["OPENAI_API_KEY"];
+        } else {
+          process.env["OPENAI_API_KEY"] = originalValue;
+        }
+      }
+    },
+  );
+
 
   it("should handle large JSONL streams without crashing", async () => {
     const child = createMockChild();
