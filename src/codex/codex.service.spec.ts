@@ -156,12 +156,29 @@ describe("CodexService", () => {
     expect(child.stdin.end).toHaveBeenCalledWith(largePrompt);
   });
 
-  it("should not pass multiline auth env to codex child process", async () => {
+  it("should only pass allowlisted env to codex child process", async () => {
     const child = createMockChild();
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("review output text");
-    process.env["CODEX_AUTH_JSON"] = '{\n  "auth_mode": "chatgpt"\n}';
-    process.env["CODEX_SAFE_ENV"] = "safe-value";
+    const expectedEnv = {
+      CODEX_HOME: "/custom/codex",
+      HTTP_PROXY: "http://proxy.example",
+      HTTPS_PROXY: "http://secure-proxy.example",
+      NO_PROXY: "localhost,127.0.0.1",
+      SSL_CERT_FILE: "/etc/ssl/cert.pem",
+      SSL_CERT_DIR: "/etc/ssl/certs",
+      http_proxy: "http://lowercase-proxy.example",
+      https_proxy: "http://lowercase-secure-proxy.example",
+      no_proxy: "localhost",
+      OPENAI_API_KEY: "codex-credential",
+      OPENAI_BASE_URL: "https://api.example.com/v1",
+    };
+    const originalEnv = Object.fromEntries(
+      Object.keys(expectedEnv).map((key) => [key, process.env[key]]),
+    );
+    Object.assign(process.env, expectedEnv);
+    process.env["BITBUCKET_API_TOKEN"] = "bitbucket-secret";
+    process.env["DB_PASSWORD"] = "database-secret";
 
     try {
       const promise = createService().executeCodex("/work", "main", "review");
@@ -175,13 +192,53 @@ describe("CodexService", () => {
         string[],
         { env: NodeJS.ProcessEnv },
       ];
-      expect(options.env["CODEX_AUTH_JSON"]).toBeUndefined();
-      expect(options.env["CODEX_SAFE_ENV"]).toBe("safe-value");
+      expect(options.env).toEqual(expect.objectContaining(expectedEnv));
+      expect(options.env["BITBUCKET_API_TOKEN"]).toBeUndefined();
+      expect(options.env["DB_PASSWORD"]).toBeUndefined();
     } finally {
-      delete process.env["CODEX_AUTH_JSON"];
-      delete process.env["CODEX_SAFE_ENV"];
+      for (const [key, value] of Object.entries(originalEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+      delete process.env["BITBUCKET_API_TOKEN"];
+      delete process.env["DB_PASSWORD"];
     }
   });
+  it.each(["codex-credential\n", "codex-credential\r"])(
+    "should reject multiline values from allowlisted env (%j)",
+    async (multilineValue) => {
+      const child = createMockChild();
+      spawnSpy.mockReturnValue(child);
+      readFileSpy.mockResolvedValue("review output text");
+      const originalValue = process.env["OPENAI_API_KEY"];
+      process.env["OPENAI_API_KEY"] = multilineValue;
+
+      try {
+        const promise = createService().executeCodex("/work", "main", "review");
+
+        child.emit("close", 0, null);
+
+        await promise;
+
+        const [, , options] = spawnSpy.mock.calls[0] as [
+          string,
+          string[],
+          { env: NodeJS.ProcessEnv },
+        ];
+        expect(options.env["OPENAI_API_KEY"]).toBeUndefined();
+      } finally {
+        if (originalValue === undefined) {
+          delete process.env["OPENAI_API_KEY"];
+        } else {
+          process.env["OPENAI_API_KEY"] = originalValue;
+        }
+      }
+    },
+  );
+
 
   it("should handle large JSONL streams without crashing", async () => {
     const child = createMockChild();
