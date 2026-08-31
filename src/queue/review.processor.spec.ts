@@ -14,6 +14,7 @@ import type { ICodexReviewResult } from "../codex/interfaces/codex.interfaces";
 import { TriggerType } from "../entities/review-run.entity";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
 import { rm, writeFile } from "node:fs/promises";
+import { UnrecoverableError } from "bullmq";
 
 jest.mock("@lib/logger", () => ({
   ServiceLogger: jest.fn().mockImplementation(() => ({
@@ -102,6 +103,35 @@ describe("review.prompt", () => {
       ]);
 
       expect(result).toContain("- M pnpm-lock.yaml");
+    });
+  });
+
+  describe("verifiability gate", () => {
+    it.each(["inline-diff", "branch-diff"] as const)(
+      "should separate finding scope from evidence scope in %s mode",
+      (mode) => {
+        const prompt = buildReviewPrompt("main", "diff --git a/a b/a", mode);
+
+        expect(prompt).toContain("지적 대상");
+        expect(prompt).toContain("근거까지 diff 텍스트로 제한되는 건 아니야");
+        expect(prompt).toContain("현재 worktree의 실제 파일과 git 이력을 읽어");
+        // 조건부 — 모든 리뷰에 파일 읽기 왕복을 붙이지 않는다
+        expect(prompt).toContain("그 외에는 diff만 보고 판단해도 돼");
+        expect(prompt).not.toContain("만 근거로 사용해줘");
+      },
+    );
+
+    it("should require verification before blocking on runtime-behavior claims", () => {
+      const prompt = buildReviewPrompt("main", "diff --git a/a b/a");
+
+      expect(prompt).toContain("런타임 동작");
+      expect(prompt).toContain("`git log -- <경로>` / `git show`");
+      expect(prompt).toContain("같은 검사를 거쳐 이미 머지돼 있는지가 직접적인 반증");
+      // 머지 전례를 정당성 근거로 확대 해석해 정상 지적을 억제하면 안 된다
+      expect(prompt).toContain("코드가 옳다는 근거는 아니야");
+      expect(prompt).toContain(
+        '확인하지 못했으면 "blocking"으로 올리지 말고 "suggestion"으로 낮추고',
+      );
     });
   });
 
@@ -669,6 +699,7 @@ describe("review.formatter", () => {
 describe("ReviewProcessor publish results", () => {
   const mockReviewService = {
     updateStatus: jest.fn(),
+    updateResultCommentId: jest.fn(),
     existsByIdempotencyKey: jest.fn(),
     createReviewRun: jest.fn(),
     supersedeActivePrReviews: jest.fn(),
@@ -781,7 +812,7 @@ describe("ReviewProcessor publish results", () => {
       );
       if (expectInlineDiff) {
         expect(prompt).toContain(
-          "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.",
+          "지적 대상은 이 프롬프트 하단의 `리뷰 대상 PR diff`에 포함된 변경으로 한정해줘.",
         );
         expect(prompt).toContain("```diff");
         expect(prompt).toContain(reviewDiff);
@@ -792,7 +823,7 @@ describe("ReviewProcessor publish results", () => {
           /git diff[^\n]*(?:\$\([^\n]*git merge-base[^\n]*\)|\$\{[A-Za-z_][A-Za-z0-9_]*\})\.\.HEAD/,
         );
         expect(prompt).not.toContain(
-          "반드시 이 프롬프트 하단의 `리뷰 대상 PR diff`만 근거로 사용해줘.",
+          "지적 대상은 이 프롬프트 하단의 `리뷰 대상 PR diff`에 포함된 변경으로 한정해줘.",
         );
         expect(prompt).not.toContain("generated-change-2048");
         expect(prompt).toMatch(/git diff/);
@@ -960,18 +991,25 @@ describe("ReviewProcessor publish results", () => {
             confidence: number;
             findings: ReadonlyArray<IReviewItem>;
           },
+          reviewDiff: string,
+          onResultCommentPublished: (commentId: number) => Promise<void>,
         ) => Promise<number | undefined>;
       }
-    ).publishUnifiedResults(baseJobData, {
-      summary: [
-        "1) 변경 개요 - learning-trace와 bff-rtc에서 사용하지 않거나 불필요해진 데이터베이스 설정 코드를 정리했습니다.",
-        "2) 주요 변경사항 - apps/learning-trace에서 DB 설정 제거 - apps/bff-rtc에서 미사용 DB 설정 제거",
-        "3) 영향 범위 - 환경변수 관리 혼란이 줄어듭니다.",
-      ].join(" "),
-      verdict: "approve",
-      confidence: 88,
-      findings: [],
-    });
+    ).publishUnifiedResults(
+      baseJobData,
+      {
+        summary: [
+          "1) 변경 개요 - learning-trace와 bff-rtc에서 사용하지 않거나 불필요해진 데이터베이스 설정 코드를 정리했습니다.",
+          "2) 주요 변경사항 - apps/learning-trace에서 DB 설정 제거 - apps/bff-rtc에서 미사용 DB 설정 제거",
+          "3) 영향 범위 - 환경변수 관리 혼란이 줄어듭니다.",
+        ].join(" "),
+        verdict: "approve",
+        confidence: 88,
+        findings: [],
+      },
+      "",
+      async () => undefined,
+    );
 
     expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1077,6 +1115,7 @@ describe("ReviewProcessor publish results", () => {
             findings: ReadonlyArray<IReviewItem>;
           },
           reviewDiff: string,
+          onResultCommentPublished: (commentId: number) => Promise<void>,
         ) => Promise<number | undefined>;
       }
     ).publishUnifiedResults(
@@ -1110,6 +1149,7 @@ describe("ReviewProcessor publish results", () => {
         "@@ -10,0 +12,1 @@",
         "+  { url: '/specs/sso-agent', name: 'SSO AGENT API' },",
       ].join("\n"),
+      async () => undefined,
     );
 
     expect(mockBitbucketService.createInlineComment).toHaveBeenCalledTimes(1);
@@ -1135,14 +1175,135 @@ describe("ReviewProcessor publish results", () => {
       }),
     );
   });
+
+  it("persists the JSON summary comment ID before posting inline comments", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/worktree",
+      bareRepoPath: "/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput: JSON.stringify({
+        summary: "ok",
+        verdict: "comment",
+        confidence: 90,
+        findings: [
+          {
+            title: "Finding",
+            path: "src/app.ts",
+            lineRange: { start: 1, end: 1 },
+            severity: "recommended",
+            description: "description",
+            reason: "reason",
+          },
+        ],
+      }),
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+
+    let releasePersistence: (() => void) | undefined;
+    let signalPersistenceStarted: (() => void) | undefined;
+    const persistenceBlocked = new Promise<void>((resolve) => {
+      releasePersistence = resolve;
+    });
+    const persistenceStarted = new Promise<void>((resolve) => {
+      signalPersistenceStarted = resolve;
+    });
+    mockReviewService.updateResultCommentId.mockImplementationOnce(async () => {
+      signalPersistenceStarted?.();
+      await persistenceBlocked;
+    });
+
+    const processing = processor.process({ data: baseJobData } as never);
+    await persistenceStarted;
+
+    expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
+    expect(mockBitbucketService.createInlineComment).not.toHaveBeenCalled();
+
+    releasePersistence?.();
+    await processing;
+
+    expect(mockReviewService.updateResultCommentId).toHaveBeenCalledWith(1, 100);
+    const commentOrder =
+      mockBitbucketService.createComment.mock.invocationCallOrder[0];
+    const persistOrder =
+      mockReviewService.updateResultCommentId.mock.invocationCallOrder[0];
+    const inlineOrder =
+      mockBitbucketService.createInlineComment.mock.invocationCallOrder[0];
+    expect(commentOrder).toBeLessThan(persistOrder);
+    expect(persistOrder).toBeLessThan(inlineOrder);
+  });
+
+  it("persists the raw fallback comment ID before marking the run completed", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/worktree",
+      bareRepoPath: "/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput: "not JSON",
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+
+    let releasePersistence: (() => void) | undefined;
+    let signalPersistenceStarted: (() => void) | undefined;
+    const persistenceBlocked = new Promise<void>((resolve) => {
+      releasePersistence = resolve;
+    });
+    const persistenceStarted = new Promise<void>((resolve) => {
+      signalPersistenceStarted = resolve;
+    });
+    mockReviewService.updateResultCommentId.mockImplementationOnce(async () => {
+      signalPersistenceStarted?.();
+      await persistenceBlocked;
+    });
+
+    const processing = processor.process({ data: baseJobData } as never);
+    await persistenceStarted;
+
+    expect(mockReviewService.updateStatus).not.toHaveBeenCalledWith(
+      1,
+      "completed",
+      expect.anything(),
+    );
+
+    releasePersistence?.();
+    await processing;
+
+    expect(mockReviewService.updateResultCommentId).toHaveBeenCalledWith(1, 100);
+    const persistOrder =
+      mockReviewService.updateResultCommentId.mock.invocationCallOrder[0];
+    const completedCallIndex =
+      mockReviewService.updateStatus.mock.calls.findIndex(
+        ([, status]) => status === "completed",
+      );
+    const completedOrder =
+      mockReviewService.updateStatus.mock.invocationCallOrder[
+        completedCallIndex
+      ];
+    expect(
+      mockBitbucketService.createComment.mock.invocationCallOrder[0],
+    ).toBeLessThan(persistOrder);
+    expect(persistOrder).toBeLessThan(completedOrder);
+  });
 });
 
 describe("ReviewProcessor error handling", () => {
   const mockReviewService = {
     updateStatus: jest.fn(),
+    updateResultCommentId: jest.fn(),
     existsByIdempotencyKey: jest.fn(),
     createReviewRun: jest.fn(),
     supersedeActivePrReviews: jest.fn(),
+    findById: jest.fn(),
   };
   const mockWorkspaceService = {
     prepareWorktree: jest.fn(),
@@ -1182,6 +1343,10 @@ describe("ReviewProcessor error handling", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockConfigService.get.mockReturnValue("");
+    mockReviewService.findById.mockResolvedValue({
+      id: 1,
+      reviewStatus: "preparing",
+    });
     mockWorkspaceService.createReviewDiff.mockResolvedValue({
       diff: "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
       excludedChangedFiles: [],
@@ -1280,5 +1445,330 @@ describe("ReviewProcessor error handling", () => {
         ),
       }),
     );
+  });
+
+  it("should defer failure reporting while retries remain", async () => {
+    mockWorkspaceService.prepareWorktree.mockRejectedValue(
+      new Error("Git clone failed"),
+    );
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("Git clone failed");
+
+    expect(mockReviewService.updateStatus).not.toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.anything(),
+    );
+    expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
+    expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+  });
+
+  it("should report failure on the last attempt", async () => {
+    mockWorkspaceService.prepareWorktree.mockRejectedValue(
+      new Error("Git clone failed"),
+    );
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 2,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("Git clone failed");
+
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.objectContaining({
+        errorMessage: expect.stringContaining("Git clone failed"),
+      }),
+    );
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("Code Review 실패"),
+      }),
+    );
+  });
+
+  it("preserves the comment ID in FAILED metadata when markCompleted fails", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput:
+        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+    mockReviewService.updateStatus.mockImplementation(
+      (_id: number, status: string) =>
+        status === "completed"
+          ? Promise.reject(new Error("db unavailable"))
+          : Promise.resolve(undefined),
+    );
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    // 재시도하면 summary/inline 코멘트가 중복 게시된다 → UnrecoverableError로 차단
+    await expect(processor.process(job)).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+
+    expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.objectContaining({
+        resultCommentId: 100,
+        errorMessage: expect.stringContaining("db unavailable"),
+      }),
+    );
+    expect(mockReviewService.updateResultCommentId).toHaveBeenCalledWith(1, 100);
+  });
+
+  it.each([
+    { name: "superseded by a newer run", run: { id: 1, reviewStatus: "superseded" } },
+    { name: "deleted", run: null },
+  ])("should skip a retry whose run was $name", async ({ run }) => {
+    mockReviewService.findById.mockResolvedValue(run);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 1,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).resolves.toBeUndefined();
+
+    // 구버전 커밋 리뷰가 새 리뷰 뒤에 게시되면 안 된다
+    expect(mockWorkspaceService.prepareWorktree).not.toHaveBeenCalled();
+    expect(mockCodexService.executeCodex).not.toHaveBeenCalled();
+    expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+    expect(mockReviewService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("should report failure when the retry precheck lookup fails on the last attempt", async () => {
+    mockReviewService.findById.mockRejectedValue(new Error("db unavailable"));
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 2,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toThrow("db unavailable");
+
+    // 조회 실패가 최종 실패 보고를 건너뛰면 런이 preparing으로 영구 잔류한다
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.objectContaining({
+        errorMessage: expect.stringContaining("db unavailable"),
+      }),
+    );
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("Code Review 실패"),
+      }),
+    );
+  });
+
+  it("should stay retriable when the publishing status update fails", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput:
+        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+    // Bitbucket 쓰기 전 DB 전이 실패 — 재시도해도 중복 게시 위험이 없다
+    mockReviewService.updateStatus.mockImplementation(
+      (_id: number, status: string) =>
+        status === "publishing"
+          ? Promise.reject(new Error("db unavailable"))
+          : Promise.resolve(undefined),
+    );
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    const rejection = await processor.process(job).catch((err) => err);
+
+    expect(rejection).not.toBeInstanceOf(UnrecoverableError);
+    expect((rejection as Error).message).toContain("db unavailable");
+    expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+  });
+
+  it("should stay unrecoverable when persisting the failed status also fails", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput:
+        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+    // DB 장애: markCompleted도, 뒤따르는 FAILED 기록도 실패한다
+    mockReviewService.updateStatus.mockImplementation(
+      (_id: number, status: string) =>
+        status === "completed" || status === "failed"
+          ? Promise.reject(new Error("db unavailable"))
+          : Promise.resolve(undefined),
+    );
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+
+    expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues publishing when early comment ID persistence fails", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput: JSON.stringify({
+        summary: "ok",
+        verdict: "comment",
+        confidence: 100,
+        findings: [
+          {
+            title: "Finding",
+            path: "src/app.ts",
+            lineRange: { start: 1, end: 1 },
+            severity: "recommended",
+            description: "description",
+            reason: "reason",
+          },
+        ],
+      }),
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+    mockReviewService.updateStatus.mockResolvedValue(undefined);
+    mockReviewService.updateResultCommentId.mockRejectedValue(
+      new Error("comment ID persistence unavailable"),
+    );
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).resolves.toBeUndefined();
+
+    expect(mockBitbucketService.createInlineComment).toHaveBeenCalledTimes(1);
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "completed",
+      expect.objectContaining({
+        resultCommentId: 100,
+      }),
+    );
+  });
+
+  it("keeps PUBLISHING when comment ID and FAILED persistence both fail", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput:
+        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+    const persistedStatuses: string[] = [];
+    mockReviewService.updateStatus.mockImplementation(
+      (_id: number, status: string) => {
+        if (
+          status === "preparing" ||
+          status === "reviewing" ||
+          status === "publishing"
+        ) {
+          persistedStatuses.push(status);
+          return Promise.resolve(undefined);
+        }
+        if (status === "failed") {
+          return Promise.reject(new Error("FAILED persistence unavailable"));
+        }
+        return Promise.reject(new Error(`unexpected status: ${status}`));
+      },
+    );
+    mockReviewService.updateResultCommentId.mockRejectedValue(
+      new Error("comment ID persistence unavailable"),
+    );
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    await expect(processor.process(job)).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+
+    expect(mockReviewService.updateResultCommentId).toHaveBeenCalledWith(1, 100);
+    expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
+    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      1,
+      "failed",
+      expect.objectContaining({
+        resultCommentId: 100,
+      }),
+    );
+    expect(persistedStatuses).toEqual(["preparing", "publishing"]);
   });
 });

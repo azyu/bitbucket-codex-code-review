@@ -1,10 +1,10 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-08-10
+> 마지막 업데이트: 2026-08-31
 
 ## 진행 중/최근 작업
 
-### Task 30: Codex 자식 프로세스 환경 격리
+### Task 33: Codex 자식 프로세스 환경 격리 보완
 - **상태**: ✅ 완료
 
 | 서브태스크 | 상태 | 설명 |
@@ -16,6 +16,66 @@
 | 커버리지 | ✅ | `pnpm test:cov --runInBand` 성공, statement coverage 86.77% |
 | 보안 체크리스트 | ✅ | 하드코딩 시크릿 없음, 서비스 비밀은 Codex 환경에서 제외, 신규 입력·오류 노출 경로 없음 |
 | PR #21 리뷰 보완 | ✅ | `CODEX_HOME`과 HTTP(S) proxy/`NO_PROXY`, CA 인증서 경로 및 대소문자 proxy 변형을 Codex 자식 환경에 유지하고 회귀 테스트로 검증 |
+
+### Task 32: 게시 후 상태 기록 실패 중복 리뷰 차단
+- **상태**: ✅ 완료
+- **배경**: GitHub 이슈 #27. Bitbucket 요약 댓글 게시 후 `markCompleted()`가 실패하면 런이 `FAILED`가 되고, 같은 웹훅 재수신 시 기존 행을 삭제해 Codex와 리뷰 댓글을 중복 실행·게시하던 경로.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 게시 증거 조기 저장 | ✅ | JSON summary/raw fallback의 첫 일반 댓글 ID를 인라인 게시·완료 처리 전에 `resultCommentId`로 저장. 상태를 바꾸지 않는 전용 update라 supersede 상태를 되살리지 않음 |
+| 멱등성 경계 수정 | ✅ | `FAILED + resultCommentId 없음`만 삭제해 재시도하고, 게시 흔적이 있는 FAILED 및 모든 PUBLISHING 행은 중복 요청으로 차단 |
+| 연속 DB 실패 방어 | ✅ | ID 저장 전에 process-local ID를 보존하고 catch의 FAILED metadata에 포함. ID 저장과 FAILED 저장이 모두 실패하면 PUBLISHING이 남아 webhook 재수신을 차단 |
+| 회귀 테스트 | ✅ | FAILED/null·FAILED/ID·PUBLISHING/null 판정, ID-only update await/rejection, JSON/raw 저장 순서, 완료 실패, ID/FAILED 연속 실패 경로 검증 |
+| 적대적 리뷰 | ✅ | correctness/security-operations/contracts 3축, 보완 후 2회 재검토. 최종 blocking finding 없음 |
+| PR #31 P1 보완 | ✅ | `updateResultCommentId` 일시 실패가 인라인 게시·완료 처리를 중단하지 않도록 콜백에서 격리하고 회귀 테스트 추가 |
+| 빌드/린트/테스트 | ✅ | `pnpm lint`, `pnpm build`, `pnpm test --runInBand` 성공 (238 tests), `pnpm test:cov --runInBand` statement 88.01% |
+| 보안 체크리스트 | ✅ | 신규 외부 입력·시크릿·에러 노출·스키마 변경 없음. 내부 result comment ID와 상태만 조회·갱신 |
+| 범위 밖 | ⚠️ | #26 stalled redelivery/supersede TOCTOU, #28 첫 쓰기 429/503, Bitbucket ambiguous response success는 별도 이슈 범위 유지 |
+
+
+### Task 31: 최초 clone 타임아웃 + 큐 재시도 미배선 수정
+- **상태**: ✅ 완료
+- **배경**: 운영에서 `todoeng-academy-web` PR #31 리뷰가 정확히 120.005초에 `Git clone failed`로 실패. 인증·인스턴스 병목 아님(같은 순간 API 코멘트 성공, CPU 1.9%). 같은 컨테이너에서 수동 재현 시 28초/29MB 성공 — 최초 pack 생성 대기로 **추정**. 로그는 `failed permanently after 1 attempts`로, 정의된 재시도도 실효 없었음.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| clone 타임아웃 설정화 | ✅ | `ensureBareRepo` 120s 하드코딩 → `workspace.cloneTimeoutMs`(`GIT_CLONE_TIMEOUT_MS`, 기본 600s). 타임아웃 kill 시 git이 부분 디렉토리를 정리해 재시도도 0부터 다시 받는 구조라 넉넉한 값이 필요 |
+| fetchLatest 타임아웃 | ✅ | 60s → 300s 하드코딩 유지. 오래 방치된 repo의 증분 fetch도 같은 서버측 pack 생성 대기를 겪음. clone과 달리 실패해도 bare repo가 남아 재시도가 저렴하므로 env 노출은 생략 |
+| 큐 등록 일원화 | ✅ | `WebhookModule`의 중복 `registerQueue`(defaultJobOptions 없음) 제거 → `QueueModule` import. producer(`webhook.controller.ts`의 `@InjectQueue`)가 옵션 없는 별개 인스턴스를 쓰던 원인 |
+| QUEUE_RETRY_* 실제 배선 | ✅ | `registerQueueAsync` + `ConfigService`로 `attempts`=`queue.retryAttempts`, exponential backoff delay=`queue.retryDelay`. 죽은 설정 2개를 살리는 쪽을 선택. `REVIEW_QUEUE_CONFIG`의 `attempts: 2`/`delay: 10_000`은 producer 경로에 적용된 적이 없어 제거(단일 출처 = env) |
+| 회귀 테스트 | ✅ | `queue.module.spec.ts` 3케이스 — 등록된 큐의 `attempts>1`, env override 반영, producer가 자체 `registerQueue`를 하지 않음. 수정 전 상태 재현 시 RED 확인 |
+| clone 타임아웃 테스트 | ✅ | `workspace.service.spec.ts` clone 호출이 config 값(900s)을 `timeout`으로 받는지 검증 |
+| 빌드/린트/테스트 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test:cov` 성공 (210 tests, statement 86.82%) |
+| 보안 체크리스트 | ✅ | 시크릿·신규 외부 입력 없음, clone 에러 URL 마스킹 로직 유지 |
+| PR #25 Codex 리뷰 반영 (P1 2건) | ✅ | 재시도를 실제로 켜면서 생긴 노출 2건. ① 게시 전 실패는 마지막 시도에서만 FAILED 기록·실패 코멘트 → 중간 시도의 "❌ 실패" 코멘트와, 백오프 중 `existsByIdempotencyKey`가 FAILED 행을 지우고 재시도 잡을 제거하는 경로를 차단 ② 게시 단계 진입 후 실패는 `UnrecoverableError`로 재시도 차단(리뷰 코멘트 중복 게시 + Codex 재실행 방지). `onFailed` 로그도 재시도/최종 실패를 구분 — BullMQ는 재시도로 이어지는 실패에도 `failed`를 emit한다 |
+| PR #25 Codex 재리뷰 반영 (P1 1건) | ✅ | catch의 `updateStatus(FAILED)`가 던지면 `UnrecoverableError` 분기에 도달하지 못해 게시 이후 실패가 재시도된다(DB 장애면 `markCompleted`와 이 쓰기가 같이 실패하는 상관 케이스). 상태 기록을 try/catch로 감싸 재시도 판단이 DB 성공 여부에 의존하지 않게 했다. 회귀 테스트 1케이스 추가 |
+| PR #25 Codex 3차 리뷰 반영 (P1 1건) | ✅ | `publishStarted`를 `publishResults()` 진입 시점에 세우면 그 안의 `updateStatus(PUBLISHING)` DB 실패까지 재시도 불가로 처리되어 리뷰가 유실된다. 상태 전이를 `process()`로 끌어올려 **Bitbucket 쓰기 직전**에만 플래그를 세운다 — 남은 구간은 파싱·포맷팅(순수 연산)뿐. 회귀 테스트 1케이스 추가 |
+| PR #25 Codex 4차 리뷰 반영 (P1 1건) | ✅ | 백오프 중 새 커밋 리뷰가 `supersedeActivePrReviews`로 이 런을 `SUPERSEDED`로 바꿔도, 재시도가 `prepareWorkspace()`에서 `PREPARING`으로 되살리고 구버전 리뷰를 게시했다. 재시도(`attemptsMade > 0`)일 때만 `findById`로 상태를 확인해 `SUPERSEDED`/행 삭제면 작업 없이 종료. 회귀 테스트 2케이스 |
+| codex CLI 독립 리뷰 반영 (P1 1건) | ✅ | 재시도 사전 조회(`findById`)가 `try` 밖에 있어, DB 장애로 조회 자체가 실패하면 마지막 시도에서도 FAILED 기록과 사용자 알림이 모두 생략되고 런이 `preparing`으로 영구 잔류한다. 가드를 `try` 안으로 이동해 기존 최종 실패 경로를 타게 했다. 회귀 테스트 1케이스 |
+| PR #25 Codex 5차 리뷰 반영 (P2 1건) | ✅ | `GIT_CLONE_TIMEOUT_MS`가 `Joi.number()`라 음수·소수를 통과시키고, `execFile`이 git 실행 전에 `ERR_OUT_OF_RANGE`를 던져 모든 clone이 실패한다. `.integer().positive()`로 부팅 시 차단. 0(타임아웃 없음)도 불허 — 멈춘 clone이 워커 슬롯을 영구 점유한다. 회귀 테스트 4케이스 |
+| PR #25 Codex 6차 리뷰 반영 (P2 2건) | ✅ | ① `QUEUE_RETRY_DELAY=-1`이 Joi를 통과하면 BullMQ가 계산된 백오프 `-1`을 "재시도 안 함" 신호로 읽어, 이 PR이 켠 재시도가 조용히 죽는다. 게다가 `process()`의 "시도가 남았으면 보류" 분기는 여전히 참이라 FAILED 기록·실패 코멘트가 생략되고 런이 `preparing`으로 잔류한다. `QUEUE_RETRY_ATTEMPTS`는 0·음수·소수도 통과. → attempts `.integer().positive()`, delay `.integer().min(0)` ② `GIT_CLONE_TIMEOUT_MS` 상한 없음 — 2^31-1 초과는 Node 타이머가 ~1ms로 접어 타임아웃이 되레 짧아진다. `.max(2_147_483_647)` 추가. 회귀 테스트 7케이스 |
+| 미적용 (기존 스키마) | ⚠️ | `CODEX_TIMEOUT_MS`·`WORKSPACE_MAX_CONCURRENT`도 같은 laxity를 갖지만 손대지 않았다. `QUEUE_RETRY_*`는 이 PR이 BullMQ에 실제로 주입하기 시작해 잘못된 값이 곧 기능 상실이라 예외로 조였다(운영값 3/5000은 통과 확인) |
+| 후속 과제 (이 PR 범위 밖) | ⚠️ | 코드로 확인한 뒤 이슈로 분리했다 — #26 supersede/idempotency 모델(실행 중 구버전 게시 + 사전조회 TOCTOU + 워커 SIGKILL 우회), #27 게시 후 상태 기록 실패 시 웹훅 재수신으로 중복 게시(`existsByIdempotencyKey`가 FAILED 행 삭제), #28 Bitbucket 첫 쓰기 429/503에도 남은 재시도 폐기(현재는 안전한 쪽 실패), #29 인라인 코멘트 부분 실패 삼킴, #30 재시도 시 중간 시도의 Codex 토큰·소요시간 통계 누락 |
+| 미포함 | ⚠️ | `GIT_CLONE_TIMEOUT_MS`를 charts/docker-compose에는 추가하지 않음(기본값이 튜닝된 값이고 운영 env는 tools-infra가 관리). `REVIEW_DLQ_NAME`은 기존 미사용 상수로 손대지 않음 |
+
+### Task 30: 리뷰 근거 범위 분리 + 검증 가능성 게이트
+- **상태**: ✅ 완료
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 오탐 근본 원인 확인 | ✅ | inline-diff 분기가 `"diff만 근거로 사용해줘"`로 증거 수집을 봉쇄하면서 판정기준 6번은 "검증 불가 가정 금지"를 요구 — 검증 수단을 뺏고 검증을 요구하는 구조. branch-diff 분기는 파일 읽기를 허용해 같은 봇이 모드에 따라 증거 권한이 달랐음 |
+| 봇 실행 능력 실측 | ✅ | read-only 샌드박스에서 셸 실행·파일 읽기 가능, 네트워크는 차단(`curl` → DNS 실패). worktree는 `git clone --bare` 전체 클론이라 `git log` 조회 가능 |
+| 지적 범위/근거 범위 분리 | ✅ | `scopeInstruction`(지적은 diff 안) + `evidenceInstruction`(근거는 worktree 파일·git 이력)으로 분리. 파일 읽기는 "diff에 안 보이는 레포 전역 동작에 의존하는 지적"에 한해 조건부 |
+| 검증 가능성 게이트 | ✅ | 판정기준 6번에 런타임 동작 주장의 확인 수단(`git log -- <경로>` / `git show`)을 명시하고, findings에 "확인 못 하면 blocking → suggestion 강등" 규칙 추가 |
+| 회귀 테스트 | ✅ | `verifiability gate` 3케이스 추가. 수정 전 프롬프트에 대해 3건 모두 실패(RED) → 수정 후 통과(GREEN) 확인 |
+| 빌드/린트/테스트 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공 (207 tests) |
+| 커버리지 | ✅ | `pnpm test:cov --runInBand` statement 86.78%, `review.prompt.ts` 100% |
+| 보안 체크리스트 | ✅ | 프롬프트 문구 변경만, 시크릿·신규 입력·에러 누출 없음 |
+| 한계 | ⚠️ | 단위 테스트는 "지시문이 프롬프트에 들어갔는지"까지만 검증. 모델이 실제로 강등하는지는 오탐 4건 diff를 실환경에 태워야 확인 가능 |
+| 운영 `trigger.mode` 확인 | ✅ | 멘션 없이 PR 생성만으로 봇이 동작한 관측으로 `auto` 계열 확정. 차트 기본값 `mention`과 다름. CI 게이트를 채택하지 않았으므로 이번 수정 내용에는 영향 없음 |
+| Pull Request | ✅ | GitHub PR [#22](https://github.com/azyu/bitbucket-codex-code-review/pull/22) 생성, CI `lint-and-build` 성공 |
+| PR 리뷰 피드백 반영 | ✅ | 머지 전례를 "그 자체가 반증"으로 넓게 쓰면 기존 패턴의 새 인스턴스에 대한 정상 지적까지 억제될 수 있어, 자동 검사 거부 주장에 한정하고 "코드가 옳다는 근거는 아니다"를 명시 |
 
 ### Task 29: Codex 실제 실패 메시지 노출
 - **상태**: ✅ 완료
