@@ -15,6 +15,7 @@
 | 연속 DB 실패 방어 | ✅ | ID 저장 전에 process-local ID를 보존하고 catch의 FAILED metadata에 포함. ID 저장과 FAILED 저장이 모두 실패하면 PUBLISHING이 남아 webhook 재수신을 차단 |
 | 회귀 테스트 | ✅ | FAILED/null·FAILED/ID·PUBLISHING/null 판정, ID-only update await/rejection, JSON/raw 저장 순서, 완료 실패, ID/FAILED 연속 실패 경로 검증 |
 | 적대적 리뷰 | ✅ | correctness/security-operations/contracts 3축, 보완 후 2회 재검토. 최종 blocking finding 없음 |
+| PR #31 P1 보완 | ✅ | `updateResultCommentId` 일시 실패가 인라인 게시·완료 처리를 중단하지 않도록 콜백에서 격리하고 회귀 테스트 추가 |
 | 빌드/린트/테스트 | ✅ | `pnpm lint`, `pnpm build`, `pnpm test --runInBand` 성공 (238 tests), `pnpm test:cov --runInBand` statement 88.01% |
 | 보안 체크리스트 | ✅ | 신규 외부 입력·시크릿·에러 노출·스키마 변경 없음. 내부 result comment ID와 상태만 조회·갱신 |
 | 범위 밖 | ⚠️ | #26 stalled redelivery/supersede TOCTOU, #28 첫 쓰기 429/503, Bitbucket ambiguous response success는 별도 이슈 범위 유지 |

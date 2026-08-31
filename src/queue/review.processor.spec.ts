@@ -1663,15 +1663,28 @@ describe("ReviewProcessor error handling", () => {
     expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves the process-local comment ID when its early persistence fails", async () => {
+  it("continues publishing when early comment ID persistence fails", async () => {
     mockWorkspaceService.prepareWorktree.mockResolvedValue({
       worktreePath: "/tmp/worktree",
       bareRepoPath: "/tmp/bare",
     });
     mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
     mockCodexService.executeCodex.mockResolvedValue({
-      rawOutput:
-        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      rawOutput: JSON.stringify({
+        summary: "ok",
+        verdict: "comment",
+        confidence: 100,
+        findings: [
+          {
+            title: "Finding",
+            path: "src/app.ts",
+            lineRange: { start: 1, end: 1 },
+            severity: "recommended",
+            description: "description",
+            reason: "reason",
+          },
+        ],
+      }),
       exitCode: 0,
       durationMs: 10,
       inputTokens: null,
@@ -1689,18 +1702,14 @@ describe("ReviewProcessor error handling", () => {
       opts: { attempts: 3 },
     } as never;
 
-    await expect(processor.process(job)).rejects.toBeInstanceOf(
-      UnrecoverableError,
-    );
+    await expect(processor.process(job)).resolves.toBeUndefined();
 
+    expect(mockBitbucketService.createInlineComment).toHaveBeenCalledTimes(1);
     expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
       1,
-      "failed",
+      "completed",
       expect.objectContaining({
         resultCommentId: 100,
-        errorMessage: expect.stringContaining(
-          "comment ID persistence unavailable",
-        ),
       }),
     );
   });

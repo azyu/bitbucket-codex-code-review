@@ -100,10 +100,16 @@ export class ReviewProcessor extends WorkerHost {
         async (publishedCommentId) => {
           // 로컬 증거를 먼저 남겨 DB 저장 실패도 catch에서 보존한다.
           resultCommentId = publishedCommentId;
-          await this.reviewService.updateResultCommentId(
-            data.reviewRunId,
-            publishedCommentId,
-          );
+          try {
+            await this.reviewService.updateResultCommentId(
+              data.reviewRunId,
+              publishedCommentId,
+            );
+          } catch (persistenceErr) {
+            this.logger.error(
+              `Failed to persist result comment ID: ${(persistenceErr as Error).message}`,
+            );
+          }
         },
       );
 
