@@ -166,6 +166,97 @@ describe("ReviewService stats", () => {
   });
 });
 
+describe("ReviewService idempotency", () => {
+  const mockRepository = {
+    findOne: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  };
+
+  let service: ReviewService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new ReviewService(mockRepository as never);
+  });
+
+  it("deletes a failed run without a result comment to allow retry", async () => {
+    mockRepository.findOne.mockResolvedValueOnce({
+      id: 7,
+      reviewStatus: ReviewRunStatus.FAILED,
+      resultCommentId: null,
+    });
+
+    await expect(service.existsByIdempotencyKey("repo:1:commit")).resolves.toBe(
+      false,
+    );
+
+    expect(mockRepository.findOne).toHaveBeenCalledWith({
+      where: { idempotencyKey: "repo:1:commit" },
+      select: ["id", "reviewStatus", "resultCommentId"],
+    });
+    expect(mockRepository.delete).toHaveBeenCalledWith(7);
+  });
+
+  it("keeps a failed run with a result comment and treats it as duplicate", async () => {
+    mockRepository.findOne.mockResolvedValueOnce({
+      id: 8,
+      reviewStatus: ReviewRunStatus.FAILED,
+      resultCommentId: 321,
+    });
+
+    await expect(service.existsByIdempotencyKey("repo:1:commit")).resolves.toBe(
+      true,
+    );
+
+    expect(mockRepository.delete).not.toHaveBeenCalled();
+  });
+
+  it("keeps a publishing run without a result comment as a duplicate", async () => {
+    mockRepository.findOne.mockResolvedValueOnce({
+      id: 9,
+      reviewStatus: ReviewRunStatus.PUBLISHING,
+      resultCommentId: null,
+    });
+
+    await expect(service.existsByIdempotencyKey("repo:1:commit")).resolves.toBe(
+      true,
+    );
+
+    expect(mockRepository.delete).not.toHaveBeenCalled();
+  });
+
+  it("waits for the result comment ID update without changing status", async () => {
+    let releaseUpdate: (() => void) | undefined;
+    const updatePending = new Promise<void>((resolve) => {
+      releaseUpdate = resolve;
+    });
+    mockRepository.update.mockReturnValueOnce(updatePending);
+    let serviceCallSettled = false;
+
+    const serviceCall = service.updateResultCommentId(9, 654).then(() => {
+      serviceCallSettled = true;
+    });
+    await Promise.resolve();
+
+    expect(mockRepository.update).toHaveBeenCalledWith(9, {
+      resultCommentId: 654,
+    });
+    expect(serviceCallSettled).toBe(false);
+
+    releaseUpdate?.();
+    await serviceCall;
+    expect(serviceCallSettled).toBe(true);
+  });
+
+  it("propagates a result comment ID update rejection", async () => {
+    const error = new Error("database unavailable");
+    mockRepository.update.mockRejectedValueOnce(error);
+
+    await expect(service.updateResultCommentId(9, 654)).rejects.toBe(error);
+  });
+});
+
 describe("ReviewService.listRecent", () => {
   const mockRepository = {
     create: jest.fn(),

@@ -24,6 +24,8 @@ import { type ReviewPromptMode, resolveReviewPrompt } from "./review.prompt";
 // Keep margin for base instructions, custom prompt text, and JSON schema.
 const MAX_INLINE_REVIEW_PROMPT_CHARS = 900_000;
 
+type ResultCommentPublishedCallback = (commentId: number) => Promise<void>;
+
 @Processor(REVIEW_QUEUE_NAME)
 export class ReviewProcessor extends WorkerHost {
   private readonly logger = new ServiceLogger(ReviewProcessor.name);
@@ -48,6 +50,7 @@ export class ReviewProcessor extends WorkerHost {
     let codexResult: ICodexReviewResult | undefined;
     let reviewDiff = "";
     let publishStarted = false;
+    let resultCommentId: number | undefined;
 
     try {
       // 백오프 대기 중 새 커밋 리뷰가 이 런을 대체했으면 구버전 리뷰를 게시하지 않는다.
@@ -90,7 +93,25 @@ export class ReviewProcessor extends WorkerHost {
         ReviewRunStatus.PUBLISHING,
       );
       publishStarted = true;
-      const commentId = await this.publishResults(data, codexResult, reviewDiff);
+      const commentId = await this.publishResults(
+        data,
+        codexResult,
+        reviewDiff,
+        async (publishedCommentId) => {
+          // 로컬 증거를 먼저 남겨 DB 저장 실패도 catch에서 보존한다.
+          resultCommentId = publishedCommentId;
+          try {
+            await this.reviewService.updateResultCommentId(
+              data.reviewRunId,
+              publishedCommentId,
+            );
+          } catch (persistenceErr) {
+            this.logger.error(
+              `Failed to persist result comment ID: ${(persistenceErr as Error).message}`,
+            );
+          }
+        },
+      );
 
       // Step 4: Mark completed
       await this.markCompleted(
@@ -121,6 +142,7 @@ export class ReviewProcessor extends WorkerHost {
           ReviewRunStatus.FAILED,
           {
             reviewOutput: failedCodexResult?.rawOutput,
+            resultCommentId,
             durationMs: failedCodexResult?.durationMs,
             totalDurationMs: Date.now() - processStartTime,
             inputTokens: failedCodexResult?.inputTokens ?? undefined,
@@ -289,23 +311,34 @@ export class ReviewProcessor extends WorkerHost {
     data: IReviewJobData,
     codexResult: ICodexReviewResult,
     reviewDiff: string,
+    onResultCommentPublished: ResultCommentPublishedCallback,
   ): Promise<number | undefined> {
     const unified = parseUnifiedReviewJson(codexResult.rawOutput, (msg) =>
       this.logger.error(msg),
     );
 
     if (unified) {
-      return this.publishUnifiedResults(data, unified, reviewDiff);
+      return this.publishUnifiedResults(
+        data,
+        unified,
+        reviewDiff,
+        onResultCommentPublished,
+      );
     }
 
-    return this.publishFallbackResults(data, codexResult.rawOutput);
+    return this.publishFallbackResults(
+      data,
+      codexResult.rawOutput,
+      onResultCommentPublished,
+    );
   }
 
   /** 통합 파싱 성공 시: verdict badge + summary + stats table + inline comments */
   private async publishUnifiedResults(
     data: IReviewJobData,
     unified: IUnifiedReviewResult,
-    reviewDiff = "",
+    reviewDiff: string,
+    onResultCommentPublished: ResultCommentPublishedCallback,
   ): Promise<number | undefined> {
     const findings = this.filterFindingsToReviewDiff(
       unified.findings,
@@ -343,6 +376,7 @@ export class ReviewProcessor extends WorkerHost {
       pullRequestId: data.pullRequestId,
       body: summaryBody,
     });
+    await onResultCommentPublished(summaryComment.id);
     this.logger.log(`Summary comment posted: ${summaryComment.id}`);
 
     // Post inline comments
@@ -357,6 +391,7 @@ export class ReviewProcessor extends WorkerHost {
   private async publishFallbackResults(
     data: IReviewJobData,
     rawOutput: string,
+    onResultCommentPublished: ResultCommentPublishedCallback,
   ): Promise<number | undefined> {
     this.logger.warn("Unified JSON parse failed, falling back to raw output comment");
     const comment = await this.bitbucketService.createComment({
@@ -365,6 +400,7 @@ export class ReviewProcessor extends WorkerHost {
       pullRequestId: data.pullRequestId,
       body: `## 🔍 코드 리뷰\n\n${rawOutput}`,
     });
+    await onResultCommentPublished(comment.id);
     this.logger.log(`Fallback comment posted: ${comment.id}`);
     return comment.id;
   }

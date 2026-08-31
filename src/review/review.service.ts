@@ -169,20 +169,23 @@ export class ReviewService {
     return saved;
   }
 
-  /** idempotency key로 중복 확인 (FAILED는 재시도 허용) */
+  /** idempotency key로 중복 확인 (게시되지 않은 FAILED만 재시도 허용) */
   async existsByIdempotencyKey(idempotencyKey: string): Promise<boolean> {
     const existing = await this.reviewRunRepository.findOne({
       where: { idempotencyKey },
-      select: ["id", "reviewStatus"],
+      select: ["id", "reviewStatus", "resultCommentId"],
     });
 
     if (!existing) return false;
 
-    // FAILED → 재시도 허용: 기존 레코드 삭제
-    if (existing.reviewStatus === ReviewRunStatus.FAILED) {
+    // 게시 증거가 없는 FAILED만 삭제해 재시도를 허용한다.
+    if (
+      existing.reviewStatus === ReviewRunStatus.FAILED &&
+      existing.resultCommentId == null
+    ) {
       await this.reviewRunRepository.delete(existing.id);
       this.logger.log(
-        `Removed failed review run (id=${existing.id}) for retry: ${idempotencyKey}`,
+        `Removed unpublished failed review run (id=${existing.id}) for retry: ${idempotencyKey}`,
       );
       return false;
     }
@@ -209,6 +212,14 @@ export class ReviewService {
     >,
   ): Promise<void> {
     await this.reviewRunRepository.update(id, { reviewStatus, ...extra });
+  }
+
+  /** 상태 전이 없이 게시된 결과 댓글 ID만 저장 */
+  async updateResultCommentId(
+    id: number,
+    resultCommentId: number,
+  ): Promise<void> {
+    await this.reviewRunRepository.update(id, { resultCommentId });
   }
 
   /** 특정 PR의 최근 리뷰 결과 조회 */
