@@ -120,7 +120,7 @@ docker compose up -d
 | 환경변수 | 설명 | 기본값 |
 |---|---|---|
 | `BITBUCKET_BASE_URL` | Bitbucket API 기본 URL | `https://api.bitbucket.org/2.0` |
-| `BITBUCKET_API_TOKEN` | API 토큰 | - |
+| `BITBUCKET_API_TOKEN` | Access Token (workspace / project / repository 3종 모두 사용 가능). workspace 토큰이면 해당 workspace의 모든 repo를 하나로 커버한다. 필요한 스코프: Repositories `Read`(clone) + Pull requests `Write`(리뷰 코멘트 게시) | - |
 | `BITBUCKET_WEBHOOK_SECRET` | Webhook HMAC secret | - |
 | `REVIEW_TRIGGER_MODE` | 트리거 모드 (아래 참조) | `mention` |
 
