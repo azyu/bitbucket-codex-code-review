@@ -1,6 +1,8 @@
-import { mkdtemp, rm, stat } from "fs/promises";
+import { mkdir, mkdtemp, rm, stat } from "fs/promises";
+import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { promisify } from "util";
 import { ConfigService } from "@nestjs/config";
 import { execFile } from "child_process";
 import { WorkspaceService } from "./workspace.service";
@@ -113,6 +115,15 @@ describe("WorkspaceService", () => {
     expect(execFileMock).toHaveBeenNthCalledWith(
       3,
       "git",
+      ["worktree", "prune"],
+      expect.objectContaining({
+        cwd: join(basePath, "repos", "repoa.git"),
+      }),
+      expect.any(Function),
+    );
+    expect(execFileMock).toHaveBeenNthCalledWith(
+      4,
+      "git",
       [
         "worktree",
         "add",
@@ -132,6 +143,56 @@ describe("WorkspaceService", () => {
     const askpassPath = cloneOptions.env.GIT_ASKPASS;
     await expect(stat(askpassPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  it("recovers when the worktree directory is gone but its git registration survived", async () => {
+    // 리뷰 도중 컨테이너가 재시작되면(배포·설정 반영) 정리 경로를 못 탄다. 다음 시도는
+    // 남은 디렉터리만 지우고 add하므로 "missing but already registered"로 죽고, 재시도도
+    // 같은 이유로 죽어 그 커밋은 사람이 손으로 prune하기 전까지 영구히 리뷰 불가가 된다.
+    // 실제 git으로 돌려야 잡히는 회귀라 이 케이스만 mock을 걷어낸다.
+    const realExecFile = jest.requireActual<typeof import("child_process")>(
+      "child_process",
+    ).execFile;
+    execFileMock.mockImplementation(realExecFile);
+    const git = promisify(realExecFile);
+
+    const sourcePath = join(basePath, "source");
+    await mkdir(sourcePath, { recursive: true });
+    await git("git", ["init", "-q", "--initial-branch=main", sourcePath]);
+    await git(
+      "git",
+      [
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.com",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "init",
+      ],
+      { cwd: sourcePath },
+    );
+    const { stdout } = await git("git", ["rev-parse", "HEAD"], {
+      cwd: sourcePath,
+    });
+    const params = {
+      cloneUrl: sourcePath,
+      repositorySlug: "repo-a",
+      headBranch: "main",
+      baseBranch: "main",
+      headCommitHash: stdout.trim(),
+    };
+
+    const { worktreePath } = await service.prepareWorktree(params);
+    await rm(worktreePath, { recursive: true, force: true }); // 컨테이너가 죽은 자리
+
+    await expect(service.prepareWorktree(params)).resolves.toEqual({
+      worktreePath,
+      bareRepoPath: join(basePath, "repos", "repo-a.git"),
+    });
+    expect(existsSync(worktreePath)).toBe(true);
+  }, 30_000);
 
   it("rejects repository slugs that sanitize to an empty value", async () => {
     await expect(
