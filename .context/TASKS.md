@@ -4,6 +4,22 @@
 
 ## 진행 중/최근 작업
 
+### Task 33: Bitbucket 인증 실패 관측성과 재시도 분류
+- **상태**: ✅ 완료
+- **배경**: repo 전용 토큰 만료 시 진행·실패 댓글과 git fetch가 모두 같은 토큰으로 실패하고, 복구 불가능한 인증 오류를 3회 재시도한 뒤 로그만 남긴 운영 인시던트.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 인증 실패 즉시 중단 | ✅ | git `fatal: Authentication failed`와 Bitbucket API 401을 영구 실패로 분류해 첫 시도에 FAILED를 저장하고 `UnrecoverableError`로 재시도 차단 |
+| 독립 관측 표면 | ✅ | `code_review_authentication_failures_total{repository,stage}` Prometheus counter 추가. `OTEL_SDK_DISABLED=true`여도 `METRICS_PORT` exporter는 독립 실행 |
+| 댓글 자격증명 폴백 | ✅ | repo 토큰 요청이 401이면 기존 global API token 또는 username/app password로 댓글 API를 한 번 재시도. global 자격증명이 없으면 추가 요청 없이 실패 |
+| 실패 통지 await | ✅ | fire-and-forget 실패 댓글을 await해 종료 전에 게시 결과 또는 실패 로그를 확정 |
+| 회귀 테스트 | ✅ | 실제 Prometheus endpoint에서 repo git 인증 실패 metric과 첫 시도 중단 검증, repo token 401의 global 폴백/폴백 없음 검증. RED → GREEN 확인 |
+| 빌드/린트/테스트 | ✅ | `pnpm lint`, `pnpm build`, `pnpm test --runInBand` 성공 (241 tests) |
+| 커버리지 | ✅ | `pnpm test:cov --runInBand` 성공, statement 89.79%, branch 80.24% |
+| 보안 체크리스트 | ✅ | metric label은 repository slug와 고정 stage만 노출. 토큰·응답 본문 신규 노출 없음. 외부 입력·설정 추가 없음 |
+| 커밋 | ✅ | 사용자 승인 후 conventional commit 및 원격 브랜치 push |
+
 ### Task 32: 게시 후 상태 기록 실패 중복 리뷰 차단
 - **상태**: ✅ 완료
 - **배경**: GitHub 이슈 #27. Bitbucket 요약 댓글 게시 후 `markCompleted()`가 실패하면 런이 `FAILED`가 되고, 같은 웹훅 재수신 시 기존 행을 삭제해 Codex와 리뷰 댓글을 중복 실행·게시하던 경로.

@@ -19,32 +19,61 @@ export class BitbucketService {
     );
   }
 
-  /** Resolve auth header: repoTokens[repoSlug] → apiToken → username/appPassword */
-  private resolveAuthHeader(repoSlug: string): string {
+  /** Auth order: repository token, then configured global credentials. */
+  private resolveAuthHeaders(repoSlug: string): readonly string[] {
     const repoTokens =
       this.configService.get<Record<string, string>>("bitbucket.repoTokens") ??
       {};
     const repoToken = repoTokens[repoSlug];
-    if (repoToken) {
-      return `Bearer ${repoToken}`;
-    }
-
     const apiToken = this.configService.get<string>("bitbucket.apiToken", "");
-    if (apiToken) {
-      return `Bearer ${apiToken}`;
-    }
-
     const username = this.configService.get<string>("bitbucket.username", "");
     const appPassword = this.configService.get<string>(
       "bitbucket.appPassword",
       "",
     );
-    if (!username || !appPassword) {
+    const authHeaders: string[] = [];
+
+    if (repoToken) authHeaders.push(`Bearer ${repoToken}`);
+    if (apiToken && apiToken !== repoToken) {
+      authHeaders.push(`Bearer ${apiToken}`);
+    } else if (username && appPassword) {
+      authHeaders.push(
+        `Basic ${Buffer.from(`${username}:${appPassword}`).toString("base64")}`,
+      );
+    }
+
+    if (authHeaders.length === 0) {
       this.logger.warn(
         `No Bitbucket auth configured for repo "${repoSlug}" — API calls will fail`,
       );
+      authHeaders.push(`Basic ${Buffer.from(":").toString("base64")}`);
     }
-    return `Basic ${Buffer.from(`${username}:${appPassword}`).toString("base64")}`;
+    return authHeaders;
+  }
+
+  private async postWithAuthFallback(
+    url: string,
+    repoSlug: string,
+    body: string,
+  ): Promise<Response> {
+    const authHeaders = this.resolveAuthHeaders(repoSlug);
+    for (const [index, authHeader] of authHeaders.entries()) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "application/json",
+        },
+        body,
+      });
+      if (response.status !== 401 || index === authHeaders.length - 1) {
+        return response;
+      }
+      this.logger.warn(
+        `Repository token rejected for "${repoSlug}"; retrying with global Bitbucket credentials`,
+      );
+    }
+    throw new Error("Bitbucket auth resolution produced no credentials");
   }
 
   /** PR에 리뷰 결과 댓글 생성 */
@@ -53,16 +82,13 @@ export class BitbucketService {
   ): Promise<IBitbucketComment> {
     const url = `${this.baseUrl}/repositories/${params.workspace}/${params.repoSlug}/pullrequests/${params.pullRequestId}/comments`;
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: this.resolveAuthHeader(params.repoSlug),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const response = await this.postWithAuthFallback(
+      url,
+      params.repoSlug,
+      JSON.stringify({
         content: { raw: params.body },
       }),
-    });
+    );
 
     if (!response.ok) {
       const errorBody = await response.text();
@@ -82,17 +108,14 @@ export class BitbucketService {
   ): Promise<IBitbucketComment> {
     const url = `${this.baseUrl}/repositories/${params.workspace}/${params.repoSlug}/pullrequests/${params.pullRequestId}/comments`;
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: this.resolveAuthHeader(params.repoSlug),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const response = await this.postWithAuthFallback(
+      url,
+      params.repoSlug,
+      JSON.stringify({
         content: { raw: params.body },
         parent: { id: params.parentCommentId },
       }),
-    });
+    );
 
     if (!response.ok) {
       const errorBody = await response.text();
@@ -108,20 +131,17 @@ export class BitbucketService {
   ): Promise<IBitbucketComment> {
     const url = `${this.baseUrl}/repositories/${params.workspace}/${params.repoSlug}/pullrequests/${params.pullRequestId}/comments`;
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: this.resolveAuthHeader(params.repoSlug),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const response = await this.postWithAuthFallback(
+      url,
+      params.repoSlug,
+      JSON.stringify({
         content: { raw: params.body },
         inline: {
           path: params.filePath,
           to: params.line,
         },
       }),
-    });
+    );
 
     if (!response.ok) {
       const errorBody = await response.text();

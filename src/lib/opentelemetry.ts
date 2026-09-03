@@ -1,8 +1,10 @@
 import { Logger } from "@nestjs/common";
+import { metrics } from "@opentelemetry/api";
 import { DEFAULTS } from "../config/configuration";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-grpc";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-grpc";
+import { PrometheusExporter } from "@opentelemetry/exporter-prometheus";
 import { ExpressInstrumentation } from "@opentelemetry/instrumentation-express";
 import { HttpInstrumentation } from "@opentelemetry/instrumentation-http";
 import { IORedisInstrumentation } from "@opentelemetry/instrumentation-ioredis";
@@ -21,12 +23,17 @@ import {
 } from "@opentelemetry/resources";
 import { BatchLogRecordProcessor } from "@opentelemetry/sdk-logs";
 import { NodeSDK } from "@opentelemetry/sdk-node";
+import { MeterProvider } from "@opentelemetry/sdk-metrics";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 
 export interface IOpenTelemetryBootstrapConfig {
   metricsPort?: number;
   metricsEndpoint?: string;
   metricsEnabled?: boolean;
+}
+
+export interface IOpenTelemetryRuntime {
+  shutdown(): Promise<void>;
 }
 
 /**
@@ -36,7 +43,7 @@ export interface IOpenTelemetryBootstrapConfig {
 export async function initOpenTelemetry(
   serviceName: string,
   config?: IOpenTelemetryBootstrapConfig,
-): Promise<NodeSDK | undefined> {
+): Promise<IOpenTelemetryRuntime> {
   const metricsPort =
     config?.metricsPort ?? Number(process.env["METRICS_PORT"] || String(DEFAULTS.METRICS_PORT));
   const metricsEndpoint = config?.metricsEndpoint ?? "/metrics";
@@ -59,9 +66,20 @@ export async function initOpenTelemetry(
     resourceFromAttributes({ [ATTR_SERVICE_NAME]: serviceName }),
   );
 
+  let meterProvider: MeterProvider | undefined;
   if (metricsEnabled) {
+    const prometheusExporter = new PrometheusExporter({
+      port: metricsPort,
+      endpoint: metricsEndpoint,
+    });
+    meterProvider = new MeterProvider({
+      resource,
+      readers: [prometheusExporter],
+    });
+    metrics.setGlobalMeterProvider(meterProvider);
+    await prometheusExporter.startServer();
     Logger.log(
-      `Metrics config detected (port=${metricsPort}, endpoint=${metricsEndpoint})`,
+      `Prometheus metrics exporter enabled (port=${metricsPort}, endpoint=${metricsEndpoint})`,
     );
   }
 
@@ -91,12 +109,19 @@ export async function initOpenTelemetry(
   sdk.start();
   Logger.log(`OpenTelemetry SDK initialized for ${serviceName}`);
 
+  const runtime: IOpenTelemetryRuntime = {
+    async shutdown(): Promise<void> {
+      await sdk.shutdown();
+      await meterProvider?.shutdown();
+    },
+  };
+
   process.on("SIGTERM", () => {
-    sdk
+    runtime
       .shutdown()
       .then(() => Logger.log("OpenTelemetry SDK terminated"))
       .catch((error: unknown) => Logger.error("Error terminating OTel SDK", error));
   });
 
-  return sdk;
+  return runtime;
 }
