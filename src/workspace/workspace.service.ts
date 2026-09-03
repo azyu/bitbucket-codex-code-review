@@ -273,6 +273,16 @@ export class WorkspaceService {
       await rm(worktreePath, { recursive: true, force: true });
     }
 
+    // 디렉터리를 지워도 git 등록은 남는다. 등록이 남은 채로 add하면
+    // "missing but already registered"로 실패하고, 재시도도 같은 이유로 죽어
+    // 그 커밋은 사람이 손으로 prune하기 전까지 영구히 리뷰 불가가 된다.
+    // 리뷰 도중 컨테이너가 재시작되면(배포·반영) 정리 경로를 못 타므로 실제로 발생한다.
+    // prune은 디렉터리가 사라진 등록만 지우고 진행 중인 worktree는 건너뛴다.
+    await execFileAsync("git", ["worktree", "prune"], {
+      cwd: bareRepoPath,
+      timeout: 30_000,
+    });
+
     await execFileAsync(
       "git",
       ["worktree", "add", "--detach", worktreePath, commitHash],

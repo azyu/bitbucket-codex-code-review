@@ -474,3 +474,18 @@
 | pnpm build + lint + test:cov | ✅ | 커버리지 86.7% (기준 80%) |
 | 실물 검증 | ✅ | `171df0940`에 positive pathspec 실행 → `M pnpm-lock.yaml` 출력 확인 |
 | PR #19 Codex 리뷰 반영 (P2 2건) | ✅ | ① 조회 실패를 `null`(알 수 없음)로 구분해 "변경 없음" 단정 제거 ② 상태값(M/A/D/R) 설명 추가로 lock 삭제·이름 변경은 계속 지적 가능, 201 tests passed |
+
+### 컨테이너 재시작이 남긴 고아 worktree 등록으로 리뷰 영구 실패
+- **상태**: ✅ 완료
+- **배경**: `godot-env` PR #5 리뷰가 3회 재시도 전부 `fatal: '...' is a missing but already registered worktree`로 실패. 07:49에 worktree를 만든 리뷰가 07:52:38 컨테이너 재생성(설정 반영 배포)으로 죽어 `cleanupWorktree`를 못 탔고, workspace가 bind mount라 디렉터리·등록이 둘 다 디스크에 남았다. 재시도의 `createWorktree`가 **디렉터리만** `rm -rf`하고 `worktree add`를 부르면서 살아남은 등록에 막혔다. 재시도로는 절대 안 풀려서, 사람이 인스턴스에 들어가 `git worktree prune`을 하기 전까지 그 repo의 그 커밋은 영구히 리뷰 불가였다.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 로컬 재현 | ✅ | bare repo에 worktree add → 디렉터리만 삭제 → 재 add에서 프로덕션과 동일 fatal 재현 |
+| `createWorktree`에 `worktree prune` 추가 | ✅ | `rm -rf` 다음, `add` 직전. `add -f`는 등록을 덮어쓸 뿐 다른 고아를 남겨 prune을 택함 |
+| prune이 살아있는 worktree를 안 건드리는지 실측 | ✅ | worktree 2개 등록 상태에서 prune → 둘 다 잔존. 디렉터리가 사라진 등록만 지운다 |
+| 테스트 (TDD RED→GREEN) | ✅ | 실제 git으로 도는 회귀 1케이스(mock 걷어냄) + 기존 호출 순서 검증 갱신, 230 tests passed |
+| `pnpm build` + `lint` + `test:cov` | ✅ | 커버리지 86.91% (기준 80%) |
+| 프로덕션 응급 조치 | ✅ | `godot-env.git`에 `worktree prune` 수동 실행, 전 repo 15개 `prunable=0` 확인 |
+
+- **남긴 것**: `cleanupWorktree`의 `rm -rf` 폴백도 등록을 남기지만, 다음 리뷰의 prune이 흡수하므로 별도 수정하지 않았다. 리뷰 사이에 남은 고아 등록은 무해하다.
