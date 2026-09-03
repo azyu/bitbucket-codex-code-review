@@ -1,6 +1,7 @@
 import { Processor, WorkerHost, OnWorkerEvent } from "@nestjs/bullmq";
 import { Job, UnrecoverableError } from "bullmq";
 import { ConfigService } from "@nestjs/config";
+import { metrics } from "@opentelemetry/api";
 import { ServiceLogger } from "@lib/logger";
 import { REVIEW_QUEUE_NAME } from "../constants/queue.constants";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
@@ -26,9 +27,24 @@ const MAX_INLINE_REVIEW_PROMPT_CHARS = 900_000;
 
 type ResultCommentPublishedCallback = (commentId: number) => Promise<void>;
 
+function authenticationFailureStage(error: Error): "api" | "git" | null {
+  if (/Bitbucket(?: inline comment)? API error 401\b/.test(error.message)) {
+    return "api";
+  }
+  if (/\bfatal: Authentication failed\b/i.test(error.message)) {
+    return "git";
+  }
+  return null;
+}
+
 @Processor(REVIEW_QUEUE_NAME)
 export class ReviewProcessor extends WorkerHost {
   private readonly logger = new ServiceLogger(ReviewProcessor.name);
+  private readonly authenticationFailureCounter = metrics
+    .getMeter("code-review")
+    .createCounter("code_review_authentication_failures", {
+      description: "Permanent Bitbucket authentication failures",
+    });
 
   constructor(
     private readonly reviewService: ReviewService,
@@ -126,11 +142,21 @@ export class ReviewProcessor extends WorkerHost {
         codexResult ||
         (err as Error & { codexResult?: ICodexReviewResult }).codexResult;
       this.logger.error(`Review failed: ${error.message}`);
+      const authFailureStage = authenticationFailureStage(error);
+      if (authFailureStage) {
+        this.authenticationFailureCounter.add(1, {
+          repository: data.repositorySlug,
+          stage: authFailureStage,
+        });
+      }
 
-      // 게시 전 실패이고 시도가 남았으면 FAILED 기록·실패 코멘트를 보류한다.
-      // 지금 FAILED로 적으면 ① 사용자에게 실패 코멘트가 먼저 나가고 뒤늦게 리뷰가 붙는다
-      // ② 백오프 중 같은 웹훅이 FAILED 레코드를 지우고 재시도 잡을 제거해버린다.
-      if (!publishStarted && job.attemptsMade + 1 < (job.opts?.attempts ?? 1)) {
+      // 게시 전 일시 실패이고 시도가 남았으면 FAILED 기록·실패 코멘트를 보류한다.
+      // 인증 실패는 재시도로 복구되지 않으므로 첫 시도에 바로 기록하고 중단한다.
+      if (
+        !publishStarted &&
+        !authFailureStage &&
+        job.attemptsMade + 1 < (job.opts?.attempts ?? 1)
+      ) {
         throw err;
       }
 
@@ -157,40 +183,35 @@ export class ReviewProcessor extends WorkerHost {
         );
       }
 
-      // Notify user about the failure
+      // Notify user about the failure. BitbucketService retries a repository
+      // token 401 once with configured global credentials when available.
       const errorBody = `❌ Code Review 실패\n\n\`\`\`\n${error.message.substring(0, 500)}\n\`\`\``;
-      if (data.triggerCommentId) {
-        this.bitbucketService
-          .replyToComment({
+      try {
+        if (data.triggerCommentId) {
+          await this.bitbucketService.replyToComment({
             workspace: data.workspaceSlug,
             repoSlug: data.repositorySlug,
             pullRequestId: data.pullRequestId,
             parentCommentId: data.triggerCommentId,
             body: errorBody,
-          })
-          .catch((replyErr) => {
-            this.logger.error(
-              `Failed to post error reply: ${(replyErr as Error).message}`,
-            );
           });
-      } else {
-        this.bitbucketService
-          .createComment({
+        } else {
+          await this.bitbucketService.createComment({
             workspace: data.workspaceSlug,
             repoSlug: data.repositorySlug,
             pullRequestId: data.pullRequestId,
             body: errorBody,
-          })
-          .catch((commentErr) => {
-            this.logger.error(
-              `Failed to post error comment: ${(commentErr as Error).message}`,
-            );
           });
+        }
+      } catch (notificationErr) {
+        this.logger.error(
+          `Failed to post error ${data.triggerCommentId ? "reply" : "comment"}: ${(notificationErr as Error).message}`,
+        );
       }
 
-      // 게시 단계에 진입한 뒤 실패했으면 재시도하면 리뷰 코멘트가 중복 게시되고
-      // Codex도 다시 돌아간다. 재시도 없이 여기서 끊는다.
-      if (publishStarted) {
+      // 게시 단계 진입 후 실패와 인증 실패는 재시도해도 복구되지 않거나
+      // 중복 게시 위험이 있으므로 즉시 중단한다.
+      if (publishStarted || authFailureStage) {
         throw new UnrecoverableError(error.message);
       }
       throw err; // Re-throw to let BullMQ handle retry

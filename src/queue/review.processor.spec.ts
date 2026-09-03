@@ -15,6 +15,9 @@ import { TriggerType } from "../entities/review-run.entity";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
 import { rm, writeFile } from "node:fs/promises";
 import { UnrecoverableError } from "bullmq";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { initOpenTelemetry } from "../lib/opentelemetry";
 
 jest.mock("@lib/logger", () => ({
   ServiceLogger: jest.fn().mockImplementation(() => ({
@@ -25,6 +28,19 @@ jest.mock("@lib/logger", () => ({
     verbose: jest.fn(),
   })),
 }));
+
+async function reservePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const port = (server.address() as AddressInfo).port;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+  return port;
+}
 
 describe("review.prompt", () => {
   it.each([
@@ -1468,6 +1484,62 @@ describe("ReviewProcessor error handling", () => {
     );
     expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
     expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+  });
+
+  it("should expose repository authentication failure without retrying", async () => {
+    const metricsPort = await reservePort();
+    const previousSdkDisabled = process.env["OTEL_SDK_DISABLED"];
+    process.env["OTEL_SDK_DISABLED"] = "true";
+    const telemetry = await initOpenTelemetry("code-review-test", {
+      metricsPort,
+    });
+    processor = new ReviewProcessor(
+      mockReviewService as never,
+      mockWorkspaceService as never,
+      mockCodexService as never,
+      mockBitbucketService as never,
+      mockConfigService as never,
+    );
+
+    try {
+      mockWorkspaceService.prepareWorktree.mockRejectedValue(
+        new Error(
+          "Command failed: git fetch origin\nfatal: Authentication failed for 'https://bitbucket.org/my-workspace/my-repo.git/'",
+        ),
+      );
+
+      const job = {
+        data: baseJobData,
+        attemptsMade: 0,
+        opts: { attempts: 3 },
+      } as never;
+
+      const rejection = await processor.process(job).catch((error) => error);
+      const metricsResponse = await fetch(
+        `http://127.0.0.1:${metricsPort}/metrics`,
+      );
+      const metricsBody = await metricsResponse.text();
+
+      expect(metricsBody).toContain("code_review_authentication_failures_total");
+      expect(metricsBody).toContain('repository="my-repo"');
+      expect(metricsBody).toContain('stage="git"');
+      expect(rejection).toBeInstanceOf(UnrecoverableError);
+      expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+        1,
+        "failed",
+        expect.objectContaining({
+          errorMessage: expect.stringContaining("Authentication failed"),
+        }),
+      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalled();
+    } finally {
+      await telemetry?.shutdown();
+      if (previousSdkDisabled === undefined) {
+        delete process.env["OTEL_SDK_DISABLED"];
+      } else {
+        process.env["OTEL_SDK_DISABLED"] = previousSdkDisabled;
+      }
+    }
   });
 
   it("should report failure on the last attempt", async () => {

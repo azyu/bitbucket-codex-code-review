@@ -129,6 +129,50 @@ describe("BitbucketService", () => {
 
       expect(captured[0]).toBe("Bearer repo-specific");
     });
+
+    it("retries a repository token 401 with the global api token", async () => {
+      const service = await createService({
+        "bitbucket.repoTokens": { "my-repo": "expired-repo-token" },
+        "bitbucket.apiToken": "global-token",
+      });
+      const captured: string[] = [];
+      global.fetch = jest
+        .fn()
+        .mockImplementation((_url: string, options: RequestInit) => {
+          captured.push(
+            (options.headers as Record<string, string>)["Authorization"],
+          );
+          return Promise.resolve(
+            captured.length === 1
+              ? { ok: false, status: 401, text: async () => "expired" }
+              : { ok: true, json: async () => ({ id: 1 }) },
+          );
+        });
+
+      await expect(service.createComment(commentParams)).resolves.toEqual({
+        id: 1,
+      });
+      expect(captured).toEqual([
+        "Bearer expired-repo-token",
+        "Bearer global-token",
+      ]);
+    });
+
+    it("does not retry a repository token 401 without global credentials", async () => {
+      const service = await createService({
+        "bitbucket.repoTokens": { "my-repo": "expired-repo-token" },
+      });
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: async () => "expired",
+      });
+
+      await expect(service.createComment(commentParams)).rejects.toThrow(
+        "Bitbucket API error 401: expired",
+      );
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("comment APIs", () => {
