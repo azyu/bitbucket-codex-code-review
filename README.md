@@ -68,6 +68,9 @@ export BITBUCKET_WEBHOOK_SECRET=your_secret
 docker compose up -d
 ```
 
+> [!IMPORTANT]
+> Codex의 대형 PR branch-diff 모드는 worktree에서 `git`을 실행하는 sandbox를 사용합니다. 이 sandbox의 bubblewrap이 비특권 user namespace를 만들 수 있도록 `code-review-worker`는 `seccomp:unconfined`로 실행해야 합니다. `CAP_SYS_ADMIN`이나 `privileged`는 필요하지 않습니다. 배포 후 파드/컨테이너에서 `unshare --user --map-root-user true`가 성공하는지 확인하세요.
+
 ## Configuration
 
 ### Core
@@ -199,6 +202,8 @@ helm install code-review ./charts/code-review-worker \
   --set redis.password=pass \
   --set codexAuth.existingSecret=codex-auth
 ```
+
+대형 PR의 branch-diff 리뷰를 사용하려면 Codex bubblewrap이 비특권 user namespace를 만들 수 있어야 합니다. 차트는 워커 컨테이너에 `securityContext.seccompProfile.type: Unconfined`를 기본 적용하며, values 파일 또는 `--set securityContext.seccompProfile.type=...`로 덮어쓸 수 있습니다. `CAP_SYS_ADMIN`이나 `privileged`는 필요하지 않습니다. 배포 후 `kubectl exec`로 `unshare --user --map-root-user true`가 성공하는지 확인하세요.
 
 ### Codex CLI 인증
 

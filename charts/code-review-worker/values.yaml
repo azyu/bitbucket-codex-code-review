@@ -25,6 +25,9 @@ securityContext:
   runAsUser: 1000
   readOnlyRootFilesystem: false
   allowPrivilegeEscalation: false
+  # Codex bubblewrap requires the unshare user-namespace syscall.
+  seccompProfile:
+    type: Unconfined
 
 # --- Application Config (non-sensitive) ---
 nodeEnv: production

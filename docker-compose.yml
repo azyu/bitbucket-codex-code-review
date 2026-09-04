@@ -4,7 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: code-review-worker
-    restart: unless-stopped
+    # Codex branch-diff reviews invoke bubblewrap, which needs user namespaces.
+    security_opt:
+      - seccomp:unconfined
     depends_on:
       mysql:
         condition: service_healthy

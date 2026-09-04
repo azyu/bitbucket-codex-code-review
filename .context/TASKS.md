@@ -2,7 +2,22 @@
 
 > 마지막 업데이트: 2026-09-04
 
+
 ## 진행 중/최근 작업
+
+
+### Task 36: Codex bubblewrap user namespace 배포 조건
+- **상태**: ✅ 완료 (정적 검증 완료; 실제 클러스터 런타임 미검증)
+- **배경**: 대형 PR branch-diff 모드에서 Codex read-only sandbox의 bubblewrap이 user namespace를 만들지 못하면 Git diff를 읽지 못하고 내용 없는 리뷰를 생성함. tools-infra에서 `seccomp:unconfined`만으로 해결됨.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 배포물 점검 | ✅ | `docker-compose.yml`에 worker `security_opt`가 없었고 Helm container securityContext에 seccompProfile이 없음을 확인. |
+| Compose 수정 | ✅ | `code-review-worker`에 `seccomp:unconfined` 추가. `CAP_SYS_ADMIN`/`privileged`는 추가하지 않음. |
+| Helm 수정 | ✅ | `securityContext.seccompProfile.type: Unconfined`를 기본값으로 추가. 기존 values 경로를 통해 `RuntimeDefault` 등으로 덮어쓸 수 있음. |
+| 문서화 | ✅ | README에 branch-diff의 bubblewrap user namespace 요구사항과 `unshare --user --map-root-user true` 확인 절차 추가. |
+| 검증 | ✅ | `docker compose config --quiet`, `helm lint charts/code-review-worker`, Helm 렌더링, `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 확인. 실제 클러스터/동일 런타임에서 `unshare` 또는 Codex 셸 실행은 접근 불가로 미검증. |
+| 커밋/푸시 | ⏸️ | 사용자 승인 전 보류. |
 
 ### Task 35: 동일 commit 강제 재리뷰
 - **상태**: ✅ 완료
