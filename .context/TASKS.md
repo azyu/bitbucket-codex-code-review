@@ -1,8 +1,21 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-08-31
+> 마지막 업데이트: 2026-09-04
 
 ## 진행 중/최근 작업
+
+### Task 34: Codex CLI 런타임 버전 업그레이드
+- **상태**: ✅ 완료
+- **배경**: Docker 런타임의 `@openai/codex` 핀이 `0.149.1`에 머물러 npm `latest`(`0.153.2`)와 4개 마이너 뒤처짐.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 버전 핀 갱신 | ✅ | `Dockerfile:36`을 `@openai/codex@0.153.2`로 변경. 이 프로젝트의 codex 버전 핀은 이 한 줄뿐이고 `CODEX_BINARY_PATH`는 PATH 조회(`codex`)라 이미지 재빌드로만 반영 |
+| CLI 인터페이스 호환성 | ✅ | 사용 중인 `codex exec --model/--sandbox/--json/--output-last-message/-c model_reasoning_effort` (`src/codex/codex.service.ts:46-61`)에 0.150~0.153.2 릴리스 노트상 breaking change 없음. 변경은 TUI/MCP/Guardian 위주 |
+| 0.152.0 chore 확인 | ✅ | `update_plan` 툴이 기본 비활성으로 전환됐으나 헤드리스 `codex exec` 경로에는 영향 없음 |
+| 빌드/린트/테스트 | ✅ | `pnpm lint`, `pnpm build`, `pnpm test --runInBand` 성공 (242 tests) |
+| 보안 체크리스트 | ✅ | 시크릿·외부 입력·에러 노출 변경 없음. 버전 문자열 한 줄 변경 |
+| Docker 이미지 검증 | ⚠️ | 이미지 빌드 및 컨테이너 내부 `codex --version` 확인은 미실행 (CI/배포 시 검증 필요) |
 
 ### Task 33: Bitbucket 인증 실패 관측성과 재시도 분류
 - **상태**: ✅ 완료
