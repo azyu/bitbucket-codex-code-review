@@ -6,6 +6,19 @@
 ## 진행 중/최근 작업
 
 
+### Task 37: BullMQ major 대비 colonless review jobId
+- **상태**: ✅ 완료
+- **배경**: BullMQ 5.69.2는 3세그먼트 커스텀 jobId의 콜론을 구 repeatable job 호환 예외로 허용하지만, 다음 breaking 버전에서 모든 콜론을 거부할 예정.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 키 역할 분리 | ✅ | DB `idempotencyKey`는 기존 `${slug}:${prId}:${head}` 및 force 의미를 유지하고, BullMQ `jobId`만 `review-${base64url(idempotencyKey)}`로 분리. DB 마이그레이션 없음 |
+| 배포 전환 안전성 | ✅ | stale job 제거 시 새 colonless ID와 기존 idempotencyKey ID를 모두 조회·제거해 rolling deploy 및 잔존 완료/실패 job을 처리. 큐를 비우는 배포 절차 불필요 |
+| 재발 방지 | ✅ | mention/force 모두 Queue.add에 전달되는 jobId에 콜론이 없음을 검증하고, 기존·신규 stale ID 동시 정리를 검증. Redis 통합 테스트와 Renovate major 차단은 추가하지 않음 |
+| 빌드/린트/테스트 | ✅ | `pnpm lint`, `pnpm build`, `pnpm test --runInBand` 성공 (247 tests) |
+| 커버리지 | ✅ | `pnpm test:cov --runInBand` 성공, statement 89.96%, branch 80.69% |
+| 보안 체크리스트 | ✅ | DB 스키마·외부 입력·시크릿·에러 노출 변경 없음. base64url은 식별자 인코딩에만 사용 |
+
 ### Task 36: Codex bubblewrap user namespace 배포 조건
 - **상태**: ✅ 완료 (정적 검증 완료; 실제 클러스터 런타임 미검증)
 - **배경**: 대형 PR branch-diff 모드에서 Codex read-only sandbox의 bubblewrap이 user namespace를 만들지 못하면 Git diff를 읽지 못하고 내용 없는 리뷰를 생성함. tools-infra에서 `seccomp:unconfined`만으로 해결됨.
