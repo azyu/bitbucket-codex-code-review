@@ -142,13 +142,12 @@ export class WebhookController {
     forceReview = false,
   ): Promise<{ accepted: boolean; reason?: string }> {
     const baseKey = `${prPayload.repositorySlug}:${prPayload.pullRequestId}:${prPayload.headCommitHash}`;
-    // 이 키는 BullMQ jobId로도 쓰인다. BullMQ는 커스텀 jobId의 콜론을 정확히 세
-    // 세그먼트일 때만 허용하므로(구 repeatable job 호환 예외, job.js validateOptions)
-    // force 접미사는 콜론이 아닌 구분자를 쓴다 — 콜론을 쓰면 add가 던진다.
     const idempotencyKey =
       forceReview && triggerCommentId
         ? `${baseKey}-force-${triggerCommentId}`
         : baseKey;
+    // DB idempotency 의미는 유지하고 BullMQ의 콜론 없는 ID 제약과 분리한다.
+    const jobId = `review-${Buffer.from(idempotencyKey).toString("base64url")}`;
 
     const isDuplicate =
       await this.reviewService.existsByIdempotencyKey(idempotencyKey);
@@ -157,17 +156,20 @@ export class WebhookController {
       return { accepted: false, reason: "Duplicate request" };
     }
 
-    // Remove stale BullMQ job if it exists
-    try {
-      const existingJob = await this.reviewQueue.getJob(idempotencyKey);
-      if (existingJob) {
-        await existingJob.remove();
-        this.logger.log(`Removed stale BullMQ job: ${idempotencyKey}`);
+    // 새 ID와 전환 전 idempotencyKey ID를 모두 정리해 rolling deploy 중 재큐잉을
+    // 안전하게 유지한다. 이전 job은 queue retention이 끝난 뒤 자연히 조회되지 않는다.
+    for (const staleJobId of [jobId, idempotencyKey]) {
+      try {
+        const existingJob = await this.reviewQueue.getJob(staleJobId);
+        if (existingJob) {
+          await existingJob.remove();
+          this.logger.log(`Removed stale BullMQ job: ${staleJobId}`);
+        }
+      } catch (err) {
+        this.logger.error(
+          `Failed to remove stale job: ${(err as Error).message}`,
+        );
       }
-    } catch (err) {
-      this.logger.error(
-        `Failed to remove stale job: ${(err as Error).message}`,
-      );
     }
 
     const reviewRun = await this.reviewService.createReviewRun({
@@ -197,7 +199,7 @@ export class WebhookController {
     // queued row가 Bitbucket 재시도까지 duplicate로 삼켜 PR이 무응답으로 남는다.
     try {
       await this.reviewQueue.add("review", jobData, {
-        jobId: idempotencyKey,
+        jobId,
       });
     } catch (err) {
       await this.reviewService.updateStatus(

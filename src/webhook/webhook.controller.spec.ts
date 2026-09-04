@@ -156,7 +156,7 @@ describe("WebhookController", () => {
         triggerType: TriggerType.MENTION,
         triggerCommentId: 321,
       }),
-      { jobId: "repo-a:17:abcdef1234567890" },
+      { jobId: "review-cmVwby1hOjE3OmFiY2RlZjEyMzQ1Njc4OTA" },
     );
     expect(bitbucketService.replyToComment).toHaveBeenCalledWith({
       workspace: "workspace",
@@ -230,17 +230,17 @@ describe("WebhookController", () => {
     expect(reviewQueue.add).toHaveBeenCalledWith(
       "review",
       expect.objectContaining({ idempotencyKey: forceKey }),
-      { jobId: forceKey },
+      {
+        jobId:
+          "review-cmVwby1hOjE3OmFiY2RlZjEyMzQ1Njc4OTAtZm9yY2UtMzIx",
+      },
     );
   });
 
-  // BullMQ는 커스텀 jobId의 콜론을 정확히 세 세그먼트일 때만 허용한다(job.js
-  // validateOptions의 구 repeatable job 호환 예외). 네 세그먼트짜리 force 키가
-  // 프로덕션에서 add를 던져 리뷰가 무응답으로 죽은 적이 있다 — 세그먼트 수를 고정한다.
   it.each([
     ["mention", "@codex", false],
     ["force", "@codex --force", true],
-  ])("keeps the %s jobId within BullMQ's colon limit", async (_name, raw, force) => {
+  ])("uses a colonless %s jobId", async (_name, raw, force) => {
     triggerService.isForceReview.mockReturnValue(force);
 
     await controller.handleBitbucketWebhook(
@@ -254,7 +254,7 @@ describe("WebhookController", () => {
       unknown,
       { jobId: string },
     ];
-    expect(opts.jobId.split(":")).toHaveLength(3);
+    expect(opts.jobId).not.toContain(":");
   });
 
   it("marks the review run failed when enqueueing throws", async () => {
@@ -281,9 +281,12 @@ describe("WebhookController", () => {
     expect(bitbucketService.replyToComment).not.toHaveBeenCalled();
   });
 
-  it("removes stale queued job before adding the new review job", async () => {
-    const remove = jest.fn().mockResolvedValue(undefined);
-    reviewQueue.getJob.mockResolvedValue({ remove });
+  it("removes current and legacy stale jobs during the jobId transition", async () => {
+    const removeCurrent = jest.fn().mockResolvedValue(undefined);
+    const removeLegacy = jest.fn().mockResolvedValue(undefined);
+    reviewQueue.getJob
+      .mockResolvedValueOnce({ remove: removeCurrent })
+      .mockResolvedValueOnce({ remove: removeLegacy });
 
     await controller.handleBitbucketWebhook(
       buildCommentWebhook(),
@@ -291,10 +294,16 @@ describe("WebhookController", () => {
       {},
     );
 
-    expect(reviewQueue.getJob).toHaveBeenCalledWith(
+    expect(reviewQueue.getJob).toHaveBeenNthCalledWith(
+      1,
+      "review-cmVwby1hOjE3OmFiY2RlZjEyMzQ1Njc4OTA",
+    );
+    expect(reviewQueue.getJob).toHaveBeenNthCalledWith(
+      2,
       "repo-a:17:abcdef1234567890",
     );
-    expect(remove).toHaveBeenCalled();
+    expect(removeCurrent).toHaveBeenCalled();
+    expect(removeLegacy).toHaveBeenCalled();
     expect(reviewQueue.add).toHaveBeenCalled();
   });
 
