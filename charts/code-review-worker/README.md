@@ -103,8 +103,9 @@ EOF
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `image.repository` | `ghcr.io/anthropics/code-review-worker` | 이미지 저장소 |
-| `image.tag` | `appVersion` | 이미지 태그 |
+| `image.repository` | `ghcr.io/azyu/bitbucket-codex-code-review` | 이미지 저장소 |
+| `image.tag` | `latest` | 이미지 태그. 운영 배포는 `--set image.tag=<git sha>` 로 고정 권장 |
+| `image.pullPolicy` | `Always` | `latest` 기본값이라 캐시된 구버전을 쓰지 않도록 Always |
 | `replicaCount` | `1` | 레플리카 수 |
 | `nodeEnv` | `production` | NODE_ENV |
 | `port` | `3000` | HTTP 포트 |

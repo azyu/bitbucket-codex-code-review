@@ -15,7 +15,10 @@
 | 0.152.0 chore 확인 | ✅ | `update_plan` 툴이 기본 비활성으로 전환됐으나 헤드리스 `codex exec` 경로에는 영향 없음 |
 | 빌드/린트/테스트 | ✅ | `pnpm lint`, `pnpm build`, `pnpm test --runInBand` 성공 (242 tests) |
 | 보안 체크리스트 | ✅ | 시크릿·외부 입력·에러 노출 변경 없음. 버전 문자열 한 줄 변경 |
-| Docker 이미지 검증 | ⚠️ | 이미지 빌드 및 컨테이너 내부 `codex --version` 확인은 미실행 (CI/배포 시 검증 필요) |
+| 배포 이미지 빌드 | ✅ | main `71fc648`에서 Docker Publish dispatch. amd64/arm64 양쪽 `RUN npm install -g @openai/codex@0.153.2` 성공, `ghcr.io/azyu/bitbucket-codex-code-review:{71fc648,latest}` = `sha256:091a426e...` |
+| Helm 기본값 드리프트 수정 | ✅ | `image.repository`가 실제 push 대상이 아닌 `ghcr.io/anthropics/code-review-worker`였고 `image.tag` 기본값이 존재한 적 없는 appVersion `0.1.0`이었음. 실제 레지스트리와 `latest`로 정정하고, `latest` 기본값에서 캐시된 구버전을 쓰지 않도록 `pullPolicy`를 `Always`로 변경. chart README 파라미터 표 동기화 |
+| Helm 렌더링 검증 | ✅ | `helm lint` 통과, `helm template`에서 main/migration 컨테이너 모두 `ghcr.io/azyu/bitbucket-codex-code-review:latest` + `imagePullPolicy: Always` 렌더링 확인 |
+| 컨테이너 런타임 검증 | ⚠️ | 로컬 Docker 데몬 부재로 컨테이너 내부 `codex --version` 실행은 미확인. 빌드 로그상 설치 레이어 성공만 관측 |
 
 ### Task 33: Bitbucket 인증 실패 관측성과 재시도 분류
 - **상태**: ✅ 완료
