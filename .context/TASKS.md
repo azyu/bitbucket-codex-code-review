@@ -17,7 +17,7 @@
 | Helm 수정 | ✅ | `securityContext.seccompProfile.type: Unconfined`를 기본값으로 추가. 기존 values 경로를 통해 `RuntimeDefault` 등으로 덮어쓸 수 있음. |
 | 문서화 | ✅ | README에 branch-diff의 bubblewrap user namespace 요구사항과 `unshare --user --map-root-user true` 확인 절차 추가. |
 | 검증 | ✅ | `docker compose config --quiet`, `helm lint charts/code-review-worker`, Helm 렌더링, `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 확인. 실제 클러스터/동일 런타임에서 `unshare` 또는 Codex 셸 실행은 접근 불가로 미검증. |
-| 커밋/푸시 | ⏸️ | 사용자 승인 전 보류. |
+| 커밋/푸시 | ✅ | `4227f67 fix(deploy): enable codex user namespaces` 커밋 및 `main` 브랜치 push 완료. |
 
 ### Task 35: 동일 commit 강제 재리뷰
 - **상태**: ✅ 완료
