@@ -22,7 +22,7 @@ import {
   IBitbucketWebhookBase,
   IWebhookPrPayload,
 } from "./interfaces/webhook.interfaces";
-import { TriggerType } from "../entities/review-run.entity";
+import { ReviewRunStatus, TriggerType } from "../entities/review-run.entity";
 import { ReviewService } from "../review/review.service";
 import { IReviewJobData } from "../queue/interfaces/queue.interfaces";
 import { BitbucketService } from "../bitbucket/bitbucket.service";
@@ -142,9 +142,12 @@ export class WebhookController {
     forceReview = false,
   ): Promise<{ accepted: boolean; reason?: string }> {
     const baseKey = `${prPayload.repositorySlug}:${prPayload.pullRequestId}:${prPayload.headCommitHash}`;
+    // 이 키는 BullMQ jobId로도 쓰인다. BullMQ는 커스텀 jobId의 콜론을 정확히 세
+    // 세그먼트일 때만 허용하므로(구 repeatable job 호환 예외, job.js validateOptions)
+    // force 접미사는 콜론이 아닌 구분자를 쓴다 — 콜론을 쓰면 add가 던진다.
     const idempotencyKey =
       forceReview && triggerCommentId
-        ? `${baseKey}:force:${triggerCommentId}`
+        ? `${baseKey}-force-${triggerCommentId}`
         : baseKey;
 
     const isDuplicate =
@@ -189,9 +192,21 @@ export class WebhookController {
       triggerCommentId,
     };
 
-    await this.reviewQueue.add("review", jobData, {
-      jobId: idempotencyKey,
-    });
+    // 등록이 실패하면 run을 FAILED로 남긴다. 게시 증거 없는 FAILED는
+    // existsByIdempotencyKey가 지우고 재시도를 허용하므로, 이 마킹이 없으면 방금 만든
+    // queued row가 Bitbucket 재시도까지 duplicate로 삼켜 PR이 무응답으로 남는다.
+    try {
+      await this.reviewQueue.add("review", jobData, {
+        jobId: idempotencyKey,
+      });
+    } catch (err) {
+      await this.reviewService.updateStatus(
+        reviewRun.id,
+        ReviewRunStatus.FAILED,
+        { errorMessage: `Failed to enqueue: ${(err as Error).message}` },
+      );
+      throw err;
+    }
 
     this.logger.log(
       `Review queued: PR #${prPayload.pullRequestId} @ ${prPayload.headCommitHash.substring(0, 7)}`,

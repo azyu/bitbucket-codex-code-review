@@ -2,7 +2,7 @@ import { BadRequestException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Queue } from "bullmq";
 import { BitbucketService } from "../bitbucket/bitbucket.service";
-import { TriggerType } from "../entities/review-run.entity";
+import { ReviewRunStatus, TriggerType } from "../entities/review-run.entity";
 import { ReviewService } from "../review/review.service";
 import { TriggerService } from "./trigger.service";
 import { WebhookController } from "./webhook.controller";
@@ -36,6 +36,7 @@ describe("WebhookController", () => {
     existsByIdempotencyKey: jest.fn(),
     createReviewRun: jest.fn(),
     supersedeActivePrReviews: jest.fn(),
+    updateStatus: jest.fn(),
   };
   const bitbucketService = {
     createComment: jest.fn(),
@@ -109,6 +110,7 @@ describe("WebhookController", () => {
     reviewService.existsByIdempotencyKey.mockResolvedValue(false);
     reviewService.createReviewRun.mockResolvedValue({ id: 99 });
     reviewService.supersedeActivePrReviews.mockResolvedValue(undefined);
+    reviewService.updateStatus.mockResolvedValue(undefined);
     bitbucketService.createComment.mockResolvedValue({ id: 1 });
     bitbucketService.replyToComment.mockResolvedValue({ id: 2 });
     triggerService.shouldAutoReview.mockReturnValue(false);
@@ -219,7 +221,7 @@ describe("WebhookController", () => {
       {},
     );
 
-    const forceKey = `${baseKey}:force:321`;
+    const forceKey = `${baseKey}-force-321`;
     expect(result).toEqual({ accepted: true });
     expect(reviewService.existsByIdempotencyKey).toHaveBeenCalledWith(forceKey);
     expect(reviewService.createReviewRun).toHaveBeenCalledWith(
@@ -230,6 +232,53 @@ describe("WebhookController", () => {
       expect.objectContaining({ idempotencyKey: forceKey }),
       { jobId: forceKey },
     );
+  });
+
+  // BullMQ는 커스텀 jobId의 콜론을 정확히 세 세그먼트일 때만 허용한다(job.js
+  // validateOptions의 구 repeatable job 호환 예외). 네 세그먼트짜리 force 키가
+  // 프로덕션에서 add를 던져 리뷰가 무응답으로 죽은 적이 있다 — 세그먼트 수를 고정한다.
+  it.each([
+    ["mention", "@codex", false],
+    ["force", "@codex --force", true],
+  ])("keeps the %s jobId within BullMQ's colon limit", async (_name, raw, force) => {
+    triggerService.isForceReview.mockReturnValue(force);
+
+    await controller.handleBitbucketWebhook(
+      buildCommentWebhook(raw),
+      "pullrequest:comment_created",
+      {},
+    );
+
+    const [, , opts] = reviewQueue.add.mock.calls[0] as [
+      string,
+      unknown,
+      { jobId: string },
+    ];
+    expect(opts.jobId.split(":")).toHaveLength(3);
+  });
+
+  it("marks the review run failed when enqueueing throws", async () => {
+    const enqueueError = new Error("Custom Id cannot contain :");
+    reviewQueue.add.mockRejectedValue(enqueueError);
+
+    await expect(
+      controller.handleBitbucketWebhook(
+        buildCommentWebhook(),
+        "pullrequest:comment_created",
+        {},
+      ),
+    ).rejects.toThrow(enqueueError);
+
+    // FAILED + 게시 증거 없음이어야 existsByIdempotencyKey가 row를 지우고
+    // Bitbucket 재시도를 통과시킨다. queued로 남으면 재시도가 duplicate로 삼켜진다.
+    expect(reviewService.updateStatus).toHaveBeenCalledWith(
+      99,
+      ReviewRunStatus.FAILED,
+      expect.objectContaining({
+        errorMessage: expect.stringContaining("Failed to enqueue"),
+      }),
+    );
+    expect(bitbucketService.replyToComment).not.toHaveBeenCalled();
   });
 
   it("removes stale queued job before adding the new review job", async () => {
