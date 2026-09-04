@@ -2,6 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { ServiceLogger } from "@lib/logger";
 
 const CODEX_MENTION_REGEX = /(?:^|\s)@codex(?:\s+review)?(?:\s|$)/i;
+const CODEX_FORCE_REGEX =
+  /(?:^|\s)@codex(?:\s+review)?\s+--force(?:\s|$)/i;
 
 @Injectable()
 export class TriggerService {
@@ -14,6 +16,11 @@ export class TriggerService {
       `Mention check: "${commentRaw.substring(0, 100)}" => ${result}`,
     );
     return result;
+  }
+
+  /** 댓글이 동일 commit 재리뷰를 강제하는지 확인 */
+  isForceReview(commentRaw: string): boolean {
+    return CODEX_FORCE_REGEX.test(commentRaw);
   }
 
   /** PR 이벤트에서 자동 리뷰를 트리거해야 하는지 확인 */

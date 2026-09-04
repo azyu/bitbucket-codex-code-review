@@ -43,6 +43,12 @@ describe("TriggerService", () => {
     expect(service.hasCodexMention("@codex-bot")).toBe(false);
   });
 
+  it("recognizes only the standalone --force option after @codex", () => {
+    expect(service.isForceReview("@codex --force")).toBe(true);
+    expect(service.isForceReview("@codex review --force")).toBe(true);
+    expect(service.isForceReview("@codex --forceful")).toBe(false);
+  });
+
   describe("shouldAutoReview", () => {
     it.each([
       ["pullrequest:created", "auto", true],

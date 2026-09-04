@@ -92,9 +92,13 @@ export class WebhookController {
       );
     }
 
+    const forceReview = this.triggerService.isForceReview(
+      body.comment.content.raw,
+    );
     if (
-      !this.triggerService.shouldMentionReview(triggerMode) ||
-      !this.triggerService.hasCodexMention(body.comment.content.raw)
+      !forceReview &&
+      (!this.triggerService.shouldMentionReview(triggerMode) ||
+        !this.triggerService.hasCodexMention(body.comment.content.raw))
     ) {
       return { accepted: false, reason: "No @codex mention found" };
     }
@@ -105,6 +109,7 @@ export class WebhookController {
       prPayload,
       TriggerType.MENTION,
       body.comment.id,
+      forceReview,
     );
 
     if (result.accepted) {
@@ -134,8 +139,13 @@ export class WebhookController {
     prPayload: IWebhookPrPayload,
     triggerType: TriggerType,
     triggerCommentId?: number,
+    forceReview = false,
   ): Promise<{ accepted: boolean; reason?: string }> {
-    const idempotencyKey = `${prPayload.repositorySlug}:${prPayload.pullRequestId}:${prPayload.headCommitHash}`;
+    const baseKey = `${prPayload.repositorySlug}:${prPayload.pullRequestId}:${prPayload.headCommitHash}`;
+    const idempotencyKey =
+      forceReview && triggerCommentId
+        ? `${baseKey}:force:${triggerCommentId}`
+        : baseKey;
 
     const isDuplicate =
       await this.reviewService.existsByIdempotencyKey(idempotencyKey);

@@ -134,6 +134,7 @@ docker compose up -d
 
 > [!NOTE]
 > `auto`/`both` 모드에서 `pullrequest:updated` 이벤트도 처리됩니다. 동일 commit hash에 대한 중복 리뷰는 idempotency key로 자동 방지됩니다.
+> 동일 commit을 다시 리뷰하려면 트리거 모드와 관계없이 PR 댓글에 `@codex --force`를 입력합니다. 댓글 ID를 기준으로 웹훅 재전송은 중복 방지됩니다.
 
 ### Workspace
 

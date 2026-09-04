@@ -4,6 +4,22 @@
 
 ## 진행 중/최근 작업
 
+### Task 35: 동일 commit 강제 재리뷰
+- **상태**: ✅ 완료
+- **배경**: 동일 PR commit hash는 idempotency key로 차단되어, 이미 완료된 리뷰를 명시적으로 다시 실행할 방법이 없었음.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| `--force` 명령 감지 | ✅ | `@codex --force`와 `@codex review --force`를 독립 옵션으로 인식하고 `--forceful` 같은 부분 일치는 거부 |
+| 강제 재리뷰 큐잉 | ✅ | 기존 commit key 대신 댓글 ID가 포함된 force key를 사용해 완료 리뷰를 유지한 채 새 리뷰 생성. 같은 댓글 웹훅 재전송은 계속 중복 차단 |
+| 트리거 모드 우회 | ✅ | 명시적 force 명령은 `auto` 모드에서도 수동 재리뷰 가능 |
+| 문서 | ✅ | README에 명령과 댓글 단위 멱등성 동작 추가 |
+| 회귀 테스트 | ✅ | 기존 commit key가 중복이어도 force key로 DB 실행과 BullMQ job이 생성되는 경로 검증 |
+| 빌드/린트/테스트 | ✅ | `pnpm lint`, `pnpm build`, `pnpm test --runInBand` 성공 (244 tests) |
+| 커버리지 | ✅ | `pnpm test:cov --runInBand` 성공, statement 89.92%, branch 80.69% |
+| 보안 체크리스트 | ✅ | force는 서명 검증된 기존 webhook 경계 내부에서만 처리. 신규 시크릿·에러 노출 없음. 옵션 경계 및 webhook 재전송 중복 방지 검증 |
+| 커밋 | ✅ | conventional commit 완료 |
+
 ### Task 34: Codex CLI 런타임 버전 업그레이드
 - **상태**: ✅ 완료
 - **배경**: Docker 런타임의 `@openai/codex` 핀이 `0.149.1`에 머물러 npm `latest`(`0.153.2`)와 4개 마이너 뒤처짐.

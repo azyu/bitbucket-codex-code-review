@@ -30,6 +30,7 @@ describe("WebhookController", () => {
     shouldAutoReview: jest.fn(),
     shouldMentionReview: jest.fn(),
     hasCodexMention: jest.fn(),
+    isForceReview: jest.fn(),
   };
   const reviewService = {
     existsByIdempotencyKey: jest.fn(),
@@ -113,6 +114,7 @@ describe("WebhookController", () => {
     triggerService.shouldAutoReview.mockReturnValue(false);
     triggerService.shouldMentionReview.mockReturnValue(true);
     triggerService.hasCodexMention.mockReturnValue(true);
+    triggerService.isForceReview.mockReturnValue(false);
 
     controller = new WebhookController(
       reviewQueue as unknown as Queue,
@@ -201,6 +203,33 @@ describe("WebhookController", () => {
     expect(result).toEqual({ accepted: false, reason: "Duplicate request" });
     expect(reviewQueue.add).not.toHaveBeenCalled();
     expect(bitbucketService.replyToComment).not.toHaveBeenCalled();
+  });
+
+  it("queues --force for an already reviewed commit with comment-scoped idempotency", async () => {
+    const baseKey = "repo-a:17:abcdef1234567890";
+    triggerService.isForceReview.mockReturnValue(true);
+    triggerService.shouldMentionReview.mockReturnValue(false);
+    reviewService.existsByIdempotencyKey.mockImplementation(
+      async (key: string) => key === baseKey,
+    );
+
+    const result = await controller.handleBitbucketWebhook(
+      buildCommentWebhook("@codex --force"),
+      "pullrequest:comment_created",
+      {},
+    );
+
+    const forceKey = `${baseKey}:force:321`;
+    expect(result).toEqual({ accepted: true });
+    expect(reviewService.existsByIdempotencyKey).toHaveBeenCalledWith(forceKey);
+    expect(reviewService.createReviewRun).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: forceKey }),
+    );
+    expect(reviewQueue.add).toHaveBeenCalledWith(
+      "review",
+      expect.objectContaining({ idempotencyKey: forceKey }),
+      { jobId: forceKey },
+    );
   });
 
   it("removes stale queued job before adding the new review job", async () => {
