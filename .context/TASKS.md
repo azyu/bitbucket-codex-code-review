@@ -19,7 +19,10 @@
 | Helm 기본값 드리프트 수정 | ✅ | `image.repository`가 실제 push 대상이 아닌 `ghcr.io/anthropics/code-review-worker`였고 `image.tag` 기본값이 존재한 적 없는 appVersion `0.1.0`이었음. 실제 레지스트리와 `latest`로 정정하고, `latest` 기본값에서 캐시된 구버전을 쓰지 않도록 `pullPolicy`를 `Always`로 변경. chart README 파라미터 표 동기화 |
 | Helm 렌더링 검증 | ✅ | `helm lint` 통과, `helm template`에서 main/migration 컨테이너 모두 `ghcr.io/azyu/bitbucket-codex-code-review:latest` + `imagePullPolicy: Always` 렌더링 확인 |
 | `latest` 태그 오염 차단 | ✅ | Codex 리뷰(P1) 반영. `docker-publish.yml`이 `workflow_dispatch`만 쓰는데 임의 브랜치 ref로 실행 가능하고 `type=raw,value=latest`에 조건이 없어, 미머지 브랜치 빌드가 `latest`를 덮어쓸 수 있었음. 차트 기본값이 `latest`+`Always`가 되면 그 이미지가 재시작 시 그대로 배포되므로 `enable={{is_default_branch}}`로 제한 |
-| `latest` 입력 예약 | ✅ | Codex 재리뷰(P1) 반영. `enable={{is_default_branch}}`는 암묵 `latest` 규칙만 막고, `tag` 입력에 `latest`를 직접 넣으면 40행 raw 규칙이 그대로 통과시켰음. 입력값이 `latest`면 job 첫 스텝에서 실패시켜 예약어로 고정 (main dispatch는 42행이 이미 붙이므로 입력할 이유 없음) |
+| `latest` 입력 예약 | ✅ | Codex 재리뷰(P1) 반영. `enable={{is_default_branch}}`는 암묵 `latest` 규칙만 막고, `tag` 입력에 `latest`를 직접 넣으면 raw 규칙이 그대로 통과시켰음. 입력값이 `latest`면 job 첫 스텝에서 실패시켜 예약어로 고정 (main dispatch는 default-branch 규칙이 이미 붙이므로 입력할 이유 없음) |
+| `tag` 입력 형식 검증 | ✅ | omp 리뷰(P1) 반영. 위 완전일치 가드는 실효가 없었음 — `metadata-action`의 `src/tag.ts` `Parse()`가 CSV 필드를 `attrs[key] = value`로 덮어쓰고(뒤 값 우선) 양끝 공백을 trim하므로 `foo,value=latest`와 `" latest"` 둘 다 가드를 통과해 `latest`로 렌더됐음(소스 확인). Docker 태그 정규식 검증으로 교체하고 값은 `env`로 전달해 셸 인젝션도 차단. 9개 입력 케이스로 allow/block 동작 확인 |
+| `pullPolicy` 오프라인 탈출구 | ✅ | omp 리뷰(P2) 반영. `Always`는 노드에 이미지가 있어도 레지스트리 조회 실패 시 `ImagePullBackOff`. chart README에 에어갭·레지스트리 장애 시 `--set image.pullPolicy=IfNotPresent` 명시 |
+| `OPENAI_API_KEY` 문서 드리프트 | ⬜ | omp 리뷰(P2), **선재 결함이라 이 PR에서 미처리**. chart README:22-30은 "방법 1(권장): `deployment.yaml`의 `env`에서 `OPENAI_API_KEY`로 매핑"이라고 하나 `templates/deployment.yaml`의 `env`에는 DB·Redis·Bitbucket 3종뿐이고 차트 전체에 해당 참조 0건. README 절차대로 하면 Codex가 인증되지 않음. 별도 이슈 필요 |
 | 컨테이너 런타임 검증 | ⚠️ | 로컬 Docker 데몬 부재로 컨테이너 내부 `codex --version` 실행은 미확인. 빌드 로그상 설치 레이어 성공만 관측 |
 
 ### Task 33: Bitbucket 인증 실패 관측성과 재시도 분류

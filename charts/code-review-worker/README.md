@@ -105,7 +105,7 @@ EOF
 |-----------|---------|-------------|
 | `image.repository` | `ghcr.io/azyu/bitbucket-codex-code-review` | 이미지 저장소 |
 | `image.tag` | `latest` | 이미지 태그. 운영 배포는 `--set image.tag=<git sha>` 로 고정 권장 |
-| `image.pullPolicy` | `Always` | `latest` 기본값이라 캐시된 구버전을 쓰지 않도록 Always |
+| `image.pullPolicy` | `Always` | `latest` 기본값이라 캐시된 구버전을 쓰지 않도록 Always. 에어갭·레지스트리 장애 환경은 이미지가 노드에 있어도 기동에 실패하므로 `--set image.tag=<sha> --set image.pullPolicy=IfNotPresent` 로 배포 |
 | `replicaCount` | `1` | 레플리카 수 |
 | `nodeEnv` | `production` | NODE_ENV |
 | `port` | `3000` | HTTP 포트 |

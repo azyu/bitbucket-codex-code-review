@@ -20,11 +20,22 @@ jobs:
       packages: write
 
     steps:
-      - name: Reject reserved tag
-        if: inputs.tag == 'latest'
+      # The input is interpolated into metadata-action's tag-rule syntax, where a
+      # later value= wins and whitespace is trimmed. Anything but a plain tag
+      # ("foo,value=latest", " latest") would smuggle latest past an equality check.
+      - name: Validate tag input
+        if: inputs.tag != ''
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
-          echo "::error::'latest' is managed by the default-branch rule; use a different tag"
-          exit 1
+          if [[ ! "$TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo "::error::invalid image tag: $TAG"
+            exit 1
+          fi
+          if [[ "$TAG" == "latest" ]]; then
+            echo "::error::'latest' is managed by the default-branch rule; use a different tag"
+            exit 1
+          fi
 
       - uses: actions/checkout@v6
 
