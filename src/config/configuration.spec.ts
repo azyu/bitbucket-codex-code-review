@@ -11,14 +11,14 @@ describe("configuration", () => {
     }
   });
 
-  it("defaults Codex to GPT-5.6 Sol", () => {
+  it("defaults Codex to GPT-6 Astra", () => {
     delete process.env["CODEX_MODEL"];
 
     const config = configuration();
 
     expect(config).toEqual(
       expect.objectContaining({
-        codex: expect.objectContaining({ model: "gpt-5.6-sol" }),
+        codex: expect.objectContaining({ model: "gpt-6-astra" }),
       }),
     );
   });

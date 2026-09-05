@@ -13,7 +13,7 @@ export const DEFAULTS = {
   QUEUE_RETRY_DELAY: 5000,
   CODEX_BINARY_PATH: "codex",
   CODEX_TIMEOUT_MS: 600_000,
-  CODEX_MODEL: "gpt-5.6-sol",
+  CODEX_MODEL: "gpt-6-astra",
   CODEX_REASONING_EFFORT: "medium",
   REVIEW_CUSTOM_PROMPT_FILEPATH: "",
   BITBUCKET_BASE_URL: "https://api.bitbucket.org/2.0",

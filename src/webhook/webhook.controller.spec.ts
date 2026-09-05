@@ -44,7 +44,7 @@ describe("WebhookController", () => {
   };
   const configValues: Record<string, unknown> = {
     "trigger.mode": "mention",
-    "codex.model": "gpt-5.6-sol",
+    "codex.model": "gpt-6-astra",
     "codex.reasoningEffort": "high",
   };
   const configService = {
@@ -102,7 +102,7 @@ describe("WebhookController", () => {
     jest.clearAllMocks();
     Object.assign(configValues, {
       "trigger.mode": "mention",
-      "codex.model": "gpt-5.6-sol",
+      "codex.model": "gpt-6-astra",
       "codex.reasoningEffort": "high",
     });
     reviewQueue.getJob.mockResolvedValue(null);
@@ -163,7 +163,7 @@ describe("WebhookController", () => {
       repoSlug: "repo-a",
       pullRequestId: 17,
       parentCommentId: 321,
-      body: "⏳ Summary & Code Review 진행 중...\n\n- Model: gpt-5.6-sol\n- Reasoning: high",
+      body: "⏳ Summary & Code Review 진행 중...\n\n- Model: gpt-6-astra\n- Reasoning: high",
     });
   });
 
@@ -189,7 +189,7 @@ describe("WebhookController", () => {
       workspace: "workspace",
       repoSlug: "repo-a",
       pullRequestId: 17,
-      body: "⏳ Summary & Code Review 진행 중...\n\n- Model: gpt-5.6-sol",
+      body: "⏳ Summary & Code Review 진행 중...\n\n- Model: gpt-6-astra",
     });
   });
 

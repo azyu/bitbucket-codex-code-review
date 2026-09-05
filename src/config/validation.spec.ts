@@ -21,7 +21,7 @@ describe("validationSchema", () => {
       expect.objectContaining({
         PORT: 3000,
         CODEX_BINARY_PATH: "codex",
-        CODEX_MODEL: "gpt-5.6-sol",
+        CODEX_MODEL: "gpt-6-astra",
         CODEX_REASONING_EFFORT: "medium",
         BITBUCKET_REPO_TOKENS: "",
         REVIEW_TRIGGER_MODE: "mention",

@@ -110,7 +110,7 @@ docker compose up -d
 | 환경변수 | 설명 | 기본값 |
 |---|---|---|
 | `CODEX_BINARY_PATH` | Codex CLI 바이너리 경로 | `codex` |
-| `CODEX_MODEL` | 사용 모델 | `gpt-5.6-sol` |
+| `CODEX_MODEL` | 사용 모델 | `gpt-6-astra` |
 | `CODEX_REASONING_EFFORT` | 추론 노력도 (`none` / `low` / `medium` / `high` / `xhigh` / `max`) | `medium` |
 | `CODEX_TIMEOUT_MS` | 실행 타임아웃 (ms) | `600000` |
 | `OPENAI_API_KEY` | OpenAI API 키 (Codex CLI 인증) | - |

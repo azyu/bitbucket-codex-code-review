@@ -1,10 +1,18 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-09-04
+> 마지막 업데이트: 2026-09-05
 
 
 ## 진행 중/최근 작업
 
+
+### Task 38: 기본 리뷰 모델 GPT-6 Astra 전환
+- **상태**: 구현·로컬 검증 완료, Draft PR 제출 대상 / 실호출 결과 전 머지 보류
+- **변경**: 애플리케이션·Helm·Compose·환경 예시·README 기본 모델과 설정/웹훅 테스트를 `gpt-6-astra`로 정합화.
+- **잔존 문자열 조사**: 이전 모델 ID는 과거 Task 27/28, 2026-07-10 설계/계획 문서, GPT-5.6 명시적 모델 전달 테스트에만 의도적으로 유지.
+- **검증**: `pnpm build`, `pnpm lint`, `pnpm test --runInBand`, `pnpm test:cov --runInBand` 성공 (17 suites, 247 tests). 커버리지 statement 89.96%, branch 80.69%, function 81.6%, line 89.97%. Helm lint 및 ConfigMap 렌더링에서 새 모델 확인.
+- **보안/범위**: 신규 시크릿·외부 입력·에러 노출 변경 없음. 모델 allowlist 미추가, reasoning effort 및 Dockerfile `@openai/codex@0.153.2` 핀 유지. 인스턴스·배포 미접촉.
+- **머지 조건**: teal-tapir의 ChatGPT 계정 인증 실호출 접근성·할당량 확인 결과 대기. 프로덕션 모델은 tools-infra `codex-code-review/fetch-env.sh`의 `CODEX_MODEL`이 결정하므로 이 PR만으로 변경되지 않음.
 
 ### Task 37: BullMQ major 대비 colonless review jobId
 - **상태**: ✅ 완료
