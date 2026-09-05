@@ -1,10 +1,27 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-09-05
+> 마지막 업데이트: 2026-09-06
 
 
 ## 진행 중/최근 작업
 
+
+### Task 39: 사용하지 않는 Helm 차트 제거 + latest 태그 하드닝
+- **상태**: PR 제출
+- **배경**: PR #36에서 차트 `image.repository`가 실제 push 대상이 아닌 `ghcr.io/anthropics/code-review-worker`를 가리키는 드리프트를 고치려다, 차트가 배포에 쓰인 적이 없다는 사실이 확인됨.
+- **근거**: `lxp_services` 이력상 배포는 처음부터 Helm이 아니라 kustomize raw 매니페스트(`deploy/k8s/eks/lxp-tools/codex-code-review/`, ArgoCD auto-sync)였고, 그마저 `92daac7e5`(2026-08-03)에서 EC2 이관과 함께 삭제됨. 현재 운영은 us-west-2 전용 EC2(`codex-review.work.kitkit.us`)이고 Bitbucket 웹훅 3개가 그쪽을 가리킴.
+- **차트 방치 신호**: templates는 repo 최초 커밋일(2026-03-09) 이후 미변경, `Chart.yaml` `0.1.0` 고정, CI 미검증, 외부 소비자 0건, README `OPENAI_API_KEY` 안내가 `deployment.yaml`에 존재하지 않음.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| `charts/` 삭제 | ✅ | 배포 아티팩트가 아님이 확인돼 제거. `.context`·`docs/superpowers`의 과거 기록은 당시 사실이므로 보존 |
+| README 정리 | ✅ | "Kubernetes Deployment" 절을 Compose 기준 "Codex CLI 인증"으로 교체. seccomp/bubblewrap 요구사항은 compose 기준으로 유지 |
+| `latest` 태그 하드닝 | ✅ | 차트와 무관하게 `latest`는 실제 소비되던 태그(삭제된 EKS `deployment.yaml`도 `:latest` + `Always`)라 유지. `workflow_dispatch`는 임의 ref로 실행 가능한데 `type=raw,value=latest`에 조건이 없어 미머지 브랜치 빌드가 덮어쓸 수 있었음 → `enable={{is_default_branch}}` |
+| `tag` 입력 검증 | ✅ | 위 가드만으로는 부족. `metadata-action`의 `src/tag.ts` `Parse()`가 CSV 필드를 `attrs[key] = value`로 덮어쓰고(뒤 값 우선) 양끝을 trim하므로 `foo,value=latest`·`" latest"`가 완전일치 비교를 통과해 `latest`로 렌더됐음(소스 확인). Docker 태그 정규식 검증으로 교체하고 값은 `env`로 전달해 셸 인젝션도 차단 |
+| 검증 | ✅ | 워크플로 YAML 파싱, 가드 스크립트 9개 입력 케이스 allow/block 확인. 소스 변경 없어 `pnpm` 검증은 미실행 |
+| 프로덕션 태그 확인 | ✅ | tools-infra `codex-code-review/compose.yaml`이 `image: ghcr.io/azyu/bitbucket-codex-code-review:latest` — 프로덕션이 `latest`를 소비함이 확정. tools-infra README 이미지 갱신 런북도 "`latest`는 mutable이라 남이 먼저 덮어썼을 수 있다"며 배포 후 `org.opencontainers.image.revision` 라벨로 커밋 SHA를 수동 대조하도록 지시 중 — 인지된 실제 위험이었음 |
+| 노출 창 분석 | ✅ | `admin.py` `reflect()`(설정 반영)와 재부팅은 pull 없음(compose 기본 `pull_policy: missing`)이라 무관. 노출은 런북의 `docker compose pull app && docker compose up -d app` 시점 하나. 정상 런북은 `gh workflow run --ref main`으로 default branch 고정이라, 가드는 절차 이탈 dispatch용 안전망 |
+| 후속 | ⬜ | 이미지의 회사 ECR 이관이 tools-infra `docs/2026-07-29-codex-code-review-ec2-migration.md`에 후속 작업으로 등록됨. 완료되면 `ghcr.io/azyu` 개인 레지스트리와 `latest` 문제가 함께 정리됨. `.context/BACKLOG.md`의 ingress-external `/api/internal` 노출 항목은 해당 ingress가 2026-08-03에 삭제돼 무효. EC2에서 같은 노출이 있는지는 별도 확인 필요 |
 
 ### Task 38: 기본 리뷰 모델 GPT-6 Astra 전환
 - **상태**: 구현·로컬 검증 완료, Draft PR 제출 대상 / 실호출 결과 전 머지 보류

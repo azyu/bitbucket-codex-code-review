@@ -188,60 +188,28 @@ repo 통계 응답에는 리뷰 건수, Codex/전체 소요 시간, input/cached
 
 간단한 내장 대시보드는 `GET /dashboard` 에서 확인할 수 있습니다. 같은 origin의 `/api/internal/stats/repos`를 직접 읽어 repo별 리뷰 건수, 시간, 토큰 요약을 렌더링합니다.
 
-## Kubernetes Deployment
-
-Helm 차트가 `charts/code-review-worker/`에 포함되어 있습니다.
-
-```bash
-helm install code-review ./charts/code-review-worker \
-  --set database.host=mysql \
-  --set database.username=root \
-  --set database.password=changeme \
-  --set database.name=lxp_code_review \
-  --set redis.host=redis \
-  --set redis.password=pass \
-  --set codexAuth.existingSecret=codex-auth
-```
-
-대형 PR의 branch-diff 리뷰를 사용하려면 Codex bubblewrap이 비특권 user namespace를 만들 수 있어야 합니다. 차트는 워커 컨테이너에 `securityContext.seccompProfile.type: Unconfined`를 기본 적용하며, values 파일 또는 `--set securityContext.seccompProfile.type=...`로 덮어쓸 수 있습니다. `CAP_SYS_ADMIN`이나 `privileged`는 필요하지 않습니다. 배포 후 `kubectl exec`로 `unshare --user --map-root-user true`가 성공하는지 확인하세요.
-
-### Codex CLI 인증
+## Codex CLI 인증
 
 **방법 1: `OPENAI_API_KEY` 환경변수 (권장)**
 
-가장 간단한 방법입니다. 환경변수로 API 키를 전달하면 Codex CLI가 자동으로 인식합니다.
+환경변수로 API 키를 전달하면 Codex CLI가 자동으로 인식합니다.
 
 ```bash
-# Docker Compose
 export OPENAI_API_KEY=sk-...
 docker compose up -d
-
-# K8s — Secret에서 환경변수로 주입
-kubectl create secret generic openai-api-key --from-literal=api-key=sk-...
-# deployment.yaml에서 secretKeyRef로 OPENAI_API_KEY에 매핑
 ```
 
 **방법 2: `auth.json` 볼륨 마운트**
 
-`codex login`으로 생성되는 `~/.codex/auth.json`을 마운트하는 방식입니다.
+`codex login`으로 생성되는 `~/.codex/auth.json`을 컨테이너의 `/root/.codex`에 마운트합니다. `docker-compose.yml`의 주석 처리된 볼륨 항목을 참고하세요.
 
-```bash
-# K8s Secret 생성
-kubectl create secret generic codex-auth \
-  --from-file=auth.json=$HOME/.codex/auth.json
-
-# Helm 설치 시 적용
-helm install code-review ./charts/code-review-worker \
-  --set codexAuth.existingSecret=codex-auth
-```
+대형 PR의 branch-diff 리뷰를 사용하려면 Codex bubblewrap이 비특권 user namespace를 만들 수 있어야 합니다. `docker-compose.yml`은 워커에 `security_opt: seccomp:unconfined`를 적용합니다. `CAP_SYS_ADMIN`이나 `privileged`는 필요하지 않습니다. 컨테이너 안에서 `unshare --user --map-root-user true`가 성공하는지 확인하세요.
 
 > [!NOTE]
 > 커스텀 엔드포인트는 `OPENAI_BASE_URL` 환경변수 또는 Codex `config.toml`의 `openai_base_url` 키로 설정합니다. 둘 다 설정된 경우 config.toml이 우선합니다.
 
 > [!TIP]
-> 프로덕션 환경에서는 External Secrets Operator나 Sealed Secrets를 사용하여 시크릿을 관리하세요.
-
-상세 설정은 [charts/code-review-worker/README.md](charts/code-review-worker/README.md) 참조.
+> 프로덕션 환경에서는 시크릿 매니저를 사용하고, 이미지 태그는 `latest`가 아니라 git SHA로 고정하세요.
 
 ## Project Structure
 
