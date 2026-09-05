@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag (default: git SHA)"
+        description: "Image tag (default: git SHA). 'latest' is reserved for main"
         required: false
         type: string
 
@@ -20,6 +20,12 @@ jobs:
       packages: write
 
     steps:
+      - name: Reject reserved tag
+        if: inputs.tag == 'latest'
+        run: |
+          echo "::error::'latest' is managed by the default-branch rule; use a different tag"
+          exit 1
+
       - uses: actions/checkout@v6
 
       - uses: docker/setup-qemu-action@v4
