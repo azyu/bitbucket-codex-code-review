@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag (default: git SHA)"
+        description: "Image tag (default: git SHA). 'latest' is reserved for main"
         required: false
         type: string
 
@@ -20,6 +20,23 @@ jobs:
       packages: write
 
     steps:
+      # The input is interpolated into metadata-action's tag-rule syntax, where a
+      # later value= wins and whitespace is trimmed. Anything but a plain tag
+      # ("foo,value=latest", " latest") would smuggle latest past an equality check.
+      - name: Validate tag input
+        if: inputs.tag != ''
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo "::error::invalid image tag: $TAG"
+            exit 1
+          fi
+          if [[ "$TAG" == "latest" ]]; then
+            echo "::error::'latest' is managed by the default-branch rule; use a different tag"
+            exit 1
+          fi
+
       - uses: actions/checkout@v6
 
       - uses: docker/setup-qemu-action@v4
@@ -39,7 +56,7 @@ jobs:
           tags: |
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=sha,prefix=
-            type=raw,value=latest
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - uses: docker/build-push-action@v7
         with:
