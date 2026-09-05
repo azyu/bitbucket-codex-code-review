@@ -99,8 +99,34 @@ describe("CodexService", () => {
       inputTokens: 1200,
       cachedInputTokens: 300,
       outputTokens: 80,
+      model: "o3",
+      reasoningEffort: null,
     });
     expect(rmSpy).toHaveBeenCalled();
+  });
+
+  // 토큰 통계를 모델에 귀속하려면 결과가 argv와 같은 값을 실어야 한다. 둘이 갈라지면
+  // 대시보드가 A 모델 수치를 B 모델 것으로 보고하게 된다.
+  it("reports the same model and reasoning effort it passed to the CLI", async () => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockResolvedValue("out");
+
+    const promise = createService({
+      "codex.model": "gpt-6-astra",
+      "codex.reasoningEffort": "high",
+    }).executeCodex("/work", "main", "review this");
+
+    child.stdout.emit("data", makeTurnCompleted(10, 5, 1) + "\n");
+    child.emit("close", 0, null);
+
+    const result = await promise;
+    const args = spawnSpy.mock.calls[0][1] as string[];
+
+    expect(result.model).toBe(args[args.indexOf("--model") + 1]);
+    expect(result.model).toBe("gpt-6-astra");
+    expect(result.reasoningEffort).toBe("high");
+    expect(args).toContain('model_reasoning_effort="high"');
   });
 
   it.each([

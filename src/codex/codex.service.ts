@@ -235,6 +235,8 @@ export class CodexService {
         inputTokens: result.usage.inputTokens,
         cachedInputTokens: result.usage.cachedInputTokens,
         outputTokens: result.usage.outputTokens,
+        model: this.model,
+        reasoningEffort: this.reasoningEffort || null,
       };
     } finally {
       rm(outputFile, { force: true }).catch((err) => {

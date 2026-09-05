@@ -174,6 +174,8 @@ export class ReviewProcessor extends WorkerHost {
             inputTokens: failedCodexResult?.inputTokens ?? undefined,
             cachedInputTokens: failedCodexResult?.cachedInputTokens ?? undefined,
             outputTokens: failedCodexResult?.outputTokens ?? undefined,
+            codexModel: failedCodexResult?.model,
+            codexReasoningEffort: failedCodexResult?.reasoningEffort ?? undefined,
             errorMessage: error.message.substring(0, 2000),
           },
         );
@@ -522,6 +524,8 @@ export class ReviewProcessor extends WorkerHost {
         inputTokens: codexResult.inputTokens ?? undefined,
         cachedInputTokens: codexResult.cachedInputTokens ?? undefined,
         outputTokens: codexResult.outputTokens ?? undefined,
+        codexModel: codexResult.model,
+        codexReasoningEffort: codexResult.reasoningEffort ?? undefined,
       },
     );
 

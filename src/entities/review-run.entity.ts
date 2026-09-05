@@ -80,6 +80,14 @@ export class ReviewRunEntity extends BaseTableEntity {
   @Column({ type: "int", nullable: true })
   outputTokens: number;
 
+  // 토큰·소요 통계를 어떤 모델 설정으로 얻었는지 귀속하기 위한 값. codex는 지원하지
+  // 않는 모델을 받으면 400으로 실패하므로, 완주한 run의 이 값은 실제 사용 설정과 같다.
+  @Column({ type: "varchar", length: 64, nullable: true })
+  codexModel: string;
+
+  @Column({ type: "varchar", length: 16, nullable: true })
+  codexReasoningEffort: string;
+
   @Column({ type: "text", nullable: true })
   errorMessage: string;
 }
