@@ -26,6 +26,8 @@ export interface IRecentReview {
   readonly outputTokens: number | null;
   readonly durationMs: number | null;
   readonly totalDurationMs: number | null;
+  readonly codexModel: string | null;
+  readonly codexReasoningEffort: string | null;
   readonly createdAt: Date;
 }
 
@@ -207,6 +209,8 @@ export class ReviewService {
         | "inputTokens"
         | "cachedInputTokens"
         | "outputTokens"
+        | "codexModel"
+        | "codexReasoningEffort"
         | "errorMessage"
       >
     >,
@@ -265,6 +269,8 @@ export class ReviewService {
       outputTokens: toNullableNumber(row.outputTokens),
       durationMs: toNullableNumber(row.durationMs),
       totalDurationMs: toNullableNumber(row.totalDurationMs),
+      codexModel: row.codexModel ?? null,
+      codexReasoningEffort: row.codexReasoningEffort ?? null,
       createdAt: new Date(row.createdAt),
     };
   }

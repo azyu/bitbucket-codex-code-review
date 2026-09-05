@@ -944,6 +944,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                     <th>상태 · 트리거</th>
                     <th>지연(코덱스/전체)</th>
                     <th>토큰(in / cache / out)</th>
+                    <th>모델</th>
                     <th>커밋</th>
                     <th>에러</th>
                     <th class="text-end">본문</th>
@@ -952,7 +953,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                 <tbody>
                   <template x-if="recentReviews.length === 0">
                     <tr>
-                      <td colspan="8" class="px-4 py-5 text-center text-secondary" x-text="recentLoading ? '최근 리뷰를 불러오는 중…' : '최근 리뷰 데이터가 없습니다.'"></td>
+                      <td colspan="9" class="px-4 py-5 text-center text-secondary" x-text="recentLoading ? '최근 리뷰를 불러오는 중…' : '최근 리뷰 데이터가 없습니다.'"></td>
                     </tr>
                   </template>
                 </tbody>
@@ -988,6 +989,10 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                         </div>
                       </td>
                       <td>
+                        <div x-text="review.codexModel || '-'"></div>
+                        <div class="repo-subcopy" x-show="review.codexReasoningEffort" x-text="review.codexReasoningEffort"></div>
+                      </td>
+                      <td>
                         <code x-text="shortCommit(review.headCommitHash)"></code>
                       </td>
                       <td>
@@ -1009,7 +1014,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                     </tr>
                     <template x-if="expandedReviewId === review.id">
                       <tr>
-                        <td colspan="8">
+                        <td colspan="9">
                           <template x-if="expandedLoading">
                             <div class="text-secondary">본문을 불러오는 중…</div>
                           </template>
