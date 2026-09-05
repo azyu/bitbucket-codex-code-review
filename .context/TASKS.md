@@ -18,6 +18,7 @@
 | 배포 이미지 빌드 | ✅ | main `71fc648`에서 Docker Publish dispatch. amd64/arm64 양쪽 `RUN npm install -g @openai/codex@0.153.2` 성공, `ghcr.io/azyu/bitbucket-codex-code-review:{71fc648,latest}` = `sha256:091a426e...` |
 | Helm 기본값 드리프트 수정 | ✅ | `image.repository`가 실제 push 대상이 아닌 `ghcr.io/anthropics/code-review-worker`였고 `image.tag` 기본값이 존재한 적 없는 appVersion `0.1.0`이었음. 실제 레지스트리와 `latest`로 정정하고, `latest` 기본값에서 캐시된 구버전을 쓰지 않도록 `pullPolicy`를 `Always`로 변경. chart README 파라미터 표 동기화 |
 | Helm 렌더링 검증 | ✅ | `helm lint` 통과, `helm template`에서 main/migration 컨테이너 모두 `ghcr.io/azyu/bitbucket-codex-code-review:latest` + `imagePullPolicy: Always` 렌더링 확인 |
+| `latest` 태그 오염 차단 | ✅ | Codex 리뷰(P1) 반영. `docker-publish.yml`이 `workflow_dispatch`만 쓰는데 임의 브랜치 ref로 실행 가능하고 `type=raw,value=latest`에 조건이 없어, 미머지 브랜치 빌드가 `latest`를 덮어쓸 수 있었음. 차트 기본값이 `latest`+`Always`가 되면 그 이미지가 재시작 시 그대로 배포되므로 `enable={{is_default_branch}}`로 제한 |
 | 컨테이너 런타임 검증 | ⚠️ | 로컬 Docker 데몬 부재로 컨테이너 내부 `codex --version` 실행은 미확인. 빌드 로그상 설치 레이어 성공만 관측 |
 
 ### Task 33: Bitbucket 인증 실패 관측성과 재시도 분류
