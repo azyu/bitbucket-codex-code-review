@@ -109,7 +109,7 @@ EOF
 | `nodeEnv` | `production` | NODE_ENV |
 | `port` | `3000` | HTTP 포트 |
 | `metricsPort` | `9463` | 메트릭 포트 |
-| `codex.model` | `gpt-5.6-sol` | Codex 모델 |
+| `codex.model` | `gpt-6-astra` | Codex 모델 |
 | `codex.timeoutMs` | `600000` | Codex 타임아웃 (ms) |
 | `codex.reasoningEffort` | `medium` | Codex reasoning 수준 |
 | `codexAuth.existingSecret` | `""` | Codex 인증 Secret 이름 |

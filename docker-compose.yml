@@ -40,7 +40,7 @@ services:
 
       CODEX_BINARY_PATH: codex
       CODEX_TIMEOUT_MS: 600000
-      CODEX_MODEL: gpt-5.6-sol
+      CODEX_MODEL: gpt-6-astra
       CODEX_REASONING_EFFORT: medium
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}

@@ -66,7 +66,7 @@ queue:
 codex:
   binaryPath: codex
   timeoutMs: 600000
-  model: gpt-5.6-sol
+  model: gpt-6-astra
   reasoningEffort: medium
 
 # --- Bitbucket ---
