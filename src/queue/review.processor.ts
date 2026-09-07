@@ -14,6 +14,7 @@ import { BitbucketService } from "../bitbucket/bitbucket.service";
 import { type IReviewItem, type IUnifiedReviewResult } from "./review.types";
 import {
   formatInlineComment,
+  formatFindingsForGeneralComment,
   buildSummaryTable,
   buildVerdictBadge,
   normalizeSummaryMarkdown,
@@ -442,7 +443,7 @@ export class ReviewProcessor extends WorkerHost {
 
     // Post inline comments
     if (findings.length > 0) {
-      await this.postInlineComments(data, findings);
+      await this.postInlineComments(data, findings, summaryComment.id);
     }
 
     return summaryComment.id;
@@ -466,12 +467,13 @@ export class ReviewProcessor extends WorkerHost {
     return comment.id;
   }
 
-  /** inline comments 개별 게시 (전체 실패 시 일반 댓글 fallback) */
+  /** inline comments 개별 게시 (실패분은 요약 코멘트 답글로 복구 게시) */
   private async postInlineComments(
     data: IReviewJobData,
     findings: ReadonlyArray<IReviewItem>,
+    summaryCommentId: number,
   ): Promise<void> {
-    let postedCount = 0;
+    const failedItems: IReviewItem[] = [];
     for (const item of findings) {
       try {
         const body = formatInlineComment(item);
@@ -483,30 +485,41 @@ export class ReviewProcessor extends WorkerHost {
           line: item.lineRange.end,
           body,
         });
-        postedCount++;
       } catch (err) {
         this.logger.warn(
           `Inline comment failed for ${item.path}:${item.lineRange.end}: ${(err as Error).message}`,
         );
+        failedItems.push(item);
       }
     }
     this.logger.log(
-      `Inline comments posted: ${postedCount}/${findings.length}`,
+      `Inline comments posted: ${findings.length - failedItems.length}/${findings.length}`,
     );
 
-    // If all inline comments failed, fallback to general comment
-    if (postedCount === 0) {
-      this.logger.warn("All inline comments failed, falling back to general comment");
-      const fallbackBody = findings
-        .map((f) => formatInlineComment(f))
-        .join("\n\n---\n\n");
-      await this.bitbucketService.createComment({
-        workspace: data.workspaceSlug,
-        repoSlug: data.repositorySlug,
-        pullRequestId: data.pullRequestId,
-        body: `## 🔍 코드 리뷰 상세\n\n${fallbackBody}`,
-      });
+    if (failedItems.length === 0) {
+      return;
     }
+
+    // 한 건이라도 인라인 게시가 실패하면 그 지적은 로그에만 남아 사용자에게서 유실된다.
+    // 실패분만 담아 요약 코멘트의 **답글**로 다시 올린다 — 재실행으로 요약이 여럿 쌓여도
+    // 어느 런의 누락분인지 모호하지 않다.
+    // 두 가지 비자명한 불변식:
+    //  1. 복구 코멘트는 `onResultCommentPublished`를 호출하지 않는다 — 게시 증거
+    //     (`resultCommentId`)는 요약 코멘트 ID로 유지되어야 한다.
+    //  2. 이 게시의 실패는 실패 범위와 무관하게 **의도적으로 치명적**이다(삼키지 않는다).
+    //     삼키면 "지적 유실 + 런 COMPLETED"라는 이 이슈의 버그가 그대로 남고, 401일 때
+    //     `authenticationFailureStage` 분기와 카운터도 우회한다. 요약 ID가 이미 저장돼
+    //     있으므로 FAILED가 기록돼도 행은 삭제되지 않아 중복 게시 위험은 없다.
+    this.logger.warn(
+      `${failedItems.length}/${findings.length} inline comments failed, replying to the summary comment with the missing findings`,
+    );
+    await this.bitbucketService.replyToComment({
+      workspace: data.workspaceSlug,
+      repoSlug: data.repositorySlug,
+      pullRequestId: data.pullRequestId,
+      parentCommentId: summaryCommentId,
+      body: `## 🔍 인라인 게시에 실패한 지적 ${failedItems.length}건\n\n인라인 코멘트 게시가 거부되어 아래로 옮겼습니다. 위치는 각 항목 헤딩을 참고하세요.\n\n${formatFindingsForGeneralComment(failedItems)}`,
+    });
   }
 
   private filterFindingsToReviewDiff(

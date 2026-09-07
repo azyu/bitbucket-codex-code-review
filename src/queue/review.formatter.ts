@@ -45,6 +45,26 @@ export function formatInlineComment(item: IReviewItem): string {
   return parts.join("\n");
 }
 
+/**
+ * 인라인 게시가 실패한 finding을 일반 코멘트로 옮길 때 쓰는 포매터.
+ *
+ * `formatInlineComment`은 `path`를 전혀 emit하지 않고 라인 범위도 `start !== end`일 때만 넣는다
+ * — 인라인 코멘트는 Bitbucket이 위치를 앵커링하므로 본문에 위치가 중복이기 때문이다. 하지만
+ * 일반 코멘트로 옮기면 그 위치 정보가 사라진다(단일 라인 지적은 위치가 아예 없어진다).
+ * 그래서 여기서 `path` + 라인 범위 헤딩을 항목마다 앞에 붙인다.
+ */
+export function formatFindingsForGeneralComment(
+  items: ReadonlyArray<IReviewItem>,
+): string {
+  return items
+    .map((item) => {
+      const { start, end } = item.lineRange;
+      const lineLabel = start === end ? `L${start}` : `L${start}-L${end}`;
+      return `### \`${item.path}\` ${lineLabel}\n\n${formatInlineComment(item)}`;
+    })
+    .join("\n\n---\n\n");
+}
+
 /** 리뷰 항목에서 severity별 건수 요약 테이블 생성 */
 export function buildSummaryTable(
   items: ReadonlyArray<IReviewItem>,
