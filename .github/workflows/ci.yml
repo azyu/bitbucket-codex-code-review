@@ -27,3 +27,18 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # Gates the automerged Renovate bump of the Dockerfile pin: CI never
+      # builds the image, so a Codex CLI that fails to run would otherwise
+      # reach main unverified and only break the publish job afterwards.
+      - name: Smoke-test pinned Codex CLI
+        run: |
+          version=$(sed -n 's|.*@openai/codex@\([0-9.]*\).*|\1|p' Dockerfile)
+          test -n "$version"
+          npm install -g "@openai/codex@$version"
+          codex --version
+          # The flags src/codex/codex.service.ts:45-62 builds its argv from.
+          for flag in --model --sandbox --json --output-last-message; do
+            codex exec --help | grep -q -- "$flag" || {
+              echo "::error::codex exec dropped $flag"; exit 1; }
+          done

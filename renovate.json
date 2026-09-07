@@ -4,7 +4,7 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["^Dockerfile$"],
+      "managerFilePatterns": ["/^Dockerfile$/"],
       "matchStrings": [
         "# renovate: datasource=npm depName=@openai/codex\\nRUN npm install -g @openai/codex@(?<currentValue>[\\d.]+)"
       ],
@@ -16,7 +16,7 @@
     {
       "matchPackageNames": ["@openai/codex"],
       "allowedVersions": "/^\\d+\\.\\d+\\.\\d+$/",
-      "automerge": false
+      "automerge": true
     }
   ]
 }

@@ -1,10 +1,25 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-09-06
+> 마지막 업데이트: 2026-09-07
 
 
 ## 진행 중/최근 작업
 
+
+### Task 40: Codex 릴리스 → 이미지 발행 자동화
+- **상태**: 코드 변경 완료 / Renovate 실행 확인 대기
+- **배경**: `@openai/codex` 신규 정식 릴리스가 나오면 그 버전으로 이미지를 자동 빌드·발행하고 싶다는 요구. 감지·발행·배포 3개 고리 중 앞 2개가 이 repo에 있다.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| Renovate 실행 여부 진단 | ⚠️ | 앱 설치 + repo 접근 권한은 확인됨(선생님 GitHub 설정 화면). 그런데 `renovate/*` 브랜치 0개, Dependency Dashboard 이슈 없음, 봇 PR 0건(#17~#41 전부 사람), HEAD check-run은 `github-actions` 하나뿐. `pnpm outdated` 결과 NestJS 11→12 major 포함 19개 이상이 밀려 있는데도 PR이 없음 → **이 repo에서 완료된 run이 한 번도 없음**. 원인은 developer.mend.io job log에서만 보이며 미확인 |
+| 설정 파일 결함 배제 | ✅ | `renovate-config-validator` 통과. 즉 zero-PR 원인은 설정이 아님 |
+| `fileMatch` → `managerFilePatterns` | ✅ | validator가 출력한 마이그레이션 형태 그대로 적용(`"/^Dockerfile$/"` — 신규 옵션은 regex를 슬래시로 감싸야 glob으로 오해되지 않음). 기존 `fileMatch`도 자동 마이그레이션되므로 고장은 아니었고 legacy 제거 목적 |
+| codex만 automerge | ✅ | `packageRules`의 `automerge: false → true`. `matchPackageNames: ["@openai/codex"]` 범위라 다른 의존성은 수동 유지. alpha 차단은 기존 `allowedVersions` 정규식이 이미 담당(`0.154.0-alpha.3` 탈락) |
+| 머지 → 이미지 발행 연결 | ✅ | `docker-publish.yml`이 `workflow_dispatch` 전용이라 bump를 머지해도 이미지가 안 나왔음. `push: branches: [main]` 추가. push 이벤트에서 `inputs.tag`는 `''`로 평가돼 태그 검증 스텝과 `type=raw` 룰이 함께 스킵되므로 Task 39의 `latest` 가드는 그대로 유효 |
+| automerge 안전 가드 | ✅ | CI가 이미지를 빌드하지 않아 codex bump PR의 green은 codex에 대해 아무것도 보증하지 않았음. `ci.yml`에 Dockerfile 핀을 추출해 설치·실행하고 `codex exec`가 `--model/--sandbox/--json/--output-last-message`를 여전히 노출하는지 확인하는 스텝 추가. Dockerfile `RUN`이 아니라 CI인 이유: **머지 전**에 돌아야 automerge를 막을 수 있고, 멀티아치 qemu 에뮬레이션 위험도 회피 |
+| 검증 | ⚠️ | `renovate-config-validator` 통과, 두 워크플로 YAML 파싱 확인, 로컬 codex 0.153.4로 4개 플래그 존재 확인. `pnpm lint/build/test`는 `src` 무변경이라 미실행 |
+| 배포(3번째 고리) | ⬜ | 프로덕션 EC2는 tools-infra `codex-code-review/compose.yaml`이 `:latest`를 소비하지만 자동 pull이 없음. tools-infra README 런북이 `org.opencontainers.image.revision` 수동 대조를 지시하고 있어 자동 pull은 그 절차와 충돌 — 별도 결정 필요 |
 
 ### Task 39: 사용하지 않는 Helm 차트 제거 + latest 태그 하드닝
 - **상태**: PR 제출
