@@ -1,3 +1,4 @@
+import { type FindOperator } from "typeorm";
 import {
   ReviewRunEntity,
   ReviewRunStatus,
@@ -434,5 +435,113 @@ describe("sanitizeErrorMessage", () => {
 
   it("trims leading/trailing whitespace", () => {
     expect(sanitizeErrorMessage("  hello  ")).toBe("hello");
+  });
+});
+
+describe("ReviewService conditional status transitions", () => {
+  const mockRepository = {
+    findOne: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  };
+
+  // update 조건절은 FindOperator를 담으므로 type/value로 from-set을 들여다본다.
+  type UpdateCriteria = {
+    readonly id?: FindOperator<number>;
+    readonly reviewStatus?: FindOperator<ReviewRunStatus>;
+    readonly repositorySlug?: string;
+    readonly pullRequestId?: number;
+  };
+
+  const criteriaOfCall = (index: number): UpdateCriteria =>
+    mockRepository.update.mock.calls[index][0] as UpdateCriteria;
+
+  let service: ReviewService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new ReviewService(mockRepository as never);
+  });
+
+  it("reports failure when the conditional update matched no row", async () => {
+    // affected=0은 "이 런은 더 이상 활성이 아니다"는 DB의 확정 판정이다 —
+    // 이 값이 false로 번역되지 않으면 대체된 런이 계속 게시된다.
+    mockRepository.update.mockResolvedValueOnce({ affected: 0 });
+
+    await expect(
+      service.claimStatus(7, ReviewRunStatus.PUBLISHING),
+    ).resolves.toBe(false);
+  });
+
+  it("reports success when the conditional update matched a row", async () => {
+    mockRepository.update.mockResolvedValueOnce({ affected: 1 });
+
+    await expect(
+      service.claimStatus(7, ReviewRunStatus.PREPARING),
+    ).resolves.toBe(true);
+    expect(mockRepository.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 7 }),
+      { reviewStatus: ReviewRunStatus.PREPARING },
+    );
+  });
+
+  it("excludes PUBLISHING from the claimStatus from-set", async () => {
+    mockRepository.update.mockResolvedValueOnce({ affected: 1 });
+
+    await service.claimStatus(7, ReviewRunStatus.PUBLISHING);
+
+    const fromSet = criteriaOfCall(0).reviewStatus;
+    expect(fromSet?.type).toBe("in");
+    // PUBLISHING이 from-set에 있으면 크래시 후 재진입한 잡이 다시 게시 권한을 얻는다.
+    expect(fromSet?.value).not.toContain(ReviewRunStatus.PUBLISHING);
+    expect(fromSet?.value).toContain(ReviewRunStatus.PREPARING);
+    expect(fromSet?.value).toContain(ReviewRunStatus.QUEUED);
+  });
+
+  it("includes PUBLISHING in the claimFailure from-set", async () => {
+    mockRepository.update.mockResolvedValueOnce({ affected: 1 });
+
+    await expect(
+      service.claimFailure(7, { errorMessage: "codex exploded" }),
+    ).resolves.toBe(true);
+
+    const fromSet = criteriaOfCall(0).reviewStatus;
+    // 게시 클레임 이후에 터진 실패도 기록돼야 하므로 PUBLISHING은 포함해야 한다.
+    expect(fromSet?.value).toContain(ReviewRunStatus.PUBLISHING);
+    expect(mockRepository.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 7 }),
+      { reviewStatus: ReviewRunStatus.FAILED, errorMessage: "codex exploded" },
+    );
+  });
+
+  it("keeps SUPERSEDED intact when a superseded run later fails", async () => {
+    // 대체된 런의 FAILED 덮어쓰기는 getRepoStats의 실패 집계를 오염시킨다.
+    mockRepository.update.mockResolvedValueOnce({ affected: 0 });
+
+    await expect(
+      service.claimFailure(7, { errorMessage: "too late" }),
+    ).resolves.toBe(false);
+
+    const fromSet = criteriaOfCall(0).reviewStatus;
+    for (const terminal of [
+      ReviewRunStatus.SUPERSEDED,
+      ReviewRunStatus.COMPLETED,
+      ReviewRunStatus.FAILED,
+    ]) {
+      expect(fromSet?.value).not.toContain(terminal);
+    }
+  });
+
+  it("supersedes only rows older than the new run", async () => {
+    mockRepository.update.mockResolvedValueOnce({ affected: 2 });
+
+    await expect(
+      service.supersedeActivePrReviews("repo-a", 42, 11),
+    ).resolves.toBe(2);
+
+    const criteria = criteriaOfCall(0);
+    // Not(excludeId)이면 서로 다른 커밋의 두 웹훅이 상호 supersede해 아무도 게시하지 못한다.
+    expect(criteria.id?.type).toBe("lessThan");
+    expect(criteria.id?.value).toBe(11);
   });
 });
