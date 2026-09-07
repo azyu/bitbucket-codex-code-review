@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { In, Not, Repository } from "typeorm";
+import { In, LessThan, Repository } from "typeorm";
 import { ServiceLogger } from "@lib/logger";
 import {
   ReviewRunEntity,
@@ -8,6 +8,36 @@ import {
   TriggerType,
 } from "../entities/review-run.entity";
 import { ICreateReviewRunParams } from "./interfaces/review.interfaces";
+
+/** 게시 전 단계에서만 유효한 활성 상태 — PUBLISHING을 제외하는 것이 재진입 중복 게시를 막는다. */
+const CLAIMABLE_BEFORE_PUBLISH = [
+  ReviewRunStatus.QUEUED,
+  ReviewRunStatus.PREPARING,
+  ReviewRunStatus.REVIEWING,
+] as const;
+
+/** 종료 상태(COMPLETED/FAILED/SUPERSEDED)를 제외한 모든 상태 — 실패 기록이 허용되는 범위. */
+const CLAIMABLE_FOR_FAILURE = [
+  ...CLAIMABLE_BEFORE_PUBLISH,
+  ReviewRunStatus.PUBLISHING,
+] as const;
+
+/** updateStatus/claimFailure가 상태와 함께 저장하는 부가 컬럼 집합. */
+type ReviewRunStatusExtra = Partial<
+  Pick<
+    ReviewRunEntity,
+    | "reviewOutput"
+    | "resultCommentId"
+    | "durationMs"
+    | "totalDurationMs"
+    | "inputTokens"
+    | "cachedInputTokens"
+    | "outputTokens"
+    | "codexModel"
+    | "codexReasoningEffort"
+    | "errorMessage"
+  >
+>;
 
 const RECENT_LIMIT_MIN = 1;
 const RECENT_LIMIT_MAX = 50;
@@ -199,21 +229,7 @@ export class ReviewService {
   async updateStatus(
     id: number,
     reviewStatus: ReviewRunStatus,
-    extra?: Partial<
-      Pick<
-        ReviewRunEntity,
-        | "reviewOutput"
-        | "resultCommentId"
-        | "durationMs"
-        | "totalDurationMs"
-        | "inputTokens"
-        | "cachedInputTokens"
-        | "outputTokens"
-        | "codexModel"
-        | "codexReasoningEffort"
-        | "errorMessage"
-      >
-    >,
+    extra?: ReviewRunStatusExtra,
   ): Promise<void> {
     await this.reviewRunRepository.update(id, { reviewStatus, ...extra });
   }
@@ -309,12 +325,47 @@ export class ReviewService {
       });
   }
 
+  /**
+   * 게시 전 단계에서만 성립하는 조건부 상태 전이. 게시 권한을 프로세스 메모리가 아니라
+   * DB가 판정하게 만드는 지점 — 조건에 맞는 행이 없으면(대체됨/삭제됨) false를 돌려준다.
+   *
+   * from-set에 PUBLISHING이 없는 이유: 워커가 SIGKILL된 뒤 stalled 복구로 같은 잡이
+   * 재진입해도 이미 publishing인 행은 다시 게시 권한을 얻지 못해야 한다.
+   * 행이 삭제된 경우에도 affected = 0이라 같은 경로로 걸러진다.
+   */
+  async claimStatus(id: number, next: ReviewRunStatus): Promise<boolean> {
+    const result = await this.reviewRunRepository.update(
+      { id, reviewStatus: In([...CLAIMABLE_BEFORE_PUBLISH]) },
+      { reviewStatus: next },
+    );
+    return (result.affected ?? 0) > 0;
+  }
+
+  /**
+   * 조건부 FAILED 전이. from-set에 PUBLISHING을 포함해야 게시 클레임 이후에 터진 실패도
+   * 기록된다. 반대로 SUPERSEDED/COMPLETED/FAILED는 from-set에서 제외해, 대체된 런이
+   * 뒤늦게 실패하면서 SUPERSEDED를 FAILED로 덮어쓰는 일(실패 집계 오염)을 막는다.
+   */
+  async claimFailure(
+    id: number,
+    extra?: ReviewRunStatusExtra,
+  ): Promise<boolean> {
+    const result = await this.reviewRunRepository.update(
+      { id, reviewStatus: In([...CLAIMABLE_FOR_FAILURE]) },
+      { reviewStatus: ReviewRunStatus.FAILED, ...extra },
+    );
+    return (result.affected ?? 0) > 0;
+  }
+
   /** 같은 PR의 진행 중인 리뷰를 SUPERSEDED로 전환 */
   async supersedeActivePrReviews(
     repositorySlug: string,
     pullRequestId: number,
     excludeId: number,
   ): Promise<number> {
+    // PUBLISHING은 의도적으로 포함한다 — 게시 클레임 직후 SIGKILL된 런은 publishing에
+    // 갇혀 idempotency상 재멘션도 중복 처리되므로, 새 커밋의 supersede가 유일한 자동
+    // 탈출구다. "정리" 명목으로 이 항목을 빼면 그 행은 영구히 방치된다.
     const activeStatuses = [
       ReviewRunStatus.QUEUED,
       ReviewRunStatus.PREPARING,
@@ -327,7 +378,9 @@ export class ReviewService {
         repositorySlug,
         pullRequestId,
         reviewStatus: In(activeStatuses),
-        id: Not(excludeId),
+        // id는 auto-increment라 LessThan이 "새 런이 오래된 런을 대체한다"를 그대로 인코딩한다.
+        // Not(excludeId)이면 서로 다른 커밋의 두 웹훅이 상호 supersede해 둘 다 게시를 잃는다.
+        id: LessThan(excludeId),
       },
       { reviewStatus: ReviewRunStatus.SUPERSEDED },
     );

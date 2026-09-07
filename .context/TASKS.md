@@ -6,6 +6,30 @@
 ## 진행 중/최근 작업
 
 
+### Task 41: 대체된 리뷰의 게시 차단 (issue #26)
+- **상태**: PR #51 제출 / 리뷰 대기
+- **배경**: `supersedeActivePrReviews()`가 오래된 런을 SUPERSEDED로 바꿔도 그 런이 계속 Bitbucket에 게시했다. 원인은 상태 전이가 **무조건 UPDATE**였고 게시 권한이 프로세스 메모리(`publishStarted`)에 있었다는 것. 구체적으로 ① `idempotencyKey`에 head commit이 들어가 새 커밋 웹훅이 실행 중 잡의 `jobId`를 찾지 못해 제거하지 못함 ② `attemptsMade > 0` 사전 조회는 Codex 실행(수 분) 앞의 시점 스냅샷이라 TOCTOU 창이 분 단위 ③ 워커 SIGKILL 후 stalled 복구는 `attemptsMade`를 늘리지 않아 사전 조회와 메모리 플래그를 모두 우회 ④ `prepareWorkspace()`가 PREPARING을 무조건 써서 SUPERSEDED 행을 되살림 ⑤ 실패 경로도 무방비라 대체된 런이 뒤늦게 실패하면 SUPERSEDED를 FAILED로 덮어쓰고(실패 집계 오염) 낡은 커밋에 실패 댓글을 달았음.
+- **왜 이 방식인가**: 게시 권한을 DB의 조건부 상태 전이로 옮겼다. 대안이었던 "게시 직전 Bitbucket API로 최신 head 재확인"은 ③을 막지 못하고(SIGKILL 후 두 실행이 같은 최신 head를 본다) 게시 임계 경로에 429/503 실패 모드를 추가한다. 조건부 전이는 워커 크래시까지 함께 덮는 유일한 기전.
+- **load-bearing 전제**: MySQL은 매칭됐지만 값이 같은 행을 `CLIENT_FOUND_ROWS` 없이는 `affectedRows=0`으로 보고한다. mysql2가 `FOUND_ROWS`를 기본 플래그에 포함하고 `database.module.ts`가 `flags`를 덮어쓰지 않아 성립한다. 다만 이 플래그의 영향 범위는 좁다 — TypeORM이 **UPDATE 스스로 `updatedAt`을 세팅하지 않는 경우에 한해**(가드: `node_modules/typeorm/query-builder/UpdateQueryBuilder.js:404`) `updatedAt = CURRENT_TIMESTAMP`를 덧붙이는데, 이 코드베이스의 UPDATE는 전부 그 경우에 해당한다(`rg updatedAt src/` 결과가 `lib/base-entity.ts` 정의 한 곳뿐). 그리고 컬럼이 `precision: 6`이어도 emit되는 값은 **초 정밀도의 맨 `CURRENT_TIMESTAMP`**다(`UpdateQueryBuilder.js:406`). 따라서 이전 상태 쓰기로부터 1초 이상 지난 재클레임은 플래그와 무관하게 실제 변경이 되어 `affected=1`이다. `QUEUE_RETRY_DELAY` 기본값 5000ms(`configuration.ts:13`)와 BullMQ 기본 `lockDuration` 30s(`node_modules/bullmq/dist/cjs/classes/worker.js:34`에서 확인) 기준으로 정상 재시도·stalled 복구는 모두 1초를 넘는다. 따라서 플래그가 실제로 load-bearing인 구간은 **1초 미만의 재클레임뿐**이고, 현실적으로는 누군가 `QUEUE_RETRY_DELAY<1000`을 설정하는 경우다. 같은 이유로 `@UpdateDateColumn`도 독립적인 2차 방어는 아니다 — 같은 초 안의 두 업데이트는 정말로 무변경이다. **이 전제는 상류 코드에 매달려 있다**: `UpdateQueryBuilder.js:406`에는 `// todo: fix issue with CURRENT_TIMESTAMP(6) being used` 라는 인라인 TODO가 있고, 그 TODO가 반영되어 `CURRENT_TIMESTAMP(6)`이 emit되면 같은 초 안의 두 업데이트도 실제 변경이 되어 위 문장이 깨진다 — 그때는 `FOUND_ROWS`가 1초 미만 구간뿐 아니라 **전 구간에서 load-bearing**이 된다. TypeORM 업그레이드 시 이 두 줄을 다시 확인할 것.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| `claimStatus` 추가 | ✅ | from-set = QUEUED/PREPARING/REVIEWING. PUBLISHING을 제외해 크래시 후 재진입한 잡이 다시 게시 권한을 얻지 못한다. 삭제된 행도 `affected=0`으로 같은 경로에 수렴 |
+| `claimFailure` 추가 | ✅ | from-set에 PUBLISHING 포함(게시 클레임 이후 실패도 기록해야 함), 종료 상태 3개 제외(SUPERSEDED 덮어쓰기 차단). `extra` 타입은 `updateStatus`와 `ReviewRunStatusExtra`로 공유 |
+| supersede 조건 `Not` → `LessThan` | ✅ | 서로 다른 커밋의 두 웹훅이 `createReviewRun`과 `supersedeActivePrReviews` 사이에서 교차하면 `Not(excludeId)`은 상호 supersede가 된다. 가드 도입 전에는 둘 다 게시(중복), 도입 후에는 **둘 다 게시하지 않는** 무리뷰 결과가 됐을 것. `id`가 auto-increment라 `LessThan`이 "새 런이 오래된 런을 대체"를 그대로 인코딩 |
+| 사전 조회 제거 | ✅ | `attemptsMade > 0` + `findById` 사전 조회 블록 삭제. 조건부 PREPARING 전이가 삭제된 행까지 포함해 이를 포섭. `findById`는 클레임 **거부 후** 진단 로그(아래 "수용된 한계: publishing 잔류" 항목)와 `internal.controller.ts`에서 계속 쓰인다 — 이 조회는 제어 흐름을 바꾸지 않고 예외도 삼킨다 |
+| PREPARING 클레임 위치 | ✅ | `process()` 안에서 판정한다 — `worktreePath` 할당 전에 early return해야 `finally` 정리가 no-op이 된다. 무조건 `updateStatus(PREPARING)`를 하던 `prepareWorkspace()`는 상태 쓰기를 잃고 순수 위임만 남아 호출 지점에 인라인하고 삭제했다(상태는 이제 정확히 한 번만 쓰인다) |
+| PUBLISHING 클레임 | ✅ | 거부되면 `publishStarted` 설정과 `publishResults` 이전에 return. 여기서 FAILED를 쓰면 `existsByIdempotencyKey`가 미게시 실패로 보고 행을 지워 같은 요청을 재수용 — 막으려던 중복 게시를 되살린다. 그래서 거부 시에는 로그만 남긴다 |
+| 실패 경로 가드 | ✅ | `claimFailure` 결과로 실패 댓글을 게이트. **거부(false)와 장애(throw)를 구분** — DB 장애면 이전처럼 알리고(침묵보다 낫다), DB가 "비활성"을 확정한 경우에만 침묵 |
+| 회귀 테스트 | ✅ | 신규 프로세서 테스트 7건 모두 변경 전 코드에서 RED 확인(path-scoped `git stash` 후 실행): ① 첫 시도 거부 ② Codex 중 대체(+FAILED도 쓰지 않음) ③ `publishing` 잔류 시 `warn` ④ 배선(preparing→publishing 순서) ⑤ 진단 조회가 던져도 제어 흐름 불변(예외 삼킴) ⑥ 게시 후 `claimFailure` 거부 시 무알림 + `UnrecoverableError` 유지 ⑦ 게시 전 `claimFailure` 거부 시 실패 댓글 생략. 단정 어서션 2건은 뮤테이션으로 실제 검출됨을 확인했다: ⓐ "거부된 게시 클레임에는 FAILED를 쓰지 않는다"(거부 경로에 `claimFailure` 삽입) ⓑ "superseded일 때는 `warn`하지 않는다"(`warn` 조건을 상시 참으로 변경). 서비스 스펙은 from-set 멤버십으로 검증(REVIEWING은 死값이라 완전일치로 고정하지 않음) |
+| 빌드/린트/테스트 | ✅ | `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공 (18 suites, 262 tests) |
+| 커버리지 | ✅ | `pnpm test:cov --runInBand` 성공, statement 90.64%, branch 81.17%, function 82.58%, line 90.69% |
+| 보안 체크리스트 | ✅ | 스키마·외부 입력·시크릿 변경 없음. 신규 로그는 이미 기록 중인 `reviewRunId`/`idempotencyKey`만 남긴다 |
+| 수용된 한계: publishing 잔류 | ⚠️ | 행이 `publishing`에 갇히는 경로는 SIGKILL만이 아니다. **UPDATE가 커밋된 뒤 응답만 유실되는 모든 경우**(커넥션 리셋, 클라이언트 타임아웃, 풀 종료)에 `await`가 던지고 `publishStarted`는 아직 false여서 재시도로 넘어가는데, 재시도의 `claimStatus(PREPARING)`는 `publishing`을 from-set 밖으로 보고 거부한다 → 리뷰도 실패 댓글도 없이 잔류하고 ⏳ 진행 중 댓글만 남는다. 변경 전에는 Codex를 한 번 더 돌리는 대가로 자가 치유됐던 부분이다. 자동 탈출구는 새 커밋의 supersede(그래서 `supersedeActivePrReviews`의 활성 목록에서 PUBLISHING은 load-bearing — 코드 주석으로 명시)와 force 멘션(다른 idempotency key)뿐. 중복 게시 차단과의 교환으로 의도적 미수정. 대신 클레임 거부 경로에서 행 상태를 한 번 조회해 `publishing`이면 `warn`, 그 외는 `log`로 남겨 사람이 볼 수 있게 했다 |
+| 기존 갭: `maxStalledCount` 기본 1 | ⬜ | 두 번째 SIGKILL은 `process()` 실행 없이 잡을 실패시켜 행이 FAILED 없이 `preparing`에 남는다. 이번 변경 전부터 존재하던 문제로 코드 미변경 |
+| 범위 외 | — | `idempotencyKey`에서 `headCommitHash` 제거(불필요); **게시 진행 중 전체 구간**(가드는 `publishResults` 앞에서 한 번만 평가되므로 summary 댓글 + inline N건이 도는 수 초~수십 초 동안 supersede가 끼어들면 `markCompleted`가 SUPERSEDED를 COMPLETED로 덮어쓴다 — 변경 전과 동일해 회귀는 아니지만 "ms 창"이 아니다); 대체된 런의 토큰/시간 회계(#30); inline 부분 실패 무시(#29); Bitbucket 429/503 재시도(#28) |
+
+
 ### Task 40: Codex 릴리스 → 이미지 발행 자동화
 - **상태**: 코드 변경 완료 / Renovate 실행 확인 대기
 - **배경**: `@openai/codex` 신규 정식 릴리스가 나오면 그 버전으로 이미지를 자동 빌드·발행하고 싶다는 요구. 감지·발행·배포 3개 고리 중 앞 2개가 이 repo에 있다.

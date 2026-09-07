@@ -69,21 +69,28 @@ export class ReviewProcessor extends WorkerHost {
     let resultCommentId: number | undefined;
 
     try {
-      // 백오프 대기 중 새 커밋 리뷰가 이 런을 대체했으면 구버전 리뷰를 게시하지 않는다.
-      // prepareWorkspace()가 SUPERSEDED를 PREPARING으로 되돌리기 전에 확인해야 한다.
-      // 조회 자체가 실패하면(DB 장애) 아래 catch가 재시도/최종 보고를 판단한다.
-      if (job.attemptsMade > 0) {
-        const run = await this.reviewService.findById(data.reviewRunId);
-        if (!run || run.reviewStatus === ReviewRunStatus.SUPERSEDED) {
-          this.logger.log(
-            `Skipping retry for inactive review run ${data.reviewRunId}: ${data.idempotencyKey}`,
-          );
-          return;
-        }
+      // 이 런이 아직 활성인지 DB가 판정한다. 조건에 맞는 행이 없으면(대체됨/삭제됨)
+      // 구버전 커밋 리뷰가 시작조차 하지 않는다. worktreePath 할당 전에 빠져나가야
+      // finally 정리가 no-op이 되므로 판정은 반드시 이 위치여야 한다.
+      // 클레임 자체가 실패하면(DB 장애) 아래 catch가 재시도/최종 보고를 판단한다.
+      if (
+        !(await this.reviewService.claimStatus(
+          data.reviewRunId,
+          ReviewRunStatus.PREPARING,
+        ))
+      ) {
+        await this.logInactiveRun(data);
+        return;
       }
 
       // Step 1: Prepare workspace
-      const worktreeInfo = await this.prepareWorkspace(data);
+      const worktreeInfo = await this.workspaceService.prepareWorktree({
+        cloneUrl: data.cloneUrl,
+        repositorySlug: data.repositorySlug,
+        headBranch: data.headBranch,
+        baseBranch: data.baseBranch,
+        headCommitHash: data.headCommitHash,
+      });
       worktreePath = worktreeInfo.worktreePath;
       bareRepoPath = worktreeInfo.bareRepoPath;
       const { diff, excludedChangedFiles } =
@@ -103,11 +110,24 @@ export class ReviewProcessor extends WorkerHost {
       );
 
       // Step 3: Publish results to Bitbucket
-      // 상태 전이(DB)까지는 재시도해도 안전하다 — Bitbucket 쓰기 직전에만 플래그를 세운다.
-      await this.reviewService.updateStatus(
-        data.reviewRunId,
-        ReviewRunStatus.PUBLISHING,
-      );
+      // 게시 권한을 DB에서 획득한다 — Codex 실행(수 분) 중에 대체됐으면 여기서 멈춘다.
+      // 이 클레임이 이 런의 되돌릴 수 없는 지점이다: UPDATE가 커밋된 뒤 응답만 유실되면
+      // (커넥션 리셋·타임아웃·풀 종료) 행은 publishing이 되고 그 상태는
+      // CLAIMABLE_BEFORE_PUBLISH 밖이므로 어떤 재시도도 다시 클레임하지 못한다.
+      // 즉 "DB 전이까지는 재시도해도 안전"하지 않다 — 그 대가로 중복 게시를 막는다.
+      if (
+        !(await this.reviewService.claimStatus(
+          data.reviewRunId,
+          ReviewRunStatus.PUBLISHING,
+        ))
+      ) {
+        // 여기서 FAILED를 쓰면 existsByIdempotencyKey가 미게시 실패로 판단해 행을 삭제하고
+        // 같은 요청을 다시 받아들인다 — 막으려던 중복 게시를 되살리는 셈이다. 로그만 남긴다.
+        this.logger.log(
+          `Skipping publish for inactive review run ${data.reviewRunId}: ${data.idempotencyKey}`,
+        );
+        return;
+      }
       publishStarted = true;
       const commentId = await this.publishResults(
         data,
@@ -162,10 +182,12 @@ export class ReviewProcessor extends WorkerHost {
 
       // 상태 기록 실패가 재시도 여부를 뒤집으면 안 된다 — 던지면 아래 UnrecoverableError
       // 분기에 도달하지 못해 게시 이후 실패가 재시도되고 리뷰가 중복 게시된다.
+      // DB 장애로 판정 자체가 실패하면 이전처럼 알린다 — 침묵보다 낫다.
+      // DB가 "이 런은 더 이상 활성이 아니다"라고 확정한 경우에만 알림을 건너뛴다.
+      let failureClaimed = true;
       try {
-        await this.reviewService.updateStatus(
+        failureClaimed = await this.reviewService.claimFailure(
           data.reviewRunId,
-          ReviewRunStatus.FAILED,
           {
             reviewOutput: failedCodexResult?.rawOutput,
             resultCommentId,
@@ -185,29 +207,35 @@ export class ReviewProcessor extends WorkerHost {
         );
       }
 
-      // Notify user about the failure. BitbucketService retries a repository
-      // token 401 once with configured global credentials when available.
-      const errorBody = `❌ Code Review 실패\n\n\`\`\`\n${error.message.substring(0, 500)}\n\`\`\``;
-      try {
-        if (data.triggerCommentId) {
-          await this.bitbucketService.replyToComment({
-            workspace: data.workspaceSlug,
-            repoSlug: data.repositorySlug,
-            pullRequestId: data.pullRequestId,
-            parentCommentId: data.triggerCommentId,
-            body: errorBody,
-          });
-        } else {
-          await this.bitbucketService.createComment({
-            workspace: data.workspaceSlug,
-            repoSlug: data.repositorySlug,
-            pullRequestId: data.pullRequestId,
-            body: errorBody,
-          });
+      if (failureClaimed) {
+        // Notify user about the failure. BitbucketService retries a repository
+        // token 401 once with configured global credentials when available.
+        const errorBody = `❌ Code Review 실패\n\n\`\`\`\n${error.message.substring(0, 500)}\n\`\`\``;
+        try {
+          if (data.triggerCommentId) {
+            await this.bitbucketService.replyToComment({
+              workspace: data.workspaceSlug,
+              repoSlug: data.repositorySlug,
+              pullRequestId: data.pullRequestId,
+              parentCommentId: data.triggerCommentId,
+              body: errorBody,
+            });
+          } else {
+            await this.bitbucketService.createComment({
+              workspace: data.workspaceSlug,
+              repoSlug: data.repositorySlug,
+              pullRequestId: data.pullRequestId,
+              body: errorBody,
+            });
+          }
+        } catch (notificationErr) {
+          this.logger.error(
+            `Failed to post error ${data.triggerCommentId ? "reply" : "comment"}: ${(notificationErr as Error).message}`,
+          );
         }
-      } catch (notificationErr) {
-        this.logger.error(
-          `Failed to post error ${data.triggerCommentId ? "reply" : "comment"}: ${(notificationErr as Error).message}`,
+      } else {
+        this.logger.log(
+          `Skipping failure notification for inactive review run ${data.reviewRunId}: ${data.idempotencyKey}`,
         );
       }
 
@@ -242,21 +270,31 @@ export class ReviewProcessor extends WorkerHost {
     );
   }
 
-  /** Step 1: 워크스페이스 준비 */
-  private async prepareWorkspace(
-    data: IReviewJobData,
-  ): Promise<{ worktreePath: string; bareRepoPath: string }> {
-    await this.reviewService.updateStatus(
-      data.reviewRunId,
-      ReviewRunStatus.PREPARING,
-    );
-    return this.workspaceService.prepareWorktree({
-      cloneUrl: data.cloneUrl,
-      repositorySlug: data.repositorySlug,
-      headBranch: data.headBranch,
-      baseBranch: data.baseBranch,
-      headCommitHash: data.headCommitHash,
-    });
+  /**
+   * 클레임 거부의 대부분은 정상(새 커밋이 대체함)이지만, publishing에 갇힌 행은 사람이
+   * 봐야 하는 예외 상황이다. 빈도가 낮은 이 경로에서만 한 번 조회해 두 경우를 로그 레벨로
+   * 분리한다. 조회 실패가 제어 흐름을 바꾸면 안 되므로(catch로 떨어지면 재시도·실패 보고
+   * 판단이 뒤틀린다) 예외는 삼키고 상태를 unknown으로 남긴다.
+   */
+  private async logInactiveRun(data: IReviewJobData): Promise<void> {
+    let observedStatus = "unknown";
+    try {
+      const run = await this.reviewService.findById(data.reviewRunId);
+      observedStatus = run?.reviewStatus ?? "missing";
+    } catch (lookupErr) {
+      this.logger.error(
+        `Failed to look up inactive review run ${data.reviewRunId}: ${(lookupErr as Error).message}`,
+      );
+    }
+
+    const message = `Skipping inactive review run ${data.reviewRunId} (status=${observedStatus}): ${data.idempotencyKey}`;
+    if (observedStatus === ReviewRunStatus.PUBLISHING) {
+      // 게시 클레임 응답 유실 후 재시도가 도달한 상태 — 리뷰도 실패 댓글도 없이 잔류하며
+      // 새 커밋의 supersede나 force 멘션 외에는 자동 탈출구가 없다.
+      this.logger.warn(message);
+    } else {
+      this.logger.log(message);
+    }
   }
 
   /** Step 2: 통합 프롬프트로 단일 Codex 호출 */
