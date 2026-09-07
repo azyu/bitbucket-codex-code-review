@@ -12,7 +12,9 @@
 
 | 서브태스크 | 상태 | 설명 |
 |-----------|------|------|
-| Renovate 실행 여부 진단 | ⚠️ | 앱 설치 + repo 접근 권한은 확인됨(선생님 GitHub 설정 화면). 그런데 `renovate/*` 브랜치 0개, Dependency Dashboard 이슈 없음, 봇 PR 0건(#17~#41 전부 사람), HEAD check-run은 `github-actions` 하나뿐. `pnpm outdated` 결과 NestJS 11→12 major 포함 19개 이상이 밀려 있는데도 PR이 없음 → **이 repo에서 완료된 run이 한 번도 없음**. 원인은 developer.mend.io job log에서만 보이며 미확인 |
+| Renovate 실행 여부 진단 | ✅ | 앱 설치 + repo 접근 권한은 확인됨(선생님 GitHub 설정 화면). 그런데 `renovate/*` 브랜치 0개, Dependency Dashboard 이슈 없음, 봇 PR 0건(#17~#41 전부 사람), HEAD check-run은 `github-actions` 하나뿐. `pnpm outdated` 결과 NestJS 11→12 major 포함 19개 이상이 밀려 있는데도 PR이 없음 → **이 repo에서 완료된 run이 한 번도 없음**. 원인은 developer.mend.io job log에서만 보이며 미확인 |
+| Renovate 첫 완료 run 확인 (2026-09-07) | ✅ | **살아났다.** 02:07Z에 npm 의존성 PR 2건이 처음 올라왔다 — `#44` `@nestjs/bullmq` 11.0.5, `#45` `@nestjs/typeorm` 11.0.3, 둘 다 `renovate/*-lockfile` 브랜치(package.json 무변경, lock만 갱신). 왜 3월~9월 사이 run이 없었는지는 여전히 job log 없이는 설명 못 하므로 **관측이지 진단이 아니다**. 밀린 19개+ 중 2건만 나온 것은 기본값 `prHourlyLimit: 2` 때문 |
+| `latest` 레이스 조건 실현 | ✅ | Task 39/40이 "Renovate가 살아나면 만들어진다"고 예고한 조건이 실제로 도달 가능해졌다. `docker-publish.yml:17-19`의 `concurrency: docker-publish-${{ github.ref }}` / `cancel-in-progress: false` 가드가 main에 들어가 있음을 확인 |
 | 설정 파일 결함 배제 | ✅ | `renovate-config-validator` 통과. 즉 zero-PR 원인은 설정이 아님 |
 | `fileMatch` → `managerFilePatterns` | ✅ | validator가 출력한 마이그레이션 형태 그대로 적용(`"/^Dockerfile$/"` — 신규 옵션은 regex를 슬래시로 감싸야 glob으로 오해되지 않음). 기존 `fileMatch`도 자동 마이그레이션되므로 고장은 아니었고 legacy 제거 목적 |
 | codex만 automerge | ✅ | `packageRules`의 `automerge: false → true`. `matchPackageNames: ["@openai/codex"]` 범위라 다른 의존성은 수동 유지. alpha 차단은 기존 `allowedVersions` 정규식이 이미 담당(`0.154.0-alpha.3` 탈락) |
@@ -602,4 +604,5 @@
 | 런타임 스모크 | ✅ | `dist`에서 `initOpenTelemetry` 직접 호출 → SDK init, Prometheus `/metrics` HTTP 200 + `target_info` 노출, `shutdown()` 정상 종료 |
 
 - **남긴 것**: 스모크는 SDK 생성·기동·Prometheus 서빙·종료까지만 증명한다. gRPC exporter 실전송과 instrumentation 14 minor 점프(express·mysql2·winston)의 스팬 정확성은 collector가 없어 검증하지 못했고, **스테이징에서 확인이 필요하다**.
-- **재발 방지**: 레인지 내 패치가 방치되면 audit 노이즈가 쌓여 진짜 신호(otel 4건)를 가린다. `renovate.json`이 이미 리포에 있으니, minor/patch 자동 머지 대상에 lockfile 갱신이 포함되는지 확인하는 것이 근본 대책이다.
+- **재발 방지**: 레인지 내 패치가 방치되면 audit 노이즈가 쌓여 진짜 신호(otel 4건)를 가린다. 이 방치의 원인은 Task 40이 진단한 Renovate zero-run이고, 그 Renovate는 오늘 02:07Z에 살아났다(아래 Task 40 갱신). 다만 **되살아난 Renovate만으로는 이번 건이 재발한다** — 기본값 `prHourlyLimit: 2`가 실행당 PR 2개를 캡하므로 패키지 하나씩 올리는 방식으로는 밀린 양을 못 따라잡고, `config:recommended`는 `lockFileMaintenance`를 끈 상태로 둔다. lock 전체를 PR 하나로 재해석하는 `lockFileMaintenance`를 주간 스케줄로 켜는 것이 이 96건 노이즈를 막는 메커니즘이다.
+- **머지 실수 기록**: 첫 푸시 후 CI가 아예 안 돌았다. 낡은 로컬 `main`(4커밋 뒤)에서 브랜치를 따 `#44`/`#45`의 lock과 충돌했고, **GitHub은 충돌 PR의 merge commit을 만들 수 없어 `pull_request` 이벤트를 발생시키지 않는다**. 그래서 "체크 실패"가 아니라 "체크 없음"으로 보였고, 체크 결과를 기다리던 모니터가 20분간 이벤트 0건으로 타임아웃했다. `origin/main`을 브랜치로 머지해(force-push 없이) 해소. 교훈: **브랜치를 따기 전에 `git fetch`**, 그리고 CI 모니터는 pending 뿐 아니라 "체크가 0개인 상태"도 종료 조건에 넣어야 한다.
