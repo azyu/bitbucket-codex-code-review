@@ -571,3 +571,19 @@
 | 프로덕션 응급 조치 | ✅ | `godot-env.git`에 `worktree prune` 수동 실행, 전 repo 15개 `prunable=0` 확인 |
 
 - **남긴 것**: `cleanupWorktree`의 `rm -rf` 폴백도 등록을 남기지만, 다음 리뷰의 prune이 흡수하므로 별도 수정하지 않았다. 리뷰 사이에 남은 고아 등록은 무해하다.
+
+### 4주 묵은 lockfile이 만든 취약점 100건 정리 + OpenTelemetry 0.208→0.222
+- **상태**: ✅ 완료
+- **배경**: `pnpm audit`이 100건(critical 2 / high 57 / moderate 38 / low 3, prod 도달 49건)을 보고했다. 실제 원인은 대부분 취약한 코드가 아니라 **lockfile이 2026-08-10 이후 재해석되지 않은 것** — brace-expansion·minimatch·picomatch·fast-uri·qs·body-parser·multer·mysql2·typeorm·protobufjs 등은 선언된 semver 레인지 안에 이미 패치본이 있었다. critical 2건 중 handlebars는 `ts-jest` 경유 devDependency이고 `Dockerfile:34`가 `pnpm install --prod`이므로 런타임 이미지에는 애초에 없었다. 진짜 백로그는 OpenTelemetry 4건뿐이었고, 이건 레인지가 `^0.208.0`이라 **caret이 0.x에서 minor를 고정**하는 탓에 lockfile 갱신으로는 패치본(`>=0.217.0`)에 도달할 수 없어 레인지 자체를 올려야 했다.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 원본 미변경 상태로 영향 측정 | ✅ | 스크래치패드에 `package.json`+lock만 복사해 `pnpm update --lockfile-only` → `pnpm audit`. 리포를 건드리지 않고 "레인지 갱신만으로 몇 건이 사라지는가"를 확인 (100 → 4) |
+| 레인지 내 minor 갱신 (커밋 1) | ✅ | `pnpm update`. 96건 해소. pnpm 10은 caret 하한도 해석된 버전으로 올리므로 `package.json` diff가 커 보이지만 major는 넘지 않았다 |
+| OpenTelemetry 레인지 상향 (커밋 2) | ✅ | 0.2xx 계열 0.208→0.222, instrumentation 계열 0.5x→0.6~0.7x, 2.x 계열 2.11.0. `pnpm audit` 0건 |
+| breaking change 대응 | ✅ | `sdk-logs` 0.222에서 `BatchLogRecordProcessor(exporter)` → `BatchLogRecordProcessor({ exporter })` 옵션 객체로 변경됨. `src/lib/opentelemetry.ts:90` 수정. 14 minor 점프에서 컴파일을 깨뜨린 건 이 한 곳뿐 |
+| `pnpm build` + `lint` + `test:cov` | ✅ | 250 tests passed, 커버리지 90.01% (기준 80%) |
+| 런타임 스모크 | ✅ | `dist`에서 `initOpenTelemetry` 직접 호출 → SDK init, Prometheus `/metrics` HTTP 200 + `target_info` 노출, `shutdown()` 정상 종료 |
+
+- **남긴 것**: 스모크는 SDK 생성·기동·Prometheus 서빙·종료까지만 증명한다. gRPC exporter 실전송과 instrumentation 14 minor 점프(express·mysql2·winston)의 스팬 정확성은 collector가 없어 검증하지 못했고, **스테이징에서 확인이 필요하다**.
+- **재발 방지**: 레인지 내 패치가 방치되면 audit 노이즈가 쌓여 진짜 신호(otel 4건)를 가린다. `renovate.json`이 이미 리포에 있으니, minor/patch 자동 머지 대상에 lockfile 갱신이 포함되는지 확인하는 것이 근본 대책이다.

@@ -87,7 +87,7 @@ export async function initOpenTelemetry(
   if (traceExporter) Logger.log("OTLP traces exporter enabled");
 
   const logRecordProcessor = otlpEnabled
-    ? new BatchLogRecordProcessor(new OTLPLogExporter())
+    ? new BatchLogRecordProcessor({ exporter: new OTLPLogExporter() })
     : undefined;
   if (logRecordProcessor) Logger.log("OTLP logs exporter enabled");
 
