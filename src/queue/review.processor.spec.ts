@@ -3,6 +3,7 @@ import {
   parseReviewItems,
   parseUnifiedReviewJson,
   formatInlineComment,
+  formatFindingsForGeneralComment,
   buildSummaryTable,
   buildVerdictBadge,
   normalizeSummaryMarkdown,
@@ -623,6 +624,57 @@ describe("review.formatter", () => {
       const result = formatInlineComment(item);
 
       expect(result).not.toContain("****"); // empty bold
+    });
+  });
+
+  describe("formatFindingsForGeneralComment", () => {
+    // 인라인 코멘트에서는 Bitbucket이 위치를 앵커링하므로 formatInlineComment가 path를
+    // 생략하고 라인도 start !== end일 때만 넣는다. 일반 코멘트로 옮기면 그 위치가 사라지므로
+    // 이 래퍼가 항목마다 path + 라인 헤딩을 반드시 붙여야 한다.
+    it("should carry the location of a single-line finding that formatInlineComment omits", () => {
+      const item: IReviewItem = {
+        title: "단일 라인",
+        path: "src/app.ts",
+        lineRange: { start: 10, end: 10 },
+        severity: "suggestion",
+        description: "Consider extracting constant",
+        reason: "Improves readability",
+      };
+
+      expect(formatInlineComment(item)).not.toContain("src/app.ts");
+
+      const result = formatFindingsForGeneralComment([item]);
+
+      expect(result).toContain("src/app.ts");
+      expect(result).toContain("L10");
+      expect(result).toContain("Consider extracting constant");
+    });
+
+    it("should render a line range and separate multiple findings", () => {
+      const result = formatFindingsForGeneralComment([
+        {
+          title: "범위 지적",
+          path: "src/a.ts",
+          lineRange: { start: 40, end: 45 },
+          severity: "blocking",
+          description: "range issue",
+          reason: "range reason",
+        },
+        {
+          title: "단일 지적",
+          path: "src/b.ts",
+          lineRange: { start: 7, end: 7 },
+          severity: "recommended",
+          description: "single issue",
+          reason: "single reason",
+        },
+      ]);
+
+      expect(result).toContain("src/a.ts");
+      expect(result).toContain("L40-L45");
+      expect(result).toContain("src/b.ts");
+      expect(result).toContain("L7");
+      expect(result).toContain("\n\n---\n\n");
     });
   });
 
@@ -1315,6 +1367,277 @@ describe("ReviewProcessor publish results", () => {
       mockBitbucketService.createComment.mock.invocationCallOrder[0],
     ).toBeLessThan(persistOrder);
     expect(persistOrder).toBeLessThan(completedOrder);
+  });
+
+  describe("inline comment recovery", () => {
+    // 두 finding이 서로 다른 파일이어야 "실패분만 담겼다"를 path로 단정할 수 있다.
+    // 둘 다 filterFindingsToReviewDiff를 통과해야 하므로 diff에 두 파일 모두 필요하다.
+    const twoFileReviewDiff = [
+      "diff --git a/src/keep.ts b/src/keep.ts",
+      "+++ b/src/keep.ts",
+      "@@ -1,1 +1,1 @@",
+      "+kept line",
+      "diff --git a/src/lost.ts b/src/lost.ts",
+      "+++ b/src/lost.ts",
+      "@@ -30,1 +31,1 @@",
+      "+lost line",
+    ].join("\n");
+
+    // 실패하는 쪽을 단일 라인으로 둔다 — formatInlineComment은 start === end면 라인을
+    // 아예 emit하지 않으므로, 복구 본문의 "L31"은 신규 포매터만이 만들어낼 수 있다.
+    const findings: ReadonlyArray<IReviewItem> = [
+      {
+        title: "게시 성공",
+        path: "src/keep.ts",
+        lineRange: { start: 1, end: 1 },
+        severity: "recommended",
+        description: "인라인으로 잘 올라간 지적",
+        reason: "성공 사유",
+      },
+      {
+        title: "게시 실패",
+        path: "src/lost.ts",
+        lineRange: { start: 31, end: 31 },
+        severity: "blocking",
+        description: "인라인 게시가 거부된 지적",
+        reason: "실패 사유",
+      },
+    ];
+
+    const inlineRejection = (path: string): Error =>
+      new Error(
+        `Bitbucket inline comment API error 400: line for ${path} is outside the diff`,
+      );
+
+    function arrangeRun(): void {
+      mockWorkspaceService.prepareWorktree.mockResolvedValue({
+        worktreePath: "/worktree",
+        bareRepoPath: "/bare",
+      });
+      mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+      mockWorkspaceService.createReviewDiff.mockResolvedValue({
+        diff: twoFileReviewDiff,
+        excludedChangedFiles: [],
+      });
+      mockCodexService.executeCodex.mockResolvedValue({
+        rawOutput: JSON.stringify({
+          summary: "ok",
+          verdict: "comment",
+          confidence: 90,
+          findings,
+        }),
+        exitCode: 0,
+        durationMs: 10,
+        inputTokens: null,
+        cachedInputTokens: null,
+        outputTokens: null,
+      });
+    }
+
+    it("replies to the summary comment with only the findings whose inline post failed", async () => {
+      arrangeRun();
+      mockBitbucketService.createInlineComment
+        .mockResolvedValueOnce({ id: 102 })
+        .mockRejectedValueOnce(inlineRejection("src/lost.ts"));
+
+      await processor.process({ data: baseJobData } as never);
+
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledTimes(1);
+      // 답글이어야 한다 — 재실행으로 요약이 여럿 쌓여도 어느 런의 누락분인지 모호해지지 않는다.
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parentCommentId: 100,
+          body: expect.stringContaining("src/lost.ts"),
+        }),
+      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("L31") }),
+      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.stringContaining("인라인 게시가 거부된 지적"),
+        }),
+      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.not.stringContaining("src/keep.ts"),
+        }),
+      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.not.stringContaining("인라인으로 잘 올라간 지적"),
+        }),
+      );
+      expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+        1,
+        "completed",
+        expect.anything(),
+      );
+    });
+
+    it("keeps posting the remaining inline comments after one is rejected", async () => {
+      arrangeRun();
+      mockBitbucketService.createInlineComment
+        .mockRejectedValueOnce(inlineRejection("src/keep.ts"))
+        .mockResolvedValueOnce({ id: 102 });
+
+      await processor.process({ data: baseJobData } as never);
+
+      expect(mockBitbucketService.createInlineComment).toHaveBeenCalledTimes(2);
+      expect(mockBitbucketService.createInlineComment).toHaveBeenCalledWith(
+        expect.objectContaining({ filePath: "src/keep.ts", line: 1 }),
+      );
+      expect(mockBitbucketService.createInlineComment).toHaveBeenCalledWith(
+        expect.objectContaining({ filePath: "src/lost.ts", line: 31 }),
+      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({ parentCommentId: 100 }),
+      );
+    });
+
+    it("keeps the summary comment as the sole publish evidence when a recovery reply is posted", async () => {
+      arrangeRun();
+      mockBitbucketService.createInlineComment
+        .mockResolvedValueOnce({ id: 102 })
+        .mockRejectedValueOnce(inlineRejection("src/lost.ts"));
+
+      await processor.process({ data: baseJobData } as never);
+
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({ parentCommentId: 100 }),
+      );
+      // 복구 답글(id 101)이 게시 증거를 덮어쓰면 행이 요약 코멘트를 가리키지 않게 된다.
+      expect(mockReviewService.updateResultCommentId).toHaveBeenCalledTimes(1);
+      expect(mockReviewService.updateResultCommentId).toHaveBeenCalledWith(
+        1,
+        100,
+      );
+    });
+
+    it("fails the run when the recovery reply is rejected after a partial inline failure", async () => {
+      arrangeRun();
+      mockBitbucketService.createInlineComment
+        .mockResolvedValueOnce({ id: 102 })
+        .mockRejectedValueOnce(inlineRejection("src/lost.ts"));
+      mockBitbucketService.replyToComment.mockRejectedValueOnce(
+        new Error("Bitbucket API error 500: recovery reply rejected"),
+      );
+
+      const processing = processor.process({ data: baseJobData } as never);
+
+      // 에러 **타입**이 load-bearing이다 — 평범한 Error가 올라가면 BullMQ가 잡을 재시도해
+      // 요약과 인라인 코멘트가 중복 게시된다. 메시지 단정만으로는 그 회귀를 잡을 수 없다.
+      await expect(processing).rejects.toBeInstanceOf(UnrecoverableError);
+      await expect(processing).rejects.toThrow(
+        "Bitbucket API error 500: recovery reply rejected",
+      );
+
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({ parentCommentId: 100 }),
+      );
+      expect(mockReviewService.updateStatus).not.toHaveBeenCalledWith(
+        1,
+        "completed",
+        expect.anything(),
+      );
+      // 균일하게 던져도 안전한 이유: 요약 ID가 FAILED와 함께 남아 행이 삭제되지 않는다
+      // (게시 증거 없는 FAILED는 existsByIdempotencyKey가 지워 중복 게시로 이어진다).
+      expect(mockReviewService.claimFailure).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ resultCommentId: 100 }),
+      );
+      // 균일 throw의 사용자 관점 귀결 — 런이 조용히 끝나지 않고 실패가 트리거 코멘트에 통보된다.
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parentCommentId: 999,
+          body: expect.stringContaining("❌ Code Review 실패"),
+        }),
+      );
+    });
+
+    it("does not post a recovery reply when every inline comment succeeds", async () => {
+      arrangeRun();
+
+      await processor.process({ data: baseJobData } as never);
+
+      expect(mockBitbucketService.createInlineComment).toHaveBeenCalledTimes(2);
+      expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
+      expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+        1,
+        "completed",
+        expect.anything(),
+      );
+    });
+
+    it("puts every finding in the recovery reply when all inline comments fail", async () => {
+      arrangeRun();
+      mockBitbucketService.createInlineComment
+        .mockRejectedValueOnce(inlineRejection("src/keep.ts"))
+        .mockRejectedValueOnce(inlineRejection("src/lost.ts"));
+
+      await processor.process({ data: baseJobData } as never);
+
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledTimes(1);
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parentCommentId: 100,
+          body: expect.stringContaining("src/keep.ts"),
+        }),
+      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.stringContaining("인라인으로 잘 올라간 지적"),
+        }),
+      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.stringContaining("src/lost.ts"),
+        }),
+      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.stringContaining("인라인 게시가 거부된 지적"),
+        }),
+      );
+      // 요약 코멘트만 독립 코멘트로 남는다 — 복구분은 답글이므로 createComment가 늘지 않는다.
+      expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
+      expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+        1,
+        "completed",
+        expect.anything(),
+      );
+    });
+
+    it("fails the run when the recovery reply is rejected after every inline comment failed", async () => {
+      arrangeRun();
+      mockBitbucketService.createInlineComment
+        .mockRejectedValueOnce(inlineRejection("src/keep.ts"))
+        .mockRejectedValueOnce(inlineRejection("src/lost.ts"));
+      mockBitbucketService.replyToComment.mockRejectedValueOnce(
+        new Error("Bitbucket API error 503: recovery reply rejected"),
+      );
+
+      const processing = processor.process({ data: baseJobData } as never);
+
+      // 부분 실패와 동일한 계약이어야 한다 — 실패 범위가 재시도 가능성을 바꾸면
+      // 전부 실패한 런이 재시도되어 요약 코멘트가 중복 게시된다.
+      await expect(processing).rejects.toBeInstanceOf(UnrecoverableError);
+      await expect(processing).rejects.toThrow(
+        "Bitbucket API error 503: recovery reply rejected",
+      );
+
+      expect(mockReviewService.updateStatus).not.toHaveBeenCalledWith(
+        1,
+        "completed",
+        expect.anything(),
+      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parentCommentId: 999,
+          body: expect.stringContaining("❌ Code Review 실패"),
+        }),
+      );
+    });
   });
 });
 

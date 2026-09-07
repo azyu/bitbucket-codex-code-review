@@ -6,6 +6,27 @@
 ## 진행 중/최근 작업
 
 
+### Task 42: 인라인 코멘트 부분 실패 복구 (issue #29)
+- **상태**: PR 제출 / 리뷰 대기 (브랜치 `fix/issue-29-surface-inline-failures`)
+- **배경**: `postInlineComments`의 개별 실패가 `logger.warn`으로만 남고, 폴백은 `postedCount === 0`(**전부** 실패)일 때만 돌았다. 그래서 10건 중 9건이 실패해도 런은 COMPLETED로 기록되고 사용자에게는 요약 코멘트만 보이며 지적 9건은 로그에만 남았다(대시보드상으로도 정상 완료). 리베이스·force push 후 finding의 라인이 diff hunk 범위를 벗어나 Bitbucket이 거부하는 경우에 실제로 발생한다. PR #25 적대적 리뷰(codex CLI) P2이고 PR #25 이전부터 있던 동작.
+- **왜 이 방식인가**: 이슈 본문의 "실패한 지적을 요약 코멘트 본문에 접어 넣는다"를 문자 그대로 하지 않았다. ① `BitbucketService`는 POST 전용이라(`postWithAuthFallback`이 `method: "POST"` 고정) 이미 게시된 요약 본문을 사후 편집할 수 없고 엔드포인트 신설은 범위 밖이다 ② 요약을 **먼저** 게시해야 한다 — 그 ID가 게시 증거(`resultCommentId`)이고 인라인 게시 전에 저장된다 ③ 순서를 뒤집으면(인라인 먼저 → 요약 나중) 요약 게시가 실패할 때 인라인은 이미 게시됐는데 `resultCommentId`가 null인 FAILED가 남고, 재멘션 시 `existsByIdempotencyKey`가 "게시 증거 없는 FAILED"로 보고 행을 삭제해 **인라인 코멘트가 중복 게시**된다(Task 41이 의존하는 #27/PR #31의 불변식). → 기존 `replyToComment`로 **요약 코멘트의 답글**을 다는 방식이 본문 의도("요약에 붙는다", "정보는 전달된다", "상태 모델을 안 건드린다")를 신규 API 없이 가장 가깝게 충족한다. 독립 코멘트와 달리 재실행으로 요약이 여럿 쌓여도 어느 런의 누락분인지 모호하지 않다.
+- **load-bearing 전제**: 복구 답글 게시 실패를 실패 범위와 무관하게 **균일하게 던지는** 것이 안전한 근거는 단 하나 — 요약 ID가 이미 `resultCommentId`(로컬 변수 + DB)에 남아 있어 `claimFailure`가 FAILED를 써도 행이 삭제되지 않는다는 것이다. 요약/인라인 게시 순서를 바꾸거나 `onResultCommentPublished` 호출 시점을 옮기면 이 전제가 깨지고 균일 throw가 중복 게시로 이어진다.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| 폴백 조건 일반화 | ✅ | `postedCount === 0` → `failedItems.length > 0`. 카운터 대신 실패한 finding 자체를 모아 복구 본문에 **실패분만** 담는다. 기존 per-item `logger.warn`과 `Inline comments posted: X/Y` 로그는 유지 |
+| `formatFindingsForGeneralComment` 추가 | ✅ | `formatInlineComment`은 `item.path`를 **전혀** emit하지 않고 `📍 L{start}-L{end}`도 `start !== end`일 때만 넣는다 — 인라인 코멘트는 Bitbucket이 위치를 앵커링하므로 본문에서 중복이기 때문이다. 그대로 일반 코멘트로 옮기면 **단일 라인 지적은 위치 정보가 완전히 사라진다**. 그래서 항목마다 `` ### `path` L{라인} `` 헤딩을 붙이는 전용 래퍼를 추가하고 `formatInlineComment` 자체는 수정하지 않았다(실제 인라인 본문이 계속 그것을 쓴다). 항목 구분자는 기존 폴백과 같은 `"\n\n---\n\n"` |
+| 복구 코멘트를 요약 답글로 | ✅ | `createComment`(독립 코멘트) → `replyToComment({ parentCommentId: summaryComment.id })`. 요약 ID는 `publishUnifiedResults`에서 `postInlineComments`로 인자로 넘긴다 |
+| 게시 증거 비오염 | ✅ | 복구 코멘트에는 `onResultCommentPublished`/`updateResultCommentId`를 **호출하지 않는다** — `resultCommentId`는 요약 코멘트 ID로 유지되어야 한다. 코드에 불변식 주석으로 명시 |
+| 실패 처리: 균일 throw | ✅ | 복구 게시 실패는 삼키지 않는다. 부분 실패에서만 `logger.error`로 삼키면 이 이슈가 지적한 버그(지적 유실 + COMPLETED + 대시보드 정상)를 그대로 남기고, 401일 때 `authenticationFailureStage` 분기와 카운터도 우회한다. 전부 실패 경로가 이미 "요약은 게시, 지적은 유실 → FAILED"를 선례로 갖고 있어 균일 처리가 선례와 일관된다 |
+| 회귀 테스트 | ✅ | 프로세서 7건 + 포매터 2건 추가. 프로세서 7건 중 **6건을 변경 전 코드에서 RED 확인**(`review.processor.ts`만 원본으로 되돌려 실행). 계획서가 RED로 표시한 4건 중 "루프가 끝까지 돈다"·"`updateResultCommentId` 정확히 1회"는 **그 자체로는 변경 전에도 GREEN**이다(현재 루프도 실패를 지나 계속 돌고, 부분 실패 시 `updateResultCommentId`는 1회다) — 두 테스트에 "복구 답글이 게시됐다"는 전제 어서션을 함께 넣어서 RED가 됐다. 유일한 GREEN 특성화는 "전부 성공 시 복구 답글 없음"(회귀 가드). 기존 스펙에 옛 `createComment` 폴백을 단정한 테스트는 **없었다**(`"All inline comments failed"`/`"코드 리뷰 상세"` 스펙 내 0건) — 갱신할 어서션 없음 |
+| 테스트 강화 (적대적 리뷰 수용) | ✅ | 복구 게시 실패 테스트 2건이 `rejects.toThrow("...메시지")`만 단정하고 있었다 — 평범한 `Error`도 그 단정을 통과하는데 안전성 논거는 **`UnrecoverableError`**에 달려 있다(평범한 Error가 올라가면 BullMQ가 잡을 재시도해 요약·인라인이 중복 게시된다). `rejects.toBeInstanceOf(UnrecoverableError)`를 추가하고 **뮤테이션으로 load-bearing임을 확인**했다: `throw new UnrecoverableError(error.message)` → `throw err`로 바꾸면 두 테스트가 `Expected constructor: UnrecoverableError / Received constructor: Error`로 실패한다(메시지 단정만으로는 통과했을 회귀). 더불어 균일 throw의 사용자 관점 귀결(`replyToComment({ parentCommentId: 999 })`로 나가는 `❌ Code Review 실패` 통보)을 두 테스트에 단정했다. 프로덕션 코드 변경 없음 |
+| 빌드/린트/테스트 | ✅ | `npx nest build`, `npx eslint "{src,test}/**/*.ts"`(--fix 없이 경고 0), `npx jest --runInBand` 성공 (18 suites, 271 tests — 베이스라인 262 + 9) |
+| 커버리지 | ✅ | `npx jest --coverage --runInBand`: statement 91.08%, branch 81.44%, function 83.24%, line 91.17% (베이스라인 90.64/81.17/82.58/90.69에서 4개 지표 모두 상승). 신규 코드에 미커버 라인 없음 — `review.processor.ts`·`review.formatter.ts`의 미커버 라인은 전부 기존 코드 |
+| 보안 체크리스트 | ✅ | 스키마·시크릿·외부 입력 검증 변경 없음. 복구 본문은 이미 인라인 코멘트로 나가던 것과 같은 Codex 산출 텍스트이고, 새 로그는 이미 기록 중인 실패 건수만 남긴다 |
+| 범위 밖 | ⚠️ | ① `filterFindingsToReviewDiff`는 **path만** 검사한다 — 이슈가 언급한 근본 원인(리베이스 후 라인이 hunk 범위를 벗어남)은 이 필터를 통과해 Bitbucket에서 거부된다. hunk 범위 사전 검사가 진짜 예방책이지만 이 이슈 범위가 아니다 ② 코멘트 본문 크기 상한 가드가 어디에도 없다. 기존 결함이고 회귀는 아니지만, 폴백이 더 자주 도는 만큼 노출은 커진다 |
+
+
 ### Task 41: 대체된 리뷰의 게시 차단 (issue #26)
 - **상태**: PR #51 제출 / 리뷰 대기
 - **배경**: `supersedeActivePrReviews()`가 오래된 런을 SUPERSEDED로 바꿔도 그 런이 계속 Bitbucket에 게시했다. 원인은 상태 전이가 **무조건 UPDATE**였고 게시 권한이 프로세스 메모리(`publishStarted`)에 있었다는 것. 구체적으로 ① `idempotencyKey`에 head commit이 들어가 새 커밋 웹훅이 실행 중 잡의 `jobId`를 찾지 못해 제거하지 못함 ② `attemptsMade > 0` 사전 조회는 Codex 실행(수 분) 앞의 시점 스냅샷이라 TOCTOU 창이 분 단위 ③ 워커 SIGKILL 후 stalled 복구는 `attemptsMade`를 늘리지 않아 사전 조회와 메모리 플래그를 모두 우회 ④ `prepareWorkspace()`가 PREPARING을 무조건 써서 SUPERSEDED 행을 되살림 ⑤ 실패 경로도 무방비라 대체된 런이 뒤늦게 실패하면 SUPERSEDED를 FAILED로 덮어쓰고(실패 집계 오염) 낡은 커밋에 실패 댓글을 달았음.
