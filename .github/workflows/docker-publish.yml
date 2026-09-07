@@ -1,12 +1,22 @@
 name: Docker Publish
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
         description: "Image tag (default: git SHA). 'latest' is reserved for main"
         required: false
         type: string
+
+# Serialize rather than cancel: the metadata step assigns a mutable `latest`,
+# so an older run finishing last would silently replace the newer image that
+# production pulls. Queueing keeps newest-wins while still publishing every
+# type=sha tag, which the deploy runbook checks via the revision label.
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
