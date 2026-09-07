@@ -18,6 +18,7 @@
 | codex만 automerge | ✅ | `packageRules`의 `automerge: false → true`. `matchPackageNames: ["@openai/codex"]` 범위라 다른 의존성은 수동 유지. alpha 차단은 기존 `allowedVersions` 정규식이 이미 담당(`0.154.0-alpha.3` 탈락) |
 | 머지 → 이미지 발행 연결 | ✅ | `docker-publish.yml`이 `workflow_dispatch` 전용이라 bump를 머지해도 이미지가 안 나왔음. `push: branches: [main]` 추가. push 이벤트에서 `inputs.tag`는 `''`로 평가돼 태그 검증 스텝과 `type=raw` 룰이 함께 스킵되므로 Task 39의 `latest` 가드는 그대로 유효 |
 | automerge 안전 가드 | ✅ | CI가 이미지를 빌드하지 않아 codex bump PR의 green은 codex에 대해 아무것도 보증하지 않았음. `ci.yml`에 Dockerfile 핀을 추출해 설치·실행하고 `codex exec`가 `--model/--sandbox/--json/--output-last-message`를 여전히 노출하는지 확인하는 스텝 추가. Dockerfile `RUN`이 아니라 CI인 이유: **머지 전**에 돌아야 automerge를 막을 수 있고, 멀티아치 qemu 에뮬레이션 위험도 회피 |
+| `latest` 덮어쓰기 레이스 | ✅ | Codex 리뷰봇 P1 지적을 검증해 수용. `push: main` 추가로 도달 가능해진 결함 — publish run이 1분52초~3분12초 걸리는데 concurrency 가드가 없어, 3분 내 머지 2건이 겹치면 **오래된 run이 나중에 끝나며 `latest`를 덮어쓴다**. 프로덕션이 `:latest`를 pull하므로 구버전 배포로 이어짐. Renovate가 살아나면 밀린 19개+가 일괄 PR로 올라와 정확히 이 조건이 만들어진다. `concurrency: {group: docker-publish-${{ github.ref }}, cancel-in-progress: false}` 추가. `true`(취소) 대신 `false`(직렬화)인 이유는 중간 커밋의 `type=sha` 태그를 보존하기 위함 — tools-infra 런북이 `org.opencontainers.image.revision` 대조에 사용 |
 | 검증 | ⚠️ | `renovate-config-validator` 통과, 두 워크플로 YAML 파싱 확인, 로컬 codex 0.153.4로 4개 플래그 존재 확인. `pnpm lint/build/test`는 `src` 무변경이라 미실행 |
 | 배포(3번째 고리) | ⬜ | 프로덕션 EC2는 tools-infra `codex-code-review/compose.yaml`이 `:latest`를 소비하지만 자동 pull이 없음. tools-infra README 런북이 `org.opencontainers.image.revision` 수동 대조를 지시하고 있어 자동 pull은 그 절차와 충돌 — 별도 결정 필요 |
 
