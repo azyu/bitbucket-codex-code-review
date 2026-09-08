@@ -658,3 +658,20 @@
 
 - **남긴 것**: 스모크는 SDK 생성·기동·Prometheus 서빙·종료까지만 증명한다. gRPC exporter 실전송과 instrumentation 14 minor 점프(express·mysql2·winston)의 스팬 정확성은 collector가 없어 검증하지 못했고, **스테이징에서 확인이 필요하다**.
 - **재발 방지**: 레인지 내 패치가 방치되면 audit 노이즈가 쌓여 진짜 신호(otel 4건)를 가린다. `renovate.json`이 이미 리포에 있으니, minor/patch 자동 머지 대상에 lockfile 갱신이 포함되는지 확인하는 것이 근본 대책이다.
+
+### 100KiB 초과 webhook payload이 413으로 조용히 유실됨
+- **상태**: ✅ 완료
+- **배경**: tools-infra가 프로덕션(i-0a694d06349d4fa92)에서 `PayloadTooLargeError`를 2026-09-08 07:18:28·07:21:50에 각 3건 관측하고, 프로덕션 엔드포인트 직접 POST로 경계가 정확히 102,400B임을 재현했다. `src/main.ts`가 body limit을 지정하지 않아 body-parser 기본값 `100kb`가 걸린 상태였다. 413은 `WebhookGuard`보다 먼저 터지므로 서명 검증·컨트롤러 로깅을 모두 우회 → 어느 repo 이벤트였는지 사후 특정 불가. Bitbucket Cloud는 재전송이 없어 해당 `@codex` 트리거는 유실된다.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| body limit 5mb 상향 | ✅ | `src/lib/body-parser.ts`의 `configureBodyParser(app)` → `app.useBodyParser("json", { limit })`. `main.ts`는 `NestFactory.create` 직후 1줄 호출 |
+| rawBody 보존 검증 | ✅ | `NestApplication.useBodyParser`가 `appOptions.rawBody`를 `getBodyParserOptions`에 그대로 넘겨 `verify: rawBodyParser`가 유지된다(코드 확인 + 150KB 서명 페이로드 202 통과로 실증) |
+| 기본 parser 중복 확인 | ✅ | `listen()` 전에 호출하면 `ExpressAdapter.isMiddlewareApplied("jsonParser")`가 참이 되어 init의 100kb parser가 등록되지 않는다. probe에서 `jsonParser` 레이어 수 = 1 확인 |
+| 413 귀속 로깅 | ✅ | 같은 함수에서 express error middleware 등록 → `err.status === 413`일 때 `content-length` / `x-event-key` / `x-hook-uuid` / `x-request-uuid`를 error 로그로 남기고 `next(err)`로 Nest 예외 처리에 그대로 넘긴다 |
+| 테스트 | ✅ | `src/lib/body-parser.spec.ts` 5케이스. 150KB+유효서명→202, 150KB+오서명→403(fail-closed 유지), 250KB→413, 413 로그 4개 헤더, 헤더 없는 probe→`unknown` 폴백. limit `200kb`로 낮춰 테스트해 5MB 전송 회피 |
+
+- **RED 확인**: `app.useBodyParser` 한 줄을 주석 처리하면 5케이스 중 3건이 실패한다(150KB가 413으로 떨어짐). 회귀를 실제로 잡는 테스트임을 확인.
+- **왜 이렇게 고쳤나**: parser 설정을 `main.ts`에 인라인하면 `bootstrap()`이 import 시점에 실행돼 테스트가 불가능하고, 테스트는 원본이 아닌 복제본을 검증하게 된다. 그래서 `@lib/body-parser`로 분리해 스펙이 실제 프로덕션 경로를 그대로 부팅한다.
+- **남긴 것**: `x-hook-uuid`는 Bitbucket 문서상 webhook 구독(=repo별) 식별자이므로 413 시점에 repo를 역추적할 실마리가 될 수 있다 — **추정이다.** 리포 어디에도 이 헤더를 다룬 코드가 없어 실제 전송 여부는 인프라가 보는 첫 실물 413 로그로 확인해야 한다. uuid→repo 매핑도 Bitbucket API 조회가 필요하고 자동화하지 않았다. limit은 env 노출 없이 5mb 하드코딩(실측 최대 PR 객체 89,770B 대비 여유 충분).
+- **인프라 쪽 남은 확인**: Caddy에 `request_body` 상한이 별도로 걸려 있지 않은지(기본값은 무제한) 확인 필요 — 그쪽이 더 낮으면 앱 상향이 무효가 된다. Caddy access log 부재는 tools-infra가 별도 처리.
