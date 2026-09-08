@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        GIT_COMMIT_HASH: ${GIT_COMMIT_HASH:-unknown}
     container_name: code-review-worker
     # Codex branch-diff reviews invoke bubblewrap, which needs user namespaces.
     security_opt:
