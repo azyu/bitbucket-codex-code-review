@@ -71,6 +71,10 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
+          # Same value metadata-action stamps as org.opencontainers.image.revision,
+          # so the startup log and the image label always agree.
+          build-args: |
+            GIT_COMMIT_HASH=${{ github.sha }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

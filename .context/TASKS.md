@@ -659,6 +659,20 @@
 - **남긴 것**: 스모크는 SDK 생성·기동·Prometheus 서빙·종료까지만 증명한다. gRPC exporter 실전송과 instrumentation 14 minor 점프(express·mysql2·winston)의 스팬 정확성은 collector가 없어 검증하지 못했고, **스테이징에서 확인이 필요하다**.
 - **재발 방지**: 레인지 내 패치가 방치되면 audit 노이즈가 쌓여 진짜 신호(otel 4건)를 가린다. `renovate.json`이 이미 리포에 있으니, minor/patch 자동 머지 대상에 lockfile 갱신이 포함되는지 확인하는 것이 근본 대책이다.
 
+### 컨테이너 시작 로그의 `Git Commit Hash: unknown`
+- **상태**: ✅ 완료
+- **배경**: `src/main.ts:68`이 `process.env.GIT_COMMIT_HASH`를 읽는데, 이 변수를 넣어주는 곳이 리포 어디에도 없었다 — Dockerfile에 ARG/ENV 없음, `docker-publish.yml`에 `build-args` 없음, `docker-compose.yml`·`.env.example`에도 없음. 그래서 어떤 실행 경로로 띄우든 항상 `unknown`이었다.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| Dockerfile ARG→ENV | ✅ | runtime 스테이지 **안에** `ARG GIT_COMMIT_HASH=unknown` + `ENV`. 첫 `FROM` 앞 ARG는 스테이지 스코프 밖이라 빈 값이 된다. `COPY dist` 뒤에 둬서 SHA 변경이 앞 레이어 캐시를 깨지 않게 함 |
+| CI에서 값 주입 | ✅ | `docker-publish.yml`의 build-push-action에 `build-args: GIT_COMMIT_HASH=${{ github.sha }}`. metadata-action이 찍는 `org.opencontainers.image.revision`과 같은 값이라 로그와 라벨이 일치 |
+| 로컬 compose 통과 | ✅ | `build.args`에 `${GIT_COMMIT_HASH:-unknown}`. 로컬은 `GIT_COMMIT_HASH=$(git rev-parse HEAD) docker compose up -d --build` |
+| 실물 검증 | ✅ | `--build-arg` 준 이미지는 `GIT_COMMIT_HASH=30362bd…`, 안 준 이미지는 `unknown`. 기본값이 올바른 스코프에 있음을 확인 |
+
+- **남긴 것**: `main.ts`는 안 건드렸다. `.git`을 이미지에 넣어 `git rev-parse`로 유도하는 방식도 가능하지만(현재 `.dockerignore`가 없어 `COPY . .`가 `.git`을 우연히 포함), 그건 사고에 기대는 구조라 `.dockerignore` 추가나 build-push-action의 git context 전환에 조용히 깨진다.
+- **주의**: 사용자가 본 로그 접두사가 `app-1`이라 이 리포의 `docker-compose.yml`(`container_name: code-review-worker`)이 아닌 **별도 배포 compose**로 보인다. 그쪽이 ghcr 이미지를 pull한다면 이 워크플로가 새 이미지를 푸시한 뒤 재-pull해야 값이 반영된다.
+
 ### 100KiB 초과 webhook payload이 413으로 조용히 유실됨
 - **상태**: ✅ 완료
 - **배경**: tools-infra가 프로덕션(i-0a694d06349d4fa92)에서 `PayloadTooLargeError`를 2026-09-08 07:18:28·07:21:50에 각 3건 관측하고, 프로덕션 엔드포인트 직접 POST로 경계가 정확히 102,400B임을 재현했다. `src/main.ts`가 body limit을 지정하지 않아 body-parser 기본값 `100kb`가 걸린 상태였다. 413은 `WebhookGuard`보다 먼저 터지므로 서명 검증·컨트롤러 로깅을 모두 우회 → 어느 repo 이벤트였는지 사후 특정 불가. Bitbucket Cloud는 재전송이 없어 해당 `@codex` 트리거는 유실된다.
