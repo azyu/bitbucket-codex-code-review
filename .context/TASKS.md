@@ -1,10 +1,19 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-09-07
+> 마지막 업데이트: 2026-09-08
 
 
 ## 진행 중/최근 작업
 
+
+### Task 43: 기본 모델 `gpt-5.6-sol` 환원 + 댓글 모델 오버라이드
+- **상태**: PR 제출 / 리뷰 대기 — [PR #63](https://github.com/azyu/bitbucket-codex-code-review/pull/63) (브랜치 `feat/model-override-in-codex-mention`)
+- **배경**: 선생님 요청 — 기본 모델을 `gpt-5.6-sol`로 환원하고, 대신 PR 댓글 한 줄로 이번 리뷰에만 쓸 모델을 지정할 수 있게 한다.
+- **변경**: `DEFAULTS.CODEX_MODEL`, `.env.example`, `docker-compose.yml`, README, 설정/웹훅/검증 테스트를 `gpt-5.6-sol`로 환원. `TriggerService.parseModelOverride`가 `@codex --model:<name>`(`=`·공백 구분자 포함)을 추출해 `IReviewJobData.model`로 실려 `executeCodex(…, model)`까지 흐른다.
+- **보안**: 값이 `spawn` argv의 `--model` 뒤에 그대로 들어가므로 `[A-Za-z0-9][\w.-]*`로 제한한다 — 선두 `-`를 막아 임의 codex 플래그 주입을 차단한다. allowlist는 두지 않았다(Task 28 결정 유지).
+- **정합성**: 진행 중 코멘트(`⏳ … Model: …`)와 DB `codexModel` 모두 오버라이드 값을 쓴다. 둘 중 하나만 반영하면 사용자에게 보이는 모델과 실제 실행 모델이 갈라진다.
+- **검증**: `pnpm build`, `pnpm lint`(경고 0), `pnpm test --runInBand` 성공 (18 suites, 280 tests — 베이스라인 271 + 9). `pnpm test:cov`: statement 91.11%, branch 82.38%, function 83.33%, line 91.19%.
+- **범위 밖**: ① `CODEX_FORCE_REGEX`는 `--force`가 `@codex` 바로 뒤일 것을 요구하므로 `@codex --model:x --force`는 force로 잡히지 않는다(순서 무관하게 하려면 정규식 완화 필요) ② reasoning effort는 오버라이드 대상이 아니다 — 모델을 바꿔도 `CODEX_REASONING_EFFORT`가 그대로 적용된다.
 
 ### Task 42: 인라인 코멘트 부분 실패 복구 (issue #29)
 - **상태**: PR 제출 / 리뷰 대기 (브랜치 `fix/issue-29-surface-inline-failures`)
@@ -90,6 +99,7 @@
 - **잔존 문자열 조사**: 이전 모델 ID는 과거 Task 27/28, 2026-07-10 설계/계획 문서, GPT-5.6 명시적 모델 전달 테스트에만 의도적으로 유지.
 - **검증**: `pnpm build`, `pnpm lint`, `pnpm test --runInBand`, `pnpm test:cov --runInBand` 성공 (17 suites, 247 tests). 커버리지 statement 89.96%, branch 80.69%, function 81.6%, line 89.97%. Helm lint 및 ConfigMap 렌더링에서 새 모델 확인.
 - **보안/범위**: 신규 시크릿·외부 입력·에러 노출 변경 없음. 모델 allowlist 미추가, reasoning effort 및 Dockerfile `@openai/codex@0.153.2` 핀 유지. 인스턴스·배포 미접촉.
+- **후속**: 기본값은 Task 43에서 `gpt-5.6-sol`로 환원됨 (댓글 `--model` 오버라이드로 대체).
 - **머지 조건**: teal-tapir의 ChatGPT 계정 인증 실호출 접근성·할당량 확인 결과 대기. 프로덕션 모델은 tools-infra `codex-code-review/fetch-env.sh`의 `CODEX_MODEL`이 결정하므로 이 PR만으로 변경되지 않음.
 
 ### Task 37: BullMQ major 대비 colonless review jobId
@@ -649,6 +659,37 @@
 - **남긴 것**: 스모크는 SDK 생성·기동·Prometheus 서빙·종료까지만 증명한다. gRPC exporter 실전송과 instrumentation 14 minor 점프(express·mysql2·winston)의 스팬 정확성은 collector가 없어 검증하지 못했고, **스테이징에서 확인이 필요하다**.
 - **재발 방지**: 레인지 내 패치가 방치되면 audit 노이즈가 쌓여 진짜 신호(otel 4건)를 가린다. `renovate.json`이 이미 리포에 있으니, minor/patch 자동 머지 대상에 lockfile 갱신이 포함되는지 확인하는 것이 근본 대책이다.
 
+### 컨테이너 시작 로그의 `Git Commit Hash: unknown`
+- **상태**: ✅ 완료
+- **배경**: `src/main.ts:68`이 `process.env.GIT_COMMIT_HASH`를 읽는데, 이 변수를 넣어주는 곳이 리포 어디에도 없었다 — Dockerfile에 ARG/ENV 없음, `docker-publish.yml`에 `build-args` 없음, `docker-compose.yml`·`.env.example`에도 없음. 그래서 어떤 실행 경로로 띄우든 항상 `unknown`이었다.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| Dockerfile ARG→ENV | ✅ | runtime 스테이지 **안에** `ARG GIT_COMMIT_HASH=unknown` + `ENV`. 첫 `FROM` 앞 ARG는 스테이지 스코프 밖이라 빈 값이 된다. `COPY dist` 뒤에 둬서 SHA 변경이 앞 레이어 캐시를 깨지 않게 함 |
+| CI에서 값 주입 | ✅ | `docker-publish.yml`의 build-push-action에 `build-args: GIT_COMMIT_HASH=${{ github.sha }}`. metadata-action이 찍는 `org.opencontainers.image.revision`과 같은 값이라 로그와 라벨이 일치 |
+| 로컬 compose 통과 | ✅ | `build.args`에 `${GIT_COMMIT_HASH:-unknown}`. 로컬은 `GIT_COMMIT_HASH=$(git rev-parse HEAD) docker compose up -d --build` |
+| 실물 검증 | ✅ | `--build-arg` 준 이미지는 `GIT_COMMIT_HASH=30362bd…`, 안 준 이미지는 `unknown`. 기본값이 올바른 스코프에 있음을 확인 |
+
+- **남긴 것**: `main.ts`는 안 건드렸다. `.git`을 이미지에 넣어 `git rev-parse`로 유도하는 방식도 가능하지만(현재 `.dockerignore`가 없어 `COPY . .`가 `.git`을 우연히 포함), 그건 사고에 기대는 구조라 `.dockerignore` 추가나 build-push-action의 git context 전환에 조용히 깨진다.
+- **주의**: 사용자가 본 로그 접두사가 `app-1`이라 이 리포의 `docker-compose.yml`(`container_name: code-review-worker`)이 아닌 **별도 배포 compose**로 보인다. 그쪽이 ghcr 이미지를 pull한다면 이 워크플로가 새 이미지를 푸시한 뒤 재-pull해야 값이 반영된다.
+
+### 100KiB 초과 webhook payload이 413으로 조용히 유실됨
+- **상태**: ✅ 완료
+- **배경**: tools-infra가 프로덕션(i-0a694d06349d4fa92)에서 `PayloadTooLargeError`를 2026-09-08 07:18:28·07:21:50에 각 3건 관측하고, 프로덕션 엔드포인트 직접 POST로 경계가 정확히 102,400B임을 재현했다. `src/main.ts`가 body limit을 지정하지 않아 body-parser 기본값 `100kb`가 걸린 상태였다. 413은 `WebhookGuard`보다 먼저 터지므로 서명 검증·컨트롤러 로깅을 모두 우회 → 어느 repo 이벤트였는지 사후 특정 불가. Bitbucket Cloud는 재전송이 없어 해당 `@codex` 트리거는 유실된다.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| body limit 5mb 상향 | ✅ | `src/lib/body-parser.ts`의 `configureBodyParser(app)` → `app.useBodyParser("json", { limit })`. `main.ts`는 `NestFactory.create` 직후 1줄 호출 |
+| rawBody 보존 검증 | ✅ | `NestApplication.useBodyParser`가 `appOptions.rawBody`를 `getBodyParserOptions`에 그대로 넘겨 `verify: rawBodyParser`가 유지된다(코드 확인 + 150KB 서명 페이로드 202 통과로 실증) |
+| 기본 parser 중복 확인 | ✅ | `listen()` 전에 호출하면 `ExpressAdapter.isMiddlewareApplied("jsonParser")`가 참이 되어 init의 100kb parser가 등록되지 않는다. probe에서 `jsonParser` 레이어 수 = 1 확인 |
+| 413 귀속 로깅 | ✅ | 같은 함수에서 express error middleware 등록 → `err.status === 413`일 때 `content-length` / `x-event-key` / `x-hook-uuid` / `x-request-uuid`를 error 로그로 남기고 `next(err)`로 Nest 예외 처리에 그대로 넘긴다 |
+| 테스트 | ✅ | `src/lib/body-parser.spec.ts` 5케이스. 150KB+유효서명→202, 150KB+오서명→403(fail-closed 유지), 250KB→413, 413 로그 4개 헤더, 헤더 없는 probe→`unknown` 폴백. limit `200kb`로 낮춰 테스트해 5MB 전송 회피 |
+
+- **RED 확인**: `app.useBodyParser` 한 줄을 주석 처리하면 5케이스 중 3건이 실패한다(150KB가 413으로 떨어짐). 회귀를 실제로 잡는 테스트임을 확인.
+- **왜 이렇게 고쳤나**: parser 설정을 `main.ts`에 인라인하면 `bootstrap()`이 import 시점에 실행돼 테스트가 불가능하고, 테스트는 원본이 아닌 복제본을 검증하게 된다. 그래서 `@lib/body-parser`로 분리해 스펙이 실제 프로덕션 경로를 그대로 부팅한다.
+- **남긴 것**: `x-hook-uuid`는 Bitbucket 문서상 webhook 구독(=repo별) 식별자이므로 413 시점에 repo를 역추적할 실마리가 될 수 있다 — **추정이다.** 리포 어디에도 이 헤더를 다룬 코드가 없어 실제 전송 여부는 인프라가 보는 첫 실물 413 로그로 확인해야 한다. uuid→repo 매핑도 Bitbucket API 조회가 필요하고 자동화하지 않았다. limit은 env 노출 없이 5mb 하드코딩(실측 최대 PR 객체 89,770B 대비 여유 충분).
+- **인프라 쪽 남은 확인**: Caddy에 `request_body` 상한이 별도로 걸려 있지 않은지(기본값은 무제한) 확인 필요 — 그쪽이 더 낮으면 앱 상향이 무효가 된다. Caddy access log 부재는 tools-infra가 별도 처리.
+
 ### 리뷰 큐가 근무 시간에 상시 밀림 — 워커 concurrency 1 해소
 - **상태**: ✅ 완료
 - **배경**: 인프라 담당이 2026-09-08 45분간 실측한 큐 상태가 `active=1 wait=3~7`로 줄지 않고 늘었다. `@Processor(REVIEW_QUEUE_NAME)`에 워커 옵션이 없어 BullMQ 기본 `concurrency: 1`로 돌았고, 리뷰 1건 중앙값이 5~6분이라 앞에 3건이 있으면 mention을 달아둔 사람이 20분 이상 기다렸다. 인스턴스는 CPUCreditBalance 576/576·CPU 2~4%·load 0.04로 완전히 유휴 — 리뷰는 CPU가 아니라 codex/Bitbucket API 대기 바운드라 동시 실행 여지가 컸다. 반면 `WORKSPACE_MAX_CONCURRENT`는 파싱·Joi 검증까지 있으면서 소비처가 0건인 죽은 설정이었다.
@@ -665,3 +706,4 @@
 
 - **남긴 것**: `cleanupWorktree`는 락 밖에 뒀다. `worktree remove`는 ref를 건드리지 않고 admin 디렉터리가 worktree별로 분리돼 있으며, 유일한 경합(prune과 겹침)은 기존 `rm -rf` 폴백이 흡수한다. 락에 넣으면 job의 `finally`가 다른 job의 최대 300초 fetch 뒤로 밀린다. 락은 프로세스 내부이므로 워커를 여러 프로세스로 늘리면 파일 락이 필요하다(`ponytail:` 주석으로 표시).
 - **미검증**: codex `auth.json` 세션 1개로 `codex exec`를 동시 실행할 때의 토큰 갱신 경합은 코드로 확인할 수 없다. 요금제/rate limit 자체는 문제 없다는 확인을 받았으므로, 배포 후 `code_review_authentication_failures{repository,stage}` 카운터만 지켜보면 된다.
+

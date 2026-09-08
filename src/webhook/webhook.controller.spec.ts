@@ -31,6 +31,7 @@ describe("WebhookController", () => {
     shouldMentionReview: jest.fn(),
     hasCodexMention: jest.fn(),
     isForceReview: jest.fn(),
+    parseModelOverride: jest.fn(),
   };
   const reviewService = {
     existsByIdempotencyKey: jest.fn(),
@@ -44,7 +45,7 @@ describe("WebhookController", () => {
   };
   const configValues: Record<string, unknown> = {
     "trigger.mode": "mention",
-    "codex.model": "gpt-6-astra",
+    "codex.model": "gpt-5.6-sol",
     "codex.reasoningEffort": "high",
   };
   const configService = {
@@ -102,7 +103,7 @@ describe("WebhookController", () => {
     jest.clearAllMocks();
     Object.assign(configValues, {
       "trigger.mode": "mention",
-      "codex.model": "gpt-6-astra",
+      "codex.model": "gpt-5.6-sol",
       "codex.reasoningEffort": "high",
     });
     reviewQueue.getJob.mockResolvedValue(null);
@@ -117,6 +118,7 @@ describe("WebhookController", () => {
     triggerService.shouldMentionReview.mockReturnValue(true);
     triggerService.hasCodexMention.mockReturnValue(true);
     triggerService.isForceReview.mockReturnValue(false);
+    triggerService.parseModelOverride.mockReturnValue(undefined);
 
     controller = new WebhookController(
       reviewQueue as unknown as Queue,
@@ -163,8 +165,29 @@ describe("WebhookController", () => {
       repoSlug: "repo-a",
       pullRequestId: 17,
       parentCommentId: 321,
-      body: "⏳ Summary & Code Review 진행 중...\n\n- Model: gpt-6-astra\n- Reasoning: high",
+      body: "⏳ Summary & Code Review 진행 중...\n\n- Model: gpt-5.6-sol\n- Reasoning: high",
     });
+  });
+
+  it("forwards the comment model override to the job and the progress reply", async () => {
+    triggerService.parseModelOverride.mockReturnValue("gpt-6-astra");
+
+    await controller.handleBitbucketWebhook(
+      buildCommentWebhook("@codex --model:gpt-6-astra"),
+      "pullrequest:comment_created",
+      {},
+    );
+
+    expect(reviewQueue.add).toHaveBeenCalledWith(
+      "review",
+      expect.objectContaining({ model: "gpt-6-astra" }),
+      expect.anything(),
+    );
+    expect(bitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: "⏳ Summary & Code Review 진행 중...\n\n- Model: gpt-6-astra\n- Reasoning: high",
+      }),
+    );
   });
 
   it("queues an auto-triggered review and posts a top-level progress comment", async () => {
@@ -189,7 +212,7 @@ describe("WebhookController", () => {
       workspace: "workspace",
       repoSlug: "repo-a",
       pullRequestId: 17,
-      body: "⏳ Summary & Code Review 진행 중...\n\n- Model: gpt-6-astra",
+      body: "⏳ Summary & Code Review 진행 중...\n\n- Model: gpt-5.6-sol",
     });
   });
 

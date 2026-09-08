@@ -801,6 +801,7 @@ describe("ReviewProcessor publish results", () => {
       reviewDiff: string,
       repositorySlug: string,
       excludedChangedFiles: readonly string[] | null,
+      model?: string,
     ): Promise<ICodexReviewResult>;
   };
 
@@ -906,6 +907,30 @@ describe("ReviewProcessor publish results", () => {
         expect(prompt).toMatch(/base\s*branch|기준\s*브랜치/);
       }
     });
+    it("should forward the per-run model override to Codex", async () => {
+      mockCodexService.executeCodex.mockResolvedValue({
+        rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+        exitCode: 0,
+        durationMs: 1,
+        inputTokens: null,
+        cachedInputTokens: null,
+        outputTokens: null,
+      });
+
+      await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
+        "/worktree",
+        "main",
+        "+change",
+        "my-repo",
+        [],
+        "gpt-6-astra",
+      );
+
+      expect(mockCodexService.executeCodex.mock.calls[0][3]).toBe(
+        "gpt-6-astra",
+      );
+    });
+
     it("should switch to branch diff when the custom prompt makes the final inline prompt too large", async () => {
       const tmpFile = `/tmp/test-custom-prompt-${Date.now()}.txt`;
       const customPrompt = `추가 리뷰 지시사항:\n${"A".repeat(950_000)}`;

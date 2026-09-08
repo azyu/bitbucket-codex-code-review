@@ -3,6 +3,7 @@ import { NestExpressApplication } from "@nestjs/platform-express";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
 import { ServiceLogger } from "@lib/logger";
+import { configureBodyParser } from "@lib/body-parser";
 import { initOpenTelemetry } from "@lib/opentelemetry";
 
 const SERVICE_NAME = "code-review";
@@ -59,6 +60,10 @@ async function bootstrap(): Promise<string> {
         : defaultHelmet(...args);
     },
   );
+
+  // After helmet so a 413 response still carries the security headers, and
+  // before listen() so Nest skips registering its default-limit json parser.
+  configureBodyParser(app);
 
   const port = process.env["PORT"]!; // Required by validation.ts
 

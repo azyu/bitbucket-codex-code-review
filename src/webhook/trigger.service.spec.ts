@@ -49,6 +49,20 @@ describe("TriggerService", () => {
     expect(service.isForceReview("@codex --forceful")).toBe(false);
   });
 
+  describe("parseModelOverride", () => {
+    it.each([
+      ["@codex --model:gpt-6-astra", "gpt-6-astra"],
+      ["@codex --model=gpt-6-astra", "gpt-6-astra"],
+      ["@codex --model gpt-5.6-sol", "gpt-5.6-sol"],
+      ["@codex --force --model:gpt-6-astra", "gpt-6-astra"],
+      ["@codex review", undefined],
+      // 값이 argv로 그대로 나가므로 플래그로 읽힐 값은 거부한다
+      ["@codex --model:--sandbox", undefined],
+    ])("%s → %s", (comment, expected) => {
+      expect(service.parseModelOverride(comment)).toBe(expected);
+    });
+  });
+
   describe("shouldAutoReview", () => {
     it.each([
       ["pullrequest:created", "auto", true],

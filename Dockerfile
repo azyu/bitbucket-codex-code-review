@@ -37,6 +37,11 @@ RUN npm install -g @openai/codex@0.153.4
 
 COPY --from=build /app/dist ./dist
 
+# Declared inside this stage: a pre-FROM ARG is out of scope here and would
+# silently resolve to empty. Kept last so a new SHA only busts this layer.
+ARG GIT_COMMIT_HASH=unknown
+ENV GIT_COMMIT_HASH=$GIT_COMMIT_HASH
+
 EXPOSE 3000
 EXPOSE 9463
 
