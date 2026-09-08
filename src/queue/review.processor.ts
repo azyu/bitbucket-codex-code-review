@@ -1,9 +1,11 @@
 import { Processor, WorkerHost, OnWorkerEvent } from "@nestjs/bullmq";
+import { OnApplicationBootstrap } from "@nestjs/common";
 import { Job, UnrecoverableError } from "bullmq";
 import { ConfigService } from "@nestjs/config";
 import { metrics } from "@opentelemetry/api";
 import { ServiceLogger } from "@lib/logger";
 import { REVIEW_QUEUE_NAME } from "../constants/queue.constants";
+import { DEFAULTS } from "../config/configuration";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
 import { ReviewRunStatus } from "../entities/review-run.entity";
 import { ReviewService } from "../review/review.service";
@@ -39,7 +41,10 @@ function authenticationFailureStage(error: Error): "api" | "git" | null {
 }
 
 @Processor(REVIEW_QUEUE_NAME)
-export class ReviewProcessor extends WorkerHost {
+export class ReviewProcessor
+  extends WorkerHost
+  implements OnApplicationBootstrap
+{
   private readonly logger = new ServiceLogger(ReviewProcessor.name);
   private readonly authenticationFailureCounter = metrics
     .getMeter("code-review")
@@ -55,6 +60,22 @@ export class ReviewProcessor extends WorkerHost {
     private readonly configService: ConfigService,
   ) {
     super();
+  }
+
+  /**
+   * BullMQ 기본 concurrency는 1이라 리뷰 1건(중앙값 5~6분)이 도는 동안 큐가 그대로 밀린다.
+   * 리뷰는 CPU가 아니라 codex/Bitbucket API 대기 바운드이므로 동시 실행으로 처리량이 늘어난다.
+   * `@Processor` 옵션은 import 시점에 고정되어 ConfigService를 못 읽으므로 세터로 넣는다.
+   * onModuleInit 시점에는 워커가 아직 없어(WorkerHost.worker가 throw) 반드시
+   * onApplicationBootstrap이어야 한다. BullMQ run 루프는 매 회차 concurrency를 다시 읽는다.
+   */
+  onApplicationBootstrap(): void {
+    const concurrency = this.configService.get<number>(
+      "workspace.maxConcurrent",
+      DEFAULTS.WORKSPACE_MAX_CONCURRENT,
+    );
+    this.worker.concurrency = concurrency;
+    this.logger.log(`Review worker concurrency set to ${concurrency}`);
   }
 
   override async process(job: Job<IReviewJobData>): Promise<void> {

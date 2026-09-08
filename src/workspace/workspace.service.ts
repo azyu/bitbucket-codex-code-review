@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ServiceLogger } from "@lib/logger";
 import { execFile } from "child_process";
+import { randomUUID } from "crypto";
 import { promisify } from "util";
 import { join, resolve } from "path";
 import { mkdir, rm, writeFile, unlink } from "fs/promises";
@@ -31,6 +32,13 @@ export class WorkspaceService {
   private readonly logger = new ServiceLogger(WorkspaceService.name);
   private readonly basePath: string;
   private readonly cloneTimeoutMs: number;
+  /**
+   * slug별 prepareWorktree 직렬화 큐. bare repo는 slug당 공유이므로 같은 repo의 두 job이
+   * 동시에 `git fetch`를 돌리면 같은 ref lock을 다퉈 "cannot lock ref ... File exists"로
+   * 죽는다. 소요의 대부분인 codex exec는 이 락 밖이라 병렬로 남는다.
+   * ponytail: 프로세스 내 락 — 워커를 여러 프로세스/노드로 늘리면 파일 락이 필요하다.
+   */
+  private readonly prepareQueues = new Map<string, Promise<unknown>>();
 
   constructor(private readonly configService: ConfigService) {
     this.basePath = this.configService.get<string>(
@@ -78,22 +86,38 @@ export class WorkspaceService {
     this.assertWithinBasePath(bareRepoPath);
     this.assertWithinBasePath(worktreePath);
 
-    const gitAuthEnv = await this.buildGitAuthEnv(params.repositorySlug);
-    try {
-      await this.ensureBareRepo(bareRepoPath, params.cloneUrl, gitAuthEnv);
-      await this.fetchLatest(bareRepoPath, gitAuthEnv);
-    } finally {
-      if (gitAuthEnv["GIT_ASKPASS"]) {
-        await unlink(gitAuthEnv["GIT_ASKPASS"]).catch(() => {});
+    return this.enqueueForSlug(safeSlug, async () => {
+      const gitAuthEnv = await this.buildGitAuthEnv(params.repositorySlug);
+      try {
+        await this.ensureBareRepo(bareRepoPath, params.cloneUrl, gitAuthEnv);
+        await this.fetchLatest(bareRepoPath, gitAuthEnv);
+      } finally {
+        if (gitAuthEnv["GIT_ASKPASS"]) {
+          await unlink(gitAuthEnv["GIT_ASKPASS"]).catch(() => {});
+        }
       }
-    }
-    await this.createWorktree(
-      bareRepoPath,
-      worktreePath,
-      params.headCommitHash,
-    );
+      await this.createWorktree(
+        bareRepoPath,
+        worktreePath,
+        params.headCommitHash,
+      );
 
-    return { worktreePath, bareRepoPath };
+      return { worktreePath, bareRepoPath };
+    });
+  }
+
+  /** 같은 slug의 작업을 앞 작업 종료 뒤로 미룬다. 앞 작업 실패가 뒤를 막지는 않는다. */
+  private enqueueForSlug<T>(slug: string, task: () => Promise<T>): Promise<T> {
+    // 저장하는 쪽은 catch로 감싸 rejection을 흡수한다 — 큐가 실패 한 건에 멈추지 않고,
+    // 미처리 rejection도 생기지 않는다. 호출자는 원본 promise를 그대로 받는다.
+    const current = (this.prepareQueues.get(slug) ?? Promise.resolve()).then(
+      task,
+    );
+    this.prepareQueues.set(
+      slug,
+      current.catch(() => {}),
+    );
+    return current;
   }
 
   /** worktree 삭제 */
@@ -333,7 +357,9 @@ export class WorkspaceService {
     user: string,
     password: string,
   ): Promise<Record<string, string>> {
-    const scriptPath = join(this.basePath, `.askpass-${Date.now()}.sh`);
+    // 동시 실행되는 job끼리 같은 파일을 쓰면 먼저 끝난 쪽의 unlink가 아직 git을
+    // 돌리는 쪽의 인증을 깬다 — 타임스탬프만으로는 같은 ms 충돌을 막지 못한다.
+    const scriptPath = join(this.basePath, `.askpass-${randomUUID()}.sh`);
     await mkdir(this.basePath, { recursive: true });
 
     // GIT_ASKPASS is invoked with a prompt arg: "Username for ..." or "Password for ..."
