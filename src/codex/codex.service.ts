@@ -42,11 +42,11 @@ export class CodexService {
     );
   }
 
-  private buildCodexArgs(outputFile: string): string[] {
+  private buildCodexArgs(outputFile: string, model: string): string[] {
     const args = [
       "exec",
       "--model",
-      this.model,
+      model,
       "--sandbox",
       "read-only",
       "--json",
@@ -188,6 +188,7 @@ export class CodexService {
     worktreePath: string,
     baseBranch: string,
     prompt: string,
+    model: string = this.model,
   ): Promise<ICodexReviewResult> {
     const startTime = Date.now();
     const outputFile = join(
@@ -196,11 +197,11 @@ export class CodexService {
     );
 
     this.logger.log(
-      `Starting codex exec in ${worktreePath}, base: ${baseBranch}, model: ${this.model}, reasoning: ${this.reasoningEffort || "default"}`,
+      `Starting codex exec in ${worktreePath}, base: ${baseBranch}, model: ${model}, reasoning: ${this.reasoningEffort || "default"}`,
     );
 
     try {
-      const args = this.buildCodexArgs(outputFile);
+      const args = this.buildCodexArgs(outputFile, model);
       const result = await this.spawnCodex(args, worktreePath, prompt);
       const durationMs = Date.now() - startTime;
 
@@ -235,7 +236,7 @@ export class CodexService {
         inputTokens: result.usage.inputTokens,
         cachedInputTokens: result.usage.cachedInputTokens,
         outputTokens: result.usage.outputTokens,
-        model: this.model,
+        model,
         reasoningEffort: this.reasoningEffort || null,
       };
     } finally {

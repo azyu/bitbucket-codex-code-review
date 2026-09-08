@@ -1,10 +1,19 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-09-07
+> 마지막 업데이트: 2026-09-08
 
 
 ## 진행 중/최근 작업
 
+
+### Task 43: 기본 모델 `gpt-5.6-sol` 환원 + 댓글 모델 오버라이드
+- **상태**: PR 제출 / 리뷰 대기 — [PR #63](https://github.com/azyu/bitbucket-codex-code-review/pull/63) (브랜치 `feat/model-override-in-codex-mention`)
+- **배경**: 선생님 요청 — 기본 모델을 `gpt-5.6-sol`로 환원하고, 대신 PR 댓글 한 줄로 이번 리뷰에만 쓸 모델을 지정할 수 있게 한다.
+- **변경**: `DEFAULTS.CODEX_MODEL`, `.env.example`, `docker-compose.yml`, README, 설정/웹훅/검증 테스트를 `gpt-5.6-sol`로 환원. `TriggerService.parseModelOverride`가 `@codex --model:<name>`(`=`·공백 구분자 포함)을 추출해 `IReviewJobData.model`로 실려 `executeCodex(…, model)`까지 흐른다.
+- **보안**: 값이 `spawn` argv의 `--model` 뒤에 그대로 들어가므로 `[A-Za-z0-9][\w.-]*`로 제한한다 — 선두 `-`를 막아 임의 codex 플래그 주입을 차단한다. allowlist는 두지 않았다(Task 28 결정 유지).
+- **정합성**: 진행 중 코멘트(`⏳ … Model: …`)와 DB `codexModel` 모두 오버라이드 값을 쓴다. 둘 중 하나만 반영하면 사용자에게 보이는 모델과 실제 실행 모델이 갈라진다.
+- **검증**: `pnpm build`, `pnpm lint`(경고 0), `pnpm test --runInBand` 성공 (18 suites, 280 tests — 베이스라인 271 + 9). `pnpm test:cov`: statement 91.11%, branch 82.38%, function 83.33%, line 91.19%.
+- **범위 밖**: ① `CODEX_FORCE_REGEX`는 `--force`가 `@codex` 바로 뒤일 것을 요구하므로 `@codex --model:x --force`는 force로 잡히지 않는다(순서 무관하게 하려면 정규식 완화 필요) ② reasoning effort는 오버라이드 대상이 아니다 — 모델을 바꿔도 `CODEX_REASONING_EFFORT`가 그대로 적용된다.
 
 ### Task 42: 인라인 코멘트 부분 실패 복구 (issue #29)
 - **상태**: PR 제출 / 리뷰 대기 (브랜치 `fix/issue-29-surface-inline-failures`)
@@ -90,6 +99,7 @@
 - **잔존 문자열 조사**: 이전 모델 ID는 과거 Task 27/28, 2026-07-10 설계/계획 문서, GPT-5.6 명시적 모델 전달 테스트에만 의도적으로 유지.
 - **검증**: `pnpm build`, `pnpm lint`, `pnpm test --runInBand`, `pnpm test:cov --runInBand` 성공 (17 suites, 247 tests). 커버리지 statement 89.96%, branch 80.69%, function 81.6%, line 89.97%. Helm lint 및 ConfigMap 렌더링에서 새 모델 확인.
 - **보안/범위**: 신규 시크릿·외부 입력·에러 노출 변경 없음. 모델 allowlist 미추가, reasoning effort 및 Dockerfile `@openai/codex@0.153.2` 핀 유지. 인스턴스·배포 미접촉.
+- **후속**: 기본값은 Task 43에서 `gpt-5.6-sol`로 환원됨 (댓글 `--model` 오버라이드로 대체).
 - **머지 조건**: teal-tapir의 ChatGPT 계정 인증 실호출 접근성·할당량 확인 결과 대기. 프로덕션 모델은 tools-infra `codex-code-review/fetch-env.sh`의 `CODEX_MODEL`이 결정하므로 이 PR만으로 변경되지 않음.
 
 ### Task 37: BullMQ major 대비 colonless review jobId

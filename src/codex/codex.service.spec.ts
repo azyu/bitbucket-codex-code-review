@@ -129,6 +129,25 @@ describe("CodexService", () => {
     expect(args).toContain('model_reasoning_effort="high"');
   });
 
+  // 오버라이드가 argv와 결과에 함께 반영되지 않으면 DB의 codexModel이 실제 실행한
+  // 모델과 어긋난다.
+  it("uses the per-run model argument over the configured default", async () => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockResolvedValue("out");
+
+    const promise = createService({
+      "codex.model": "gpt-5.6-sol",
+    }).executeCodex("/work", "main", "review this", "gpt-6-astra");
+
+    child.emit("close", 0, null);
+    const result = await promise;
+
+    const args = spawnSpy.mock.calls[0][1] as string[];
+    expect(args[args.indexOf("--model") + 1]).toBe("gpt-6-astra");
+    expect(result.model).toBe("gpt-6-astra");
+  });
+
   it.each([
     "gpt-5.6",
     "gpt-5.6-sol",

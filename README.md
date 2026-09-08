@@ -110,7 +110,7 @@ docker compose up -d
 | 환경변수 | 설명 | 기본값 |
 |---|---|---|
 | `CODEX_BINARY_PATH` | Codex CLI 바이너리 경로 | `codex` |
-| `CODEX_MODEL` | 사용 모델 | `gpt-6-astra` |
+| `CODEX_MODEL` | 사용 모델 | `gpt-5.6-sol` |
 | `CODEX_REASONING_EFFORT` | 추론 노력도 (`none` / `low` / `medium` / `high` / `xhigh` / `max`) | `medium` |
 | `CODEX_TIMEOUT_MS` | 실행 타임아웃 (ms) | `600000` |
 | `OPENAI_API_KEY` | OpenAI API 키 (Codex CLI 인증) | - |
@@ -138,6 +138,8 @@ docker compose up -d
 > [!NOTE]
 > `auto`/`both` 모드에서 `pullrequest:updated` 이벤트도 처리됩니다. 동일 commit hash에 대한 중복 리뷰는 idempotency key로 자동 방지됩니다.
 > 동일 commit을 다시 리뷰하려면 트리거 모드와 관계없이 PR 댓글에 `@codex --force`를 입력합니다. 댓글 ID를 기준으로 웹훅 재전송은 중복 방지됩니다.
+>
+> 이번 리뷰에만 다른 모델을 쓰려면 `@codex --model:gpt-6-astra`처럼 지정합니다(`--model=`, `--model ` 형식도 동일). 지정하지 않으면 `CODEX_MODEL` 기본값을 사용하며, `--force`와 함께 쓸 때는 `@codex --force --model:gpt-6-astra` 순서로 입력합니다.
 
 ### Workspace
 

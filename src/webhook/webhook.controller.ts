@@ -105,15 +105,20 @@ export class WebhookController {
 
     const prPayload = this.extractPrPayload(body);
 
+    const model = this.triggerService.parseModelOverride(
+      body.comment.content.raw,
+    );
+
     const result = await this.enqueueReview(
       prPayload,
       TriggerType.MENTION,
       body.comment.id,
       forceReview,
+      model,
     );
 
     if (result.accepted) {
-      this.postInProgressReply(prPayload, body.comment.id);
+      this.postInProgressReply(prPayload, body.comment.id, model);
     }
 
     return result;
@@ -140,6 +145,7 @@ export class WebhookController {
     triggerType: TriggerType,
     triggerCommentId?: number,
     forceReview = false,
+    model?: string,
   ): Promise<{ accepted: boolean; reason?: string }> {
     const baseKey = `${prPayload.repositorySlug}:${prPayload.pullRequestId}:${prPayload.headCommitHash}`;
     const idempotencyKey =
@@ -192,6 +198,7 @@ export class WebhookController {
       idempotencyKey,
       triggerType,
       triggerCommentId,
+      model,
     };
 
     // 등록이 실패하면 run을 FAILED로 남긴다. 게시 증거 없는 FAILED는
@@ -217,8 +224,9 @@ export class WebhookController {
     return { accepted: true };
   }
 
-  private buildProgressMessage(): string {
-    const model = this.configService.getOrThrow<string>("codex.model");
+  private buildProgressMessage(modelOverride?: string): string {
+    const model =
+      modelOverride ?? this.configService.getOrThrow<string>("codex.model");
     const reasoningEffort = this.configService.get<string>(
       "codex.reasoningEffort",
       "",
@@ -233,6 +241,7 @@ export class WebhookController {
   private postInProgressReply(
     prPayload: IWebhookPrPayload,
     parentCommentId: number,
+    model?: string,
   ): void {
     this.bitbucketService
       .replyToComment({
@@ -240,7 +249,7 @@ export class WebhookController {
         repoSlug: prPayload.repositorySlug,
         pullRequestId: prPayload.pullRequestId,
         parentCommentId,
-        body: this.buildProgressMessage(),
+        body: this.buildProgressMessage(model),
       })
       .catch((err) => {
         this.logger.error(

@@ -108,6 +108,7 @@ export class ReviewProcessor extends WorkerHost {
         reviewDiff,
         data.repositorySlug,
         excludedChangedFiles,
+        data.model,
       );
 
       // Step 3: Publish results to Bitbucket
@@ -305,6 +306,7 @@ export class ReviewProcessor extends WorkerHost {
     reviewDiff: string,
     repositorySlug: string,
     excludedChangedFiles: readonly string[] | null,
+    model?: string,
   ): Promise<ICodexReviewResult> {
     // Resolve prompt file: repoCustomPromptFilepaths[repoSlug] → customPromptFilepath
     const repoCustomPromptFilepaths =
@@ -351,6 +353,7 @@ export class ReviewProcessor extends WorkerHost {
       worktreePath,
       baseBranch,
       prompt,
+      model,
     );
 
     if (result.exitCode !== 0) {

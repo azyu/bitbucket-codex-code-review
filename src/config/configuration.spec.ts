@@ -18,7 +18,7 @@ describe("configuration", () => {
 
     expect(config).toEqual(
       expect.objectContaining({
-        codex: expect.objectContaining({ model: "gpt-6-astra" }),
+        codex: expect.objectContaining({ model: "gpt-5.6-sol" }),
       }),
     );
   });

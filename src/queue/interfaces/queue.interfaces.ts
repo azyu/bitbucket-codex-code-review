@@ -14,4 +14,6 @@ export interface IReviewJobData {
   readonly idempotencyKey: string;
   readonly triggerType: TriggerType;
   readonly triggerCommentId?: number;
+  /** 댓글의 `--model:<name>` 오버라이드. 없으면 설정 기본 모델 */
+  readonly model?: string;
 }
