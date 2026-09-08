@@ -689,3 +689,21 @@
 - **왜 이렇게 고쳤나**: parser 설정을 `main.ts`에 인라인하면 `bootstrap()`이 import 시점에 실행돼 테스트가 불가능하고, 테스트는 원본이 아닌 복제본을 검증하게 된다. 그래서 `@lib/body-parser`로 분리해 스펙이 실제 프로덕션 경로를 그대로 부팅한다.
 - **남긴 것**: `x-hook-uuid`는 Bitbucket 문서상 webhook 구독(=repo별) 식별자이므로 413 시점에 repo를 역추적할 실마리가 될 수 있다 — **추정이다.** 리포 어디에도 이 헤더를 다룬 코드가 없어 실제 전송 여부는 인프라가 보는 첫 실물 413 로그로 확인해야 한다. uuid→repo 매핑도 Bitbucket API 조회가 필요하고 자동화하지 않았다. limit은 env 노출 없이 5mb 하드코딩(실측 최대 PR 객체 89,770B 대비 여유 충분).
 - **인프라 쪽 남은 확인**: Caddy에 `request_body` 상한이 별도로 걸려 있지 않은지(기본값은 무제한) 확인 필요 — 그쪽이 더 낮으면 앱 상향이 무효가 된다. Caddy access log 부재는 tools-infra가 별도 처리.
+
+### 리뷰 큐가 근무 시간에 상시 밀림 — 워커 concurrency 1 해소
+- **상태**: ✅ 완료
+- **배경**: 인프라 담당이 2026-09-08 45분간 실측한 큐 상태가 `active=1 wait=3~7`로 줄지 않고 늘었다. `@Processor(REVIEW_QUEUE_NAME)`에 워커 옵션이 없어 BullMQ 기본 `concurrency: 1`로 돌았고, 리뷰 1건 중앙값이 5~6분이라 앞에 3건이 있으면 mention을 달아둔 사람이 20분 이상 기다렸다. 인스턴스는 CPUCreditBalance 576/576·CPU 2~4%·load 0.04로 완전히 유휴 — 리뷰는 CPU가 아니라 codex/Bitbucket API 대기 바운드라 동시 실행 여지가 컸다. 반면 `WORKSPACE_MAX_CONCURRENT`는 파싱·Joi 검증까지 있으면서 소비처가 0건인 죽은 설정이었다.
+- **concurrency만 올리면 안 됐던 이유**: bare repo(`repos/<slug>.git`)는 slug당 공유인데 `prepareWorktree`의 `ensureBareRepo`→`fetchLatest`→`createWorktree` 어디에도 락이 없었다. 같은 slug 두 job이 동시에 `git fetch origin +refs/heads/*:refs/heads/* --prune`을 돌리면 같은 ref lock을 다퉈 `cannot lock ref ... File exists`로 죽는다. 오늘 큐에 `lxp_services` #3404·#3405·#3406이 연달아 대기한 것처럼 같은 repo 짝은 기본 케이스다.
+
+| 서브태스크 | 상태 | 설명 |
+|-----------|------|------|
+| concurrency를 `workspace.maxConcurrent`에 연결 | ✅ | `onApplicationBootstrap`에서 `this.worker.concurrency` 세터. `@Processor` 옵션은 import 시점 고정이라 ConfigService를 못 읽고, `onModuleInit` 시점에는 `WorkerHost.worker`가 아직 없어 throw한다(BullRegistrar가 워커를 만드는 시점이 그 뒤). BullMQ run 루프는 매 회차 concurrency를 다시 읽으므로 세터가 정식 경로 |
+| slug 단위 직렬화 | ✅ | `WorkspaceService.prepareQueues: Map<slug, Promise>` 체인으로 `prepareWorktree`만 직렬화. 저장하는 쪽만 `catch`로 감싸 앞 job 실패가 뒤를 막지 않게 하고 미처리 rejection도 막았다. 소요의 대부분인 codex exec는 락 밖이라 병렬 유지 |
+| askpass 파일명 충돌 제거 | ✅ | `.askpass-${Date.now()}.sh`는 같은 ms에 시작한 두 job이 같은 경로를 쓰고 먼저 끝난 쪽의 `unlink`가 다른 쪽 인증을 깬다. slug 락은 다른 repo 짝을 못 막으므로 `randomUUID()`로 교체 |
+| `WORKSPACE_MAX_CONCURRENT` 검증 강화 | ✅ | `Joi.number().integer().min(1)` — BullMQ 세터가 거부하는 값을 부팅 시 걸러낸다 (`GIT_CLONE_TIMEOUT_MS`와 같은 관례) |
+| 테스트 (TDD RED→GREEN) | ✅ | workspace 4케이스(같은 slug 직렬 / 다른 slug 병렬 / 앞 job 실패 후 진행 / askpass 경로 유일성 — `Date.now` 고정으로 충돌을 강제) + concurrency 배선 2케이스 + 검증 3케이스, 280 tests passed |
+| `pnpm build` + `lint` + `test:cov` | ✅ | 커버리지 91.24% (기준 80%) |
+
+- **남긴 것**: `cleanupWorktree`는 락 밖에 뒀다. `worktree remove`는 ref를 건드리지 않고 admin 디렉터리가 worktree별로 분리돼 있으며, 유일한 경합(prune과 겹침)은 기존 `rm -rf` 폴백이 흡수한다. 락에 넣으면 job의 `finally`가 다른 job의 최대 300초 fetch 뒤로 밀린다. 락은 프로세스 내부이므로 워커를 여러 프로세스로 늘리면 파일 락이 필요하다(`ponytail:` 주석으로 표시).
+- **미검증**: codex `auth.json` 세션 1개로 `codex exec`를 동시 실행할 때의 토큰 갱신 경합은 코드로 확인할 수 없다. 요금제/rate limit 자체는 문제 없다는 확인을 받았으므로, 배포 후 `code_review_authentication_failures{repository,stage}` 카운터만 지켜보면 된다.
+

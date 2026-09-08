@@ -56,6 +56,19 @@ describe("validationSchema", () => {
     },
   );
 
+  it.each([0, -1, 1.5])(
+    "rejects WORKSPACE_MAX_CONCURRENT=%s",
+    (concurrency) => {
+      // 워커 concurrency로 그대로 들어가고 BullMQ 세터가 거부한다 — 부팅 시 걸러낸다
+      const { error } = validationSchema.validate({
+        ...validEnv,
+        WORKSPACE_MAX_CONCURRENT: concurrency,
+      });
+
+      expect(error?.message).toContain("WORKSPACE_MAX_CONCURRENT");
+    },
+  );
+
   it("defaults GIT_CLONE_TIMEOUT_MS to 600000ms", () => {
     const { error, value } = validationSchema.validate(validEnv);
 

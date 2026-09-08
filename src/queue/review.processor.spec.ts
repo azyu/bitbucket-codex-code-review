@@ -19,6 +19,7 @@ import { UnrecoverableError } from "bullmq";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { initOpenTelemetry } from "../lib/opentelemetry";
+import { DEFAULTS } from "../config/configuration";
 
 jest.mock("@lib/logger", () => ({
   ServiceLogger: jest.fn().mockImplementation(() => ({
@@ -2409,5 +2410,47 @@ describe("ReviewProcessor error handling", () => {
     expect(mockReviewService.claimFailure).toHaveBeenCalled();
     expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
     expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+  });
+});
+
+describe("ReviewProcessor worker concurrency", () => {
+  const buildProcessor = (configValues: Record<string, unknown>) => {
+    const configService = {
+      get: jest.fn((key: string, defaultValue?: unknown) =>
+        key in configValues ? configValues[key] : defaultValue,
+      ),
+      getOrThrow: jest.fn(),
+    };
+    const processor = new ReviewProcessor(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      configService as never,
+    );
+    // WorkerHost는 BullExplorer가 채워주는 _worker를 노출한다 — 부트스트랩 시점을 흉내낸다
+    const worker = { concurrency: 1 };
+    Object.assign(processor, { _worker: worker });
+    return { processor, worker };
+  };
+
+  it("applies WORKSPACE_MAX_CONCURRENT to the worker", () => {
+    // 기본 concurrency 1이면 리뷰 1건이 도는 동안 큐가 밀린다 — 죽은 설정을 실제로 태운다
+    const { processor, worker } = buildProcessor({
+      "workspace.maxConcurrent": 4,
+    });
+
+    processor.onApplicationBootstrap();
+
+    expect(worker.concurrency).toBe(4);
+  });
+
+  it("falls back to the configured default", () => {
+    const { processor, worker } = buildProcessor({});
+
+    processor.onApplicationBootstrap();
+
+    expect(worker.concurrency).toBe(DEFAULTS.WORKSPACE_MAX_CONCURRENT);
+    expect(worker.concurrency).toBeGreaterThan(1);
   });
 });

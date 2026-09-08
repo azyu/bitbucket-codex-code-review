@@ -72,7 +72,11 @@ export const validationSchema = Joi.object({
     .default("")
     .custom(jsonObjectValidator("BITBUCKET_REPO_WEBHOOK_SECRETS")),
   WORKSPACE_BASE_PATH: Joi.string().default(DEFAULTS.WORKSPACE_BASE_PATH),
-  WORKSPACE_MAX_CONCURRENT: Joi.number().default(DEFAULTS.WORKSPACE_MAX_CONCURRENT),
+  // 워커 concurrency로 그대로 들어간다 — BullMQ 세터가 1 미만/비정수를 거부한다.
+  WORKSPACE_MAX_CONCURRENT: Joi.number()
+    .integer()
+    .min(1)
+    .default(DEFAULTS.WORKSPACE_MAX_CONCURRENT),
   // execFile은 음수·소수 timeout에 ERR_OUT_OF_RANGE를 던진다 — 부팅 시 걸러낸다.
   // 0(타임아웃 없음)도 허용하지 않는다: 멈춘 clone이 워커 슬롯을 영구 점유한다.
   // 2^31-1 초과는 Node 타이머가 ~1ms로 접어 타임아웃이 되레 짧아진다.

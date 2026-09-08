@@ -194,6 +194,149 @@ describe("WorkspaceService", () => {
     expect(existsSync(worktreePath)).toBe(true);
   }, 30_000);
 
+  describe("per-slug serialization", () => {
+    // worker concurrency > 1이면 같은 repo의 두 job이 동시에 들어온다(같은 PR의 연속 푸시,
+    // 한 repo에 몰린 PR들). bare repo는 slug당 공유이므로 두 `git fetch`가 겹치면 같은 ref
+    // lock을 다퉈 "cannot lock ref ... File exists"로 죽는다.
+    const pendingFetches: Array<() => void> = [];
+
+    /** fetch만 붙잡아두고 나머지 git 호출은 즉시 성공시킨다 */
+    const gateFetchCalls = (failFirst = false): void => {
+      execFileMock.mockImplementation(
+        (
+          _command: string,
+          args: string[],
+          _options: Record<string, unknown>,
+          callback: ExecFileCallback,
+        ) => {
+          if (args[0] === "fetch") {
+            const isFirst = pendingFetches.length === 0;
+            pendingFetches.push(() =>
+              failFirst && isFirst
+                ? callback(new Error("cannot lock ref 'refs/heads/main'"))
+                : callback(null, { stdout: "", stderr: "" }),
+            );
+            return;
+          }
+          callback(null, { stdout: "", stderr: "" });
+        },
+      );
+    };
+
+    const params = (slug: string, headCommitHash: string) => ({
+      cloneUrl: `https://bitbucket.org/workspace/${slug}.git`,
+      repositorySlug: slug,
+      headBranch: "feature",
+      baseBranch: "main",
+      headCommitHash,
+    });
+
+    /**
+     * 진행 중인 prepareWorktree가 fetch까지 도달할 시간을 준다. fetch 전에 실제
+     * fs 작업(mkdir/writeFile)을 await하므로 setImmediate 턴으로는 스레드풀을 기다리지
+     * 못한다 — 느린 러너에서 0건으로 관측되는 위양성이 나온다. 시간 기반이라
+     * "직렬화가 없으면 이 안에 초과 fetch가 쌓인다"도 그대로 성립한다.
+     */
+    const settle = (): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, 50));
+
+    beforeEach(() => {
+      pendingFetches.length = 0;
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks(); // Date.now 스파이가 다른 테스트로 새지 않게
+    });
+
+    it("holds a second job for the same slug until the first finishes", async () => {
+      gateFetchCalls();
+
+      const first = service.prepareWorktree(params("repo-a", "aaaaaaaa1111"));
+      await settle();
+      const second = service.prepareWorktree(params("repo-a", "bbbbbbbb2222"));
+      await settle();
+
+      expect(pendingFetches).toHaveLength(1);
+
+      pendingFetches[0]!();
+      await expect(first).resolves.toMatchObject({
+        worktreePath: join(basePath, "worktrees", "repo-a-aaaaaaaa"),
+      });
+      await settle();
+
+      expect(pendingFetches).toHaveLength(2);
+      pendingFetches[1]!();
+      await expect(second).resolves.toMatchObject({
+        worktreePath: join(basePath, "worktrees", "repo-a-bbbbbbbb"),
+      });
+    });
+
+    it("runs different slugs in parallel", async () => {
+      gateFetchCalls();
+
+      const first = service.prepareWorktree(params("repo-a", "aaaaaaaa1111"));
+      await settle();
+      const second = service.prepareWorktree(params("repo-b", "bbbbbbbb2222"));
+      await settle();
+
+      expect(pendingFetches).toHaveLength(2);
+
+      pendingFetches[0]!();
+      pendingFetches[1]!();
+      await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    });
+
+    it("gives each concurrent job its own askpass script", async () => {
+      // 파일명이 Date.now()뿐이면 같은 ms에 시작한 두 job이 같은 경로를 쓰고,
+      // 먼저 끝난 쪽의 unlink가 아직 fetch 중인 쪽의 인증을 깬다.
+      jest.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+      configValues["bitbucket.apiToken"] = "api-token";
+      gateFetchCalls();
+
+      const first = service.prepareWorktree(params("repo-a", "aaaaaaaa1111"));
+      await settle();
+      const second = service.prepareWorktree(params("repo-b", "bbbbbbbb2222"));
+      await settle();
+
+      const askpassPaths = execFileMock.mock.calls
+        .filter((call) => (call[1] as string[])[0] === "clone")
+        .map(
+          (call) =>
+            (call[2] as { env: Record<string, string> }).env["GIT_ASKPASS"],
+        );
+
+      expect(askpassPaths).toHaveLength(2);
+      expect(askpassPaths[0]).not.toEqual(askpassPaths[1]);
+
+      pendingFetches[0]!();
+      pendingFetches[1]!();
+      await Promise.all([first, second]);
+    });
+
+    it("keeps the queue moving when the preceding job fails", async () => {
+      gateFetchCalls(true);
+
+      // rejects 매처는 await 시점에야 핸들러를 붙인다 — 먼저 catch로 받아둬야
+      // 미처리 rejection이 러너를 물지 않는다.
+      const first = service
+        .prepareWorktree(params("repo-a", "aaaaaaaa1111"))
+        .catch((err: Error) => err.message);
+      await settle();
+      const second = service.prepareWorktree(params("repo-a", "bbbbbbbb2222"));
+      await settle();
+
+      pendingFetches[0]!();
+      await expect(first).resolves.toContain("cannot lock ref");
+      await settle();
+
+      expect(pendingFetches).toHaveLength(2);
+      pendingFetches[1]!();
+      await expect(second).resolves.toMatchObject({
+        worktreePath: join(basePath, "worktrees", "repo-a-bbbbbbbb"),
+      });
+    });
+  });
+
   it("rejects repository slugs that sanitize to an empty value", async () => {
     await expect(
       service.prepareWorktree({
