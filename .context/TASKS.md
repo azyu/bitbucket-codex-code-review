@@ -7,7 +7,7 @@
 
 
 ### Task 43: 기본 모델 `gpt-5.6-sol` 환원 + 댓글 모델 오버라이드
-- **상태**: 구현·검증 완료 / 커밋 승인 대기
+- **상태**: PR 제출 / 리뷰 대기 — [PR #63](https://github.com/azyu/bitbucket-codex-code-review/pull/63) (브랜치 `feat/model-override-in-codex-mention`)
 - **배경**: 선생님 요청 — 기본 모델을 `gpt-5.6-sol`로 환원하고, 대신 PR 댓글 한 줄로 이번 리뷰에만 쓸 모델을 지정할 수 있게 한다.
 - **변경**: `DEFAULTS.CODEX_MODEL`, `.env.example`, `docker-compose.yml`, README, 설정/웹훅/검증 테스트를 `gpt-5.6-sol`로 환원. `TriggerService.parseModelOverride`가 `@codex --model:<name>`(`=`·공백 구분자 포함)을 추출해 `IReviewJobData.model`로 실려 `executeCodex(…, model)`까지 흐른다.
 - **보안**: 값이 `spawn` argv의 `--model` 뒤에 그대로 들어가므로 `[A-Za-z0-9][\w.-]*`로 제한한다 — 선두 `-`를 막아 임의 codex 플래그 주입을 차단한다. allowlist는 두지 않았다(Task 28 결정 유지).
