@@ -82,7 +82,7 @@ repository override 우선순위:
 
 이 값들은 DB를 읽기 전 또는 프로세스/클라이언트 생성 시 필요하므로 bootstrap-static 설정이다.
 
-OpenAI base URL은 HTTPS만 허용하며 API key와 같은 job-start DB 읽기에서 하나의 connection snapshot으로 원자적으로 resolve한다. 비밀이 아닌 값이지만 webhook 시점의 review snapshot에는 넣지 않는다. Codex 실행 시 base URL은 `OPENAI_BASE_URL` 환경변수에만 의존하지 않고 CLI `-c openai_base_url=<validated-url>` override로 전달해 기존 `config.toml`보다 높은 우선순위를 보장한다.
+OpenAI base URL은 HTTPS만 허용하며 API key와 같은 job-start DB 읽기에서 하나의 connection snapshot으로 원자적으로 resolve한다. 비밀이 아닌 값이지만 webhook 시점의 review snapshot에는 넣지 않는다. Codex 실행 시 `OPENAI_BASE_URL` 환경변수에만 의존하지 않고 CLI `-c model_provider="openai"`와 `-c openai_base_url=<validated-url>`를 함께 전달해 기존 `config.toml`의 custom provider와 endpoint보다 높은 우선순위를 보장한다.
 
 ### 5. secret API 규칙
 
@@ -108,7 +108,9 @@ GET은 `basicCredentialConfigured`만 반환한다.
 
 최초 배포의 one-time importer는 현재 runtime env/default의 global 값 전체(OpenAI 연결, queue/Codex/worker/workspace/review 설정, Bitbucket API token·webhook secret·legacy username/app-password)와 repository prompt 본문·API token·webhook secret을 해당 current row로 옮긴다. `repositorySlug`만 있는 기존 항목은 workspace를 추측하지 않고 명시적인 `repositorySlug` → `workspaceSlug` mapping을 요구하며, 누락된 mapping이 있으면 cutover하지 않는다.
 
-한 번의 배포에서 webhook ingress를 잠시 멈추고 기존 queued/retrying/running job을 현재 `job.data.model`로 모두 drain한 뒤 DB migration/import와 모든 runtime consumer를 rolling 배포한다. 모든 Pod 전환과 import 성공을 확인한 후 ingress를 재개하여 snapshot 없는 기존 job이 새 processor에 들어가지 않게 한다.
+같은 migration은 `review_runs.idempotencyKey`를 workspace-qualified key가 잘리지 않는 길이로 먼저 확장한 뒤, 모든 기존 key 앞에 해당 row의 `workspaceSlug:`를 붙여 backfill한다. force suffix를 포함한 기존 key 본문은 그대로 보존하고 unique index가 새 workspace-qualified key를 강제해야 한다.
+
+한 번의 배포에서 webhook ingress를 잠시 멈추고 기존 queued/retrying/running job을 현재 `job.data.model`로 모두 drain한다. 이어 각 legacy key에 대해 pre-cutover raw ID와 `review-${base64url(legacyKey)}` ID를 명시적으로 제거하고 queue에 실행 가능하거나 복구 가능한 job이 없음을 확인한 뒤 DB migration/import와 모든 runtime consumer를 rolling 배포한다. 모든 Pod 전환과 import 성공을 확인한 후 ingress를 재개한다.
 
 ## runtime 적용 불변식
 
@@ -116,14 +118,12 @@ GET은 `basicCredentialConfigured`만 반환한다.
 - webhook controller는 effective 비밀 아닌 review 설정을 resolve하고 model override를 적용한 뒤 `review_runs`의 JSON snapshot으로 저장한다. OpenAI base URL은 제외한다.
 - queue attempts/backoff는 enqueue 옵션에 명시해 새 job에만 적용한다.
 - `postInProgressReply`, `postInProgressComment`, `buildProgressMessage`는 별도 `ConfigService` 조회 없이 같은 resolved review snapshot의 model/reasoning을 표시한다.
-- review lifecycle identity도 `(workspaceSlug, repositorySlug)`를 끝까지 사용한다. `enqueueReview` idempotency key와 여기서 파생되는 current/legacy stale BullMQ job ID, `supersedeActivePrReviews` predicate에 workspace를 포함한다.
+- 새 review lifecycle identity는 `(workspaceSlug, repositorySlug)`를 끝까지 사용한다. `enqueueReview` idempotency key와 여기서 파생되는 raw/base64url BullMQ job ID, `supersedeActivePrReviews` predicate에 workspace를 포함한다. 전환 중에는 새 ID 외에 pre-cutover workspace 없는 raw/base64url ID도 함께 조회·제거한다.
 - processor는 저장된 review snapshot과 작업 시작 시 읽은 credential snapshot을 끝까지 재사용한다.
 - OpenAI HTTPS base URL과 API key는 같은 job-start DB 읽기에서 하나의 immutable connection snapshot으로 만들고 함께 재사용한다. 서로 다른 revision의 endpoint와 key를 섞지 않는다.
 - 실행 중 설정 변경은 해당 webhook/job/Bitbucket 게시 흐름을 바꾸지 않는다.
 - 새 webhook은 새 review 설정을, 새 job 시작은 새 credential과 OpenAI connection 설정을 사용한다.
-- worker concurrency만 live global control이며 각 Pod가 짧은 revision polling으로 DB를 읽어 자신의 `worker.concurrency` setter에 적용한다. 낮춰도 이미 실행 중인 job은 취소하지 않는다.
-
-`CodexService`는 binary path만 constructor에 유지하고 model/reasoning/timeout/prompt는 review snapshot, OpenAI HTTPS base URL/API key는 atomic job-start connection snapshot 인자로 받는다. base URL은 검증 후 CLI `-c openai_base_url=<url>`로 override하고 API key만 명시적 child env에 넣어 기존 `config.toml` endpoint가 새 key를 받지 못하게 한다. 현재 `process.env` 전체를 child에 복사하는 방식은 고정 allowlist로 바꿔 dashboard/encryption/Bitbucket/DB/Redis secret 유출을 막는다.
+`CodexService`는 binary path만 constructor에 유지하고 model/reasoning/timeout/prompt는 review snapshot, OpenAI HTTPS base URL/API key는 atomic job-start connection snapshot 인자로 받는다. 실행 시 CLI `-c model_provider="openai"`와 `-c openai_base_url=<validated-url>`를 함께 override하고 API key만 명시적 child env에 넣어 기존 `config.toml`의 custom provider나 endpoint가 새 key를 받지 못하게 한다. 현재 `process.env` 전체를 child에 복사하는 방식은 고정 allowlist로 바꿔 dashboard/encryption/Bitbucket/DB/Redis secret 유출을 막는다.
 
 `WorkspaceService`는 base path만 constructor에 유지하고 clone timeout과 credential을 작업 snapshot으로 받는다. repo path와 lock key도 workspace+repository 복합 식별자를 사용한다.
 
@@ -159,14 +159,14 @@ route:
 
 ### Phase 2: 안전한 cutover와 runtime consumer 전환
 
-- Phase 1·2를 한 번에 배포: webhook ingress 일시 중단 → 기존 queued/retrying/running job을 현재 `job.data.model`로 drain → migration/import와 모든 consumer rolling 배포 → 전체 Pod와 import 확인 후 ingress 재개
+- Phase 1·2를 한 번에 배포: webhook ingress 일시 중단 → 기존 queued/retrying/running job을 현재 `job.data.model`로 drain → pre-cutover raw/base64url BullMQ ID 제거 및 queue empty 확인 → `review_runs.idempotencyKey` workspace prefix backfill → migration/import와 모든 consumer rolling 배포 → 전체 Pod와 import 확인 후 ingress 재개
 - webhook secret/trigger mode/queue options를 runtime settings로 전환
 - review run에 OpenAI base URL을 제외한 비밀 아닌 effective review snapshot 저장
 - Codex model/reasoning/timeout/prompt를 review snapshot 인자로 전환
 - OpenAI HTTPS base URL/API key를 같은 job-start 읽기의 atomic connection snapshot 인자로 전환
 - Bitbucket/Git credential을 작업 시작 snapshot으로 전환
 - 진행 중 댓글의 model/reasoning도 review snapshot에서 렌더링하도록 `WebhookController`의 별도 `ConfigService` 조회 제거
-- `enqueueReview` idempotency key와 파생 BullMQ job ID, `supersedeActivePrReviews` predicate를 workspace+repository identity로 전환
+- `enqueueReview` idempotency key와 파생 BullMQ job ID, `supersedeActivePrReviews` predicate를 workspace+repository identity로 전환하고 pre-cutover workspace 없는 raw/base64url ID cleanup 유지
 - clone timeout과 worker concurrency live 적용
 - Codex child env를 allowlist로 전환
 
@@ -194,12 +194,13 @@ route:
 - 저장 후 Pod 재시작 없이 다음 webhook은 새 review 설정을, 다음 job 시작은 새 credential/OpenAI connection 설정을 사용
 - 실행 중 job은 저장 전 review snapshot과 job-start credential/OpenAI connection snapshot 유지
 - 최초 이관이 현재 runtime env/default의 global 값 전체와 repository prompt 본문·API token·webhook secret을 모두 보존하며 `repositorySlug`-only 항목은 명시적 workspace mapping 없이는 cutover되지 않음
-- ingress pause와 queue drain 뒤 배포되어 snapshot 없는 queued/retrying job이 새 processor에서 실행되지 않고, drain 중 기존 job은 현재 `job.data.model`을 유지
+- ingress pause 뒤 기존 job을 drain하고 pre-cutover workspace 없는 raw/base64url BullMQ ID까지 제거한 후 queue empty를 확인하여 snapshot 없는 job이 새 processor에서 실행되지 않음
 - OpenAI base URL은 HTTPS만 허용되고 API key와 같은 job-start 읽기에서 생성된 connection snapshot이어서 새 key가 이전 endpoint와 결합되지 않음
-- Codex CLI `-c openai_base_url=<validated-url>`가 기존 `config.toml`보다 우선하여 새 API key가 이전 endpoint로 전달되지 않음
+- Codex CLI `-c model_provider="openai"`와 `-c openai_base_url=<validated-url>`가 기존 `config.toml`의 custom provider/endpoint보다 우선하여 새 API key가 다른 endpoint로 전달되지 않음
 - 진행 중 댓글이 같은 review snapshot의 model/reasoning을 표시해 실제 job 설정과 일치
 - repository slug가 같아도 workspace가 다르면 설정/secret이 분리
 - 같은 repository slug/PR/commit이라도 workspace가 다르면 idempotency·BullMQ job ID·supersede가 충돌하지 않음
+- 기존 `review_runs.idempotencyKey`가 workspace prefix로 backfill되어 같은 historical commit webhook이 새 key 형식으로 한 번 더 수용되지 않음
 - legacy Basic credential은 username/app password를 항상 함께 replace/clear할 수 있고 GET에는 configured 여부만 노출
 - Codex child env에 dashboard/encryption/Bitbucket/DB/Redis secret이 없음
 - 여러 Pod가 같은 새 concurrency revision을 관측해 각 worker setter에 적용하고, 이미 실행 중인 job은 유지
