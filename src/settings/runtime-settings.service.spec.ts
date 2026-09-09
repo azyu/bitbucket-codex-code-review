@@ -347,6 +347,36 @@ describe("RuntimeSettingsService", () => {
     });
   });
 
+  it("rejects replacement secrets that exceed encrypted storage capacity", async () => {
+    const { service } = createService();
+    await service.onApplicationBootstrap();
+
+    await expect(
+      service.updateGlobal({
+        expectedRevision: 1,
+        secrets: {
+          openaiApiKey: {
+            operation: "replace",
+            value: "x".repeat(50_000),
+          },
+        },
+      }),
+    ).rejects.toThrow("encrypted settings storage capacity");
+    await expect(service.getSettingsDocument()).resolves.toMatchObject({
+      global: { revision: 1 },
+    });
+    await expect(
+      service.updateGlobal({
+        expectedRevision: 1,
+        basicCredential: {
+          operation: "replace",
+          username: "user",
+          appPassword: "\0".repeat(1_025),
+        },
+      }),
+    ).rejects.toThrow("encrypted settings storage capacity");
+  });
+
   it("rejects malformed runtime setting patches at the API boundary", async () => {
     const { service } = createService();
     await service.onApplicationBootstrap();
@@ -392,6 +422,17 @@ describe("RuntimeSettingsService", () => {
         service.updateRepository(identity, patch as never),
       ).rejects.toThrow("Invalid");
     }
+    await expect(
+      service.updateRepository(identity, {
+        expectedRevision: 0,
+        secrets: {
+          bitbucketApiToken: {
+            operation: "replace",
+            value: "😀".repeat(257),
+          },
+        },
+      }),
+    ).rejects.toThrow("encrypted settings storage capacity");
     await expect(
       service.updateRepository(identity, {
         expectedRevision: 0,
@@ -466,6 +507,17 @@ describe("RuntimeSettingsService", () => {
       store,
     ).service;
     await expect(second.onApplicationBootstrap()).rejects.toThrow();
+  });
+
+  it("rejects oversized bootstrap secrets before persistence", async () => {
+    const { service, rows } = createService({
+      "openai.apiKey": "😀".repeat(257),
+    });
+
+    await expect(service.onApplicationBootstrap()).rejects.toThrow(
+      "encrypted settings storage capacity",
+    );
+    expect(rows.size).toBe(0);
   });
 
   it("rejects invalid encryption keys and partial imported Basic credentials", async () => {

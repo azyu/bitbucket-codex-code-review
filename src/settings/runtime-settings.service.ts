@@ -79,6 +79,8 @@ const TRIGGER_VALUES: Record<string, true> = {
 };
 
 const MAX_CUSTOM_PROMPT_CHARS = 100_000;
+const MYSQL_TEXT_MAX_BYTES = 65_535;
+const MAX_SECRET_UTF8_BYTES = 1_024;
 
 type SecretValues = {
   openaiApiKey?: string;
@@ -419,9 +421,14 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
     }
     const keys = Object.keys(mutation);
     if (mutation.operation === "replace") {
-      if (keys.some((key) => !["operation", "value"].includes(key)) || typeof mutation.value !== "string" || mutation.value.length === 0) {
+      if (
+        keys.some((key) => !["operation", "value"].includes(key)) ||
+        typeof mutation.value !== "string" ||
+        mutation.value.length === 0
+      ) {
         throw new BadRequestException("Replacement secret must be non-empty");
       }
+      this.validateSecretCapacity(mutation.value);
     } else if (keys.some((key) => key !== "operation")) {
       throw new BadRequestException("Invalid clear operation");
     }
@@ -443,11 +450,20 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
           "username and appPassword must be replaced together",
         );
       }
+      this.validateSecretCapacity(mutation.username);
+      this.validateSecretCapacity(mutation.appPassword);
     } else if (
       mutation.operation !== "clear" ||
       keys.some((key) => key !== "operation")
     ) {
       throw new BadRequestException("Invalid basicCredential operation");
+    }
+  }
+  private validateSecretCapacity(value: string): void {
+    if (Buffer.byteLength(value, "utf8") > MAX_SECRET_UTF8_BYTES) {
+      throw new BadRequestException(
+        "Secret exceeds encrypted settings storage capacity",
+      );
     }
   }
 
@@ -517,7 +533,13 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
       tag: cipher.getAuthTag().toString("base64"),
       ciphertext: ciphertext.toString("base64"),
     };
-    return JSON.stringify(envelope);
+    const serialized = JSON.stringify(envelope);
+    if (Buffer.byteLength(serialized, "utf8") > MYSQL_TEXT_MAX_BYTES) {
+      throw new BadRequestException(
+        "Secrets exceed encrypted settings storage capacity",
+      );
+    }
+    return serialized;
   }
 
   private decrypt(row: RuntimeSettingEntity): SecretValues {
@@ -681,7 +703,10 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
       ["appPassword", appPassword],
     ];
     for (const [key, value] of secretImports) {
-      if (value) globalSecrets[key] = value;
+      if (value) {
+        this.validateSecretCapacity(value);
+        globalSecrets[key] = value;
+      }
     }
 
     const imported = await this.repository.manager.transaction(async (manager) => {
@@ -727,8 +752,14 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
           values.customPrompt = customPrompt;
         }
         const secrets: SecretValues = {};
-        if (repoTokens[repositorySlug]) secrets.bitbucketApiToken = repoTokens[repositorySlug];
-        if (repoWebhookSecrets[repositorySlug]) secrets.webhookSecret = repoWebhookSecrets[repositorySlug];
+        if (repoTokens[repositorySlug]) {
+          this.validateSecretCapacity(repoTokens[repositorySlug]);
+          secrets.bitbucketApiToken = repoTokens[repositorySlug];
+        }
+        if (repoWebhookSecrets[repositorySlug]) {
+          this.validateSecretCapacity(repoWebhookSecrets[repositorySlug]);
+          secrets.webhookSecret = repoWebhookSecrets[repositorySlug];
+        }
         await repo.insert({
           scopeKey,
           scope: "repository",
