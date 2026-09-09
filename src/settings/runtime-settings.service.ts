@@ -517,7 +517,7 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
   }
 
   private validateIdentity(identity: IRepositoryIdentity): void {
-    const valid = /^[A-Za-z0-9._-]+$/;
+    const valid = /^[A-Za-z0-9._-]{1,255}$/;
     if (!valid.test(identity.workspaceSlug) || !valid.test(identity.repositorySlug)) {
       throw new BadRequestException("Invalid repository identity");
     }
@@ -673,6 +673,11 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
         `RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP is missing: ${missingMappings.join(", ")}`,
       );
     }
+    const repositoryIdentities = [...repositorySlugs].map((repositorySlug) => ({
+      workspaceSlug: workspaceMap[repositorySlug]!,
+      repositorySlug,
+    }));
+    repositoryIdentities.forEach((identity) => this.validateIdentity(identity));
 
     const globalPromptPath = this.configService.get<string>(
       "codex.customPromptFilepath",
@@ -741,12 +746,8 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
         .orIgnore()
         .execute();
       if (globalInsert.raw.affectedRows !== 1) return false;
-      for (const repositorySlug of repositorySlugs) {
-        const identity = {
-          workspaceSlug: workspaceMap[repositorySlug]!,
-          repositorySlug,
-        };
-        this.validateIdentity(identity);
+      for (const identity of repositoryIdentities) {
+        const { repositorySlug } = identity;
         const scopeKey = this.repositoryKey(identity);
         const values: Record<string, string | number> = {};
         const promptPath = repoPromptPaths[repositorySlug];

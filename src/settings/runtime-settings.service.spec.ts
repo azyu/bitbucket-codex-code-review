@@ -253,6 +253,34 @@ describe("RuntimeSettingsService", () => {
     expect(rows.size).toBe(0);
   });
 
+  it.each([
+    [
+      "workspace",
+      {
+        "runtimeSettings.repositoryWorkspaceMap": {
+          shared: "w".repeat(256),
+        },
+        "bitbucket.repoTokens": { shared: "secret" },
+      },
+    ],
+    [
+      "repository",
+      {
+        "runtimeSettings.repositoryWorkspaceMap": {
+          ["r".repeat(256)]: "workspace",
+        },
+        "bitbucket.repoTokens": { ["r".repeat(256)]: "secret" },
+      },
+    ],
+  ])("rejects oversized %s identities during import", async (_label, config) => {
+    const { service, rows } = createService(config);
+
+    await expect(service.onApplicationBootstrap()).rejects.toThrow(
+      "Invalid repository identity",
+    );
+    expect(rows.size).toBe(0);
+  });
+
   it("resolves repository overrides and restores global inheritance after clear", async () => {
     const { service } = createService();
     await service.onApplicationBootstrap();
@@ -455,6 +483,14 @@ describe("RuntimeSettingsService", () => {
         { expectedRevision: 0 },
       ),
     ).rejects.toThrow("Invalid repository identity");
+    for (const invalidIdentity of [
+      { workspaceSlug: "w".repeat(256), repositorySlug: "repo" },
+      { workspaceSlug: "workspace", repositorySlug: "r".repeat(256) },
+    ]) {
+      await expect(
+        service.updateRepository(invalidIdentity, { expectedRevision: 0 }),
+      ).rejects.toThrow("Invalid repository identity");
+    }
   });
 
   it("imports mapped repository credentials exactly once", async () => {
