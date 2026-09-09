@@ -43,6 +43,7 @@ describe("ReviewService stats", () => {
     mockRepository.query
       .mockResolvedValueOnce([
         {
+          workspaceSlug: "workspace-a",
           repositorySlug: "repo-a",
           totalCount: "4",
           completedCount: "2",
@@ -59,6 +60,7 @@ describe("ReviewService stats", () => {
       ])
       .mockResolvedValueOnce([
         {
+          workspaceSlug: "workspace-a",
           id: 99,
           repositorySlug: "repo-a",
           pullRequestId: 17,
@@ -72,9 +74,10 @@ describe("ReviewService stats", () => {
         },
       ]);
 
-    const result = await service.getRepoStats("repo-a");
+    const result = await service.getRepoStats("workspace-a", "repo-a");
 
     expect(result).toEqual<IRepoStatsOverview>({
+      workspaceSlug: "workspace-a",
       repoSlug: "repo-a",
       counts: {
         total: 4,
@@ -96,6 +99,7 @@ describe("ReviewService stats", () => {
       },
       latestReview: {
         id: 99,
+        workspaceSlug: "workspace-a",
         repositorySlug: "repo-a",
         pullRequestId: 17,
         reviewStatus: ReviewRunStatus.COMPLETED,
@@ -109,11 +113,12 @@ describe("ReviewService stats", () => {
     });
   });
 
-  it("should list repo stats ordered by latest review date desc", async () => {
+  it("keeps same-slug repositories in different workspaces separate", async () => {
     mockRepository.query
       .mockResolvedValueOnce([
         {
-          repositorySlug: "repo-b",
+          workspaceSlug: "workspace-b",
+          repositorySlug: "repo-a",
           totalCount: "2",
           completedCount: "1",
           failedCount: "1",
@@ -127,6 +132,7 @@ describe("ReviewService stats", () => {
           outputTokens: "20",
         },
         {
+          workspaceSlug: "workspace-a",
           repositorySlug: "repo-a",
           totalCount: "1",
           completedCount: "1",
@@ -143,6 +149,7 @@ describe("ReviewService stats", () => {
       ])
       .mockResolvedValueOnce([
         {
+          workspaceSlug: "workspace-a",
           id: 20,
           repositorySlug: "repo-a",
           pullRequestId: 1,
@@ -150,8 +157,9 @@ describe("ReviewService stats", () => {
           createdAt: new Date("2026-04-08T00:00:00.000Z"),
         },
         {
+          workspaceSlug: "workspace-b",
           id: 21,
-          repositorySlug: "repo-b",
+          repositorySlug: "repo-a",
           pullRequestId: 2,
           reviewStatus: ReviewRunStatus.FAILED,
           createdAt: new Date("2026-04-09T00:00:00.000Z"),
@@ -160,7 +168,10 @@ describe("ReviewService stats", () => {
 
     const result = await service.listRepoStats();
 
-    expect(result.map((item) => item.repoSlug)).toEqual(["repo-b", "repo-a"]);
+    expect(result.map((item) => [item.workspaceSlug, item.repoSlug])).toEqual([
+      ["workspace-b", "repo-a"],
+      ["workspace-a", "repo-a"],
+    ]);
     expect(result[0].latestReview?.id).toBe(21);
     expect(result[0].tokens.totalTokens).toBe(320);
     expect(result[1].tokens.totalTokens).toBe(210);
@@ -274,6 +285,7 @@ describe("ReviewService.listRecent", () => {
   const buildRow = (overrides: Partial<ReviewRunEntity> = {}): ReviewRunEntity =>
     ({
       id: 1,
+      workspaceSlug: "workspace-a",
       repositorySlug: "repo-a",
       pullRequestId: 11,
       headCommitHash: "abc1234",

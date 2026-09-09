@@ -836,11 +836,11 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                   <template x-if="repos.length === 0">
                     <div class="overview-item text-secondary">표시할 저장소 활동이 없습니다.</div>
                   </template>
-                  <template x-for="repo in renderRepoOverview()" :key="repo.repoSlug">
+                  <template x-for="repo in renderRepoOverview()" :key="repo.workspaceSlug + '/' + repo.repoSlug">
                     <div class="overview-item">
                       <div class="overview-meta">
                         <div>
-                          <div class="overview-name" x-text="repo.repoSlug"></div>
+                          <div class="overview-name" x-text="repo.workspaceSlug + '/' + repo.repoSlug"></div>
                           <div class="text-secondary small mt-1">
                             토큰 <span x-text="formatInteger(repo.tokens.totalTokens)"></span>
                             · 실패 <span x-text="formatInteger(repo.counts.failed)"></span>
@@ -912,10 +912,10 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                       <td colspan="6" class="px-4 py-5 text-center text-secondary">리뷰 실행 데이터가 없습니다.</td>
                     </tr>
                   </template>
-                  <template x-for="repo in repos" :key="repo.repoSlug">
+                  <template x-for="repo in repos" :key="repo.workspaceSlug + '/' + repo.repoSlug">
                     <tr>
                       <td>
-                        <div class="repo-name" x-text="repo.repoSlug"></div>
+                        <div class="repo-name" x-text="repo.workspaceSlug + '/' + repo.repoSlug"></div>
                         <div class="repo-subcopy">
                           최근 실행
                           <span x-text="formatDate(repo.latestReview && repo.latestReview.createdAt)"></span>
@@ -988,7 +988,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                     <tr>
                       <td x-text="formatDate(review.createdAt)"></td>
                       <td>
-                        <div class="repo-name" x-text="review.repositorySlug"></div>
+                        <div class="repo-name" x-text="review.workspaceSlug + '/' + review.repositorySlug"></div>
                         <div class="repo-subcopy">
                           PR #<span x-text="review.pullRequestId"></span>
                         </div>
@@ -1242,7 +1242,7 @@ function renderHighlights(repos) {
     {
       title: "가장 바쁜 저장소",
       value: busiestRepo
-        ? busiestRepo.repoSlug + " · " + formatInteger(busiestRepo.counts.total) + "건"
+        ? busiestRepo.workspaceSlug + "/" + busiestRepo.repoSlug + " · " + formatInteger(busiestRepo.counts.total) + "건"
         : "-",
       detail: "리뷰 실행 수 기준",
     },
@@ -1251,7 +1251,7 @@ function renderHighlights(repos) {
       value: latestRepo
         ? formatDate(latestRepo.latestReview && latestRepo.latestReview.createdAt)
         : "-",
-      detail: latestRepo ? latestRepo.repoSlug : "최근 실행 없음",
+      detail: latestRepo ? latestRepo.workspaceSlug + "/" + latestRepo.repoSlug : "최근 실행 없음",
     },
     {
       title: "실패 리뷰",

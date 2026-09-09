@@ -209,8 +209,8 @@ pnpm lint           # ESLint
 | `PATCH` | `/api/internal/settings/repositories/:workspaceSlug/:repoSlug` | repository override CAS 갱신 |
 | `GET` | `/api/internal/reviews/:id` | 리뷰 실행 1건 상세 조회 |
 | `GET` | `/api/internal/reviews/:workspaceSlug/:repoSlug/:prId/latest` | 특정 PR의 최신 리뷰 조회 |
-| `GET` | `/api/internal/stats/repos` | repo별 요약 통계 목록 |
-| `GET` | `/api/internal/stats/repos/:repoSlug` | 특정 repo의 누적 요약 통계 |
+| `GET` | `/api/internal/stats/repos` | workspace/repo별 요약 통계 목록 |
+| `GET` | `/api/internal/stats/repos/:workspaceSlug/:repoSlug` | 특정 workspace/repo의 누적 요약 통계 |
 
 repo 통계 응답에는 리뷰 건수, Codex/전체 소요 시간, input/cached/output token 합계, 최신 리뷰 메타데이터가 포함됩니다.
 

@@ -59,6 +59,7 @@ describe("InternalController", () => {
 
   it("should return stats for a single repo", async () => {
     mockReviewService.getRepoStats.mockResolvedValue({
+      workspaceSlug: "workspace-a",
       repoSlug: "repo-a",
       counts: { total: 1, completed: 1, failed: 0, superseded: 0 },
       durations: {
@@ -80,11 +81,18 @@ describe("InternalController", () => {
       },
     });
 
-    await expect(controller.getRepoStats("repo-a")).resolves.toEqual(
+    await expect(
+      controller.getRepoStats("workspace-a", "repo-a"),
+    ).resolves.toEqual(
       expect.objectContaining({
+        workspaceSlug: "workspace-a",
         repoSlug: "repo-a",
         tokens: expect.objectContaining({ totalTokens: 520 }),
       }),
+    );
+    expect(mockReviewService.getRepoStats).toHaveBeenCalledWith(
+      "workspace-a",
+      "repo-a",
     );
   });
 

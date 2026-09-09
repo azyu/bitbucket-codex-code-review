@@ -85,11 +85,12 @@ export class InternalController {
     return this.reviewService.findById(id);
   }
 
-  @Get("stats/repos/:repoSlug")
+  @Get("stats/repos/:workspaceSlug/:repoSlug")
   async getRepoStats(
+    @Param("workspaceSlug") workspaceSlug: string,
     @Param("repoSlug") repoSlug: string,
   ): Promise<IRepoStatsOverview> {
-    return this.reviewService.getRepoStats(repoSlug);
+    return this.reviewService.getRepoStats(workspaceSlug, repoSlug);
   }
 
   @Get("stats/repos")
