@@ -162,6 +162,7 @@ docker compose up -d
 - **인증**: HTTPS에서 단일 `DASHBOARD_SECRET_KEY`를 Bearer header로 사용하고 모든 `/api/internal/*` route를 보호
 - **secret 저장**: AES-256-GCM 암호화. 조회 API는 값 대신 configured/inherited 상태만 반환
 - **설정 일관성**: 진행 중 댓글도 job과 같은 review snapshot의 model/reasoning을 표시하며 legacy Basic username/app password는 항상 함께 교체하거나 삭제
+- **식별자/연결 안전성**: review idempotency와 supersede는 workspace+repository를 사용하고 OpenAI base URL은 Codex CLI `-c` override로 기존 `config.toml`보다 우선
 
 초기 migration/import와 기존 queue drain을 위한 rollout은 한 번 필요합니다. 전환 후 runtime 설정 변경에는 Pod 재시작이 필요하지 않습니다. 상세 설계와 수용 기준은 [`.context/PLAN.md`](.context/PLAN.md)를 참조하세요.
 

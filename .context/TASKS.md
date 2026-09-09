@@ -16,6 +16,7 @@
 - **전환 게이트**: 단일 배포 전략으로 ingress를 잠시 중단하고 기존 worker가 snapshot 없는 queued/active/delayed-retry/stalled-recoverable job을 모두 drain한 뒤 새 producer/worker를 배포하고 ingress를 재개한다. drain 완료까지 기존 `job.data.model` 처리를 유지하며 snapshot 없는 job을 새 worker에 넘기지 않는다.
 - **OpenAI 연결 불변식**: HTTPS base URL과 API key를 job 시작 시 하나의 원자적 connection snapshot으로 읽어 실행 중 고정한다. enqueue 시점의 옛 endpoint와 job 시작 시점의 새 key를 조합하지 않는다. key는 review-run 비밀 제외 snapshot이나 queue payload에 저장하지 않는다.
 - **리뷰 반영**: 진행 중 댓글의 model/reasoning도 같은 review snapshot에서 렌더링한다. legacy Bitbucket Basic credential은 전역 atomic pair로 관리하여 username/app password를 함께 replace/clear하고 GET에는 configured 여부만 노출한다.
+- **2차 리뷰 반영**: review idempotency key·파생 BullMQ job ID·supersede predicate에 workspace를 포함한다. OpenAI base URL은 CLI `-c openai_base_url=<validated-url>`로 기존 `config.toml`보다 높은 우선순위를 강제하고 API key만 명시적 child env로 전달한다.
 - **구현 계획/수용 기준**: `.context/PLAN.md` 참조. 초기 rollout/seed 이후 runtime 설정은 Pod 재시작 없이 적용된다.
 - **문서**: `.context/PLAN.md`에 구현 단계와 수용 기준을 기록하고 README에 planned runtime settings, bootstrap-static 구분, 단일 key 인증 방식을 추가했다.
 - **검증**: `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공(19 suites, 294 tests). `pnpm test:cov --runInBand` 성공(statement 91.17%, branch 82.58%, function 83.87%, line 91.26%).
