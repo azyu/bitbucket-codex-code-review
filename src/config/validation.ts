@@ -1,6 +1,12 @@
 import * as Joi from "joi";
 import { dbPoolValidationSchema } from "@lib/database";
-import { DEFAULTS } from "./configuration";
+import {
+  DEFAULTS,
+  MAX_OPENAI_BASE_URL_BYTES,
+  MAX_QUEUE_RETRY_ATTEMPTS,
+  MAX_TIMER_MS,
+  MAX_WORKER_CONCURRENCY,
+} from "./configuration";
 
 function jsonObjectValidator(label: string) {
   return (value: string) => {
@@ -16,6 +22,33 @@ function jsonObjectValidator(label: string) {
     }
   };
 }
+
+function exactUtf8Bytes(bytes: number, label: string) {
+  return (value: string) => {
+    if (Buffer.byteLength(value, "utf8") !== bytes) {
+      throw new Error(`${label} must be exactly ${bytes} bytes`);
+    }
+    return value;
+  };
+}
+
+function minimumUtf8Bytes(bytes: number, label: string) {
+  return (value: string) => {
+    if (Buffer.byteLength(value, "utf8") < bytes) {
+      throw new Error(`${label} must be at least ${bytes} bytes`);
+    }
+    return value;
+  };
+}
+function maximumUtf8Bytes(bytes: number, label: string) {
+  return (value: string) => {
+    if (Buffer.byteLength(value, "utf8") > bytes) {
+      throw new Error(`${label} must be at most ${bytes} bytes`);
+    }
+    return value;
+  };
+}
+
 
 export const validationSchema = Joi.object({
   NODE_ENV: Joi.string()
@@ -43,14 +76,23 @@ export const validationSchema = Joi.object({
   QUEUE_RETRY_ATTEMPTS: Joi.number()
     .integer()
     .positive()
+    .max(MAX_QUEUE_RETRY_ATTEMPTS)
     .default(DEFAULTS.QUEUE_RETRY_ATTEMPTS),
   QUEUE_RETRY_DELAY: Joi.number()
     .integer()
     .min(0)
+    .max(MAX_TIMER_MS)
     .default(DEFAULTS.QUEUE_RETRY_DELAY),
   CODEX_BINARY_PATH: Joi.string().default(DEFAULTS.CODEX_BINARY_PATH),
-  CODEX_TIMEOUT_MS: Joi.number().default(DEFAULTS.CODEX_TIMEOUT_MS),
-  CODEX_MODEL: Joi.string().default(DEFAULTS.CODEX_MODEL),
+  CODEX_TIMEOUT_MS: Joi.number()
+    .integer()
+    .positive()
+    .max(MAX_TIMER_MS)
+    .default(DEFAULTS.CODEX_TIMEOUT_MS),
+  CODEX_MODEL: Joi.string()
+    .max(64)
+    .pattern(/^[A-Za-z0-9][\w.-]*$/)
+    .default(DEFAULTS.CODEX_MODEL),
   CODEX_REASONING_EFFORT: Joi.string()
     .valid("none", "low", "medium", "high", "xhigh", "max")
     .default(DEFAULTS.CODEX_REASONING_EFFORT),
@@ -71,19 +113,35 @@ export const validationSchema = Joi.object({
     .allow("")
     .default("")
     .custom(jsonObjectValidator("BITBUCKET_REPO_WEBHOOK_SECRETS")),
+  OPENAI_API_KEY: Joi.string().allow("").default(""),
+  OPENAI_BASE_URL: Joi.string()
+    .uri({ scheme: ["https"] })
+    .allow("")
+    .custom(maximumUtf8Bytes(MAX_OPENAI_BASE_URL_BYTES, "OPENAI_BASE_URL"))
+    .default(""),
+  DASHBOARD_SECRET_KEY: Joi.string()
+    .required()
+    .custom(minimumUtf8Bytes(32, "DASHBOARD_SECRET_KEY")),
+  SETTINGS_ENCRYPTION_KEY: Joi.string()
+    .required()
+    .custom(exactUtf8Bytes(32, "SETTINGS_ENCRYPTION_KEY")),
+  RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP: Joi.string()
+    .allow("")
+    .default("")
+    .custom(jsonObjectValidator("RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP")),
   WORKSPACE_BASE_PATH: Joi.string().default(DEFAULTS.WORKSPACE_BASE_PATH),
   // 워커 concurrency로 그대로 들어간다 — BullMQ 세터가 1 미만/비정수를 거부한다.
   WORKSPACE_MAX_CONCURRENT: Joi.number()
     .integer()
     .min(1)
+    .max(MAX_WORKER_CONCURRENCY)
     .default(DEFAULTS.WORKSPACE_MAX_CONCURRENT),
-  // execFile은 음수·소수 timeout에 ERR_OUT_OF_RANGE를 던진다 — 부팅 시 걸러낸다.
   // 0(타임아웃 없음)도 허용하지 않는다: 멈춘 clone이 워커 슬롯을 영구 점유한다.
   // 2^31-1 초과는 Node 타이머가 ~1ms로 접어 타임아웃이 되레 짧아진다.
   GIT_CLONE_TIMEOUT_MS: Joi.number()
     .integer()
     .positive()
-    .max(2_147_483_647)
+    .max(MAX_TIMER_MS)
     .default(DEFAULTS.GIT_CLONE_TIMEOUT_MS),
   REVIEW_TRIGGER_MODE: Joi.string()
     .valid("mention", "auto", "both")

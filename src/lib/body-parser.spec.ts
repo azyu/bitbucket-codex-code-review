@@ -1,10 +1,10 @@
 import { Controller, HttpCode, HttpStatus, Module, Post, UseGuards } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { createHmac } from "crypto";
 import { configureBodyParser } from "./body-parser";
 import { WebhookGuard } from "../webhook/webhook.guard";
+import { RuntimeSettingsService } from "../settings/runtime-settings.service";
 
 const mockError = jest.fn();
 
@@ -35,10 +35,9 @@ class TestWebhookController {
   controllers: [TestWebhookController],
   providers: [
     {
-      provide: ConfigService,
+      provide: RuntimeSettingsService,
       useValue: {
-        get: (key: string, defaultValue?: unknown) =>
-          key === "bitbucket.webhookSecret" ? SECRET : defaultValue,
+        resolveWebhookSecret: () => Promise.resolve(SECRET),
       },
     },
   ],
@@ -48,7 +47,10 @@ class TestModule {}
 /** Bitbucket-shaped payload padded to roughly `bytes` via the PR description. */
 function buildPayload(bytes: number): string {
   const skeleton = {
-    repository: { full_name: `workspace/${REPO_SLUG}` },
+    repository: {
+      full_name: `workspace/${REPO_SLUG}`,
+      workspace: { slug: "workspace" },
+    },
     pullrequest: { id: 8, description: "" },
   };
   const padding = bytes - Buffer.byteLength(JSON.stringify(skeleton));

@@ -23,6 +23,11 @@ export const DEFAULTS = {
   TRIGGER_MODE: "mention",
   LOG_LEVEL: "info",
 } as const;
+export const MAX_QUEUE_RETRY_ATTEMPTS = 10;
+export const MAX_WORKER_CONCURRENCY = 32;
+export const MAX_TIMER_MS = 2_147_483_647;
+export const MAX_OPENAI_BASE_URL_BYTES = 2_048;
+
 
 /** Parse a JSON env var into a Record<string, string>, logging warnings on failure */
 export function parseJsonRecord(raw: string | undefined, envName: string): Record<string, string> {
@@ -93,6 +98,18 @@ export default (): Record<string, unknown> => ({
     appPassword: process.env["BITBUCKET_APP_PASSWORD"] || "",
     webhookSecret: process.env["BITBUCKET_WEBHOOK_SECRET"] || "",
     repoWebhookSecrets: parseJsonRecord(process.env["BITBUCKET_REPO_WEBHOOK_SECRETS"], "BITBUCKET_REPO_WEBHOOK_SECRETS"),
+  },
+  openai: {
+    apiKey: process.env["OPENAI_API_KEY"] || "",
+    baseUrl: process.env["OPENAI_BASE_URL"] || "",
+  },
+  runtimeSettings: {
+    dashboardSecretKey: process.env["DASHBOARD_SECRET_KEY"] || "",
+    encryptionKey: process.env["SETTINGS_ENCRYPTION_KEY"] || "",
+    repositoryWorkspaceMap: parseJsonRecord(
+      process.env["RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP"],
+      "RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP",
+    ),
   },
   workspace: {
     basePath: process.env["WORKSPACE_BASE_PATH"] || DEFAULTS.WORKSPACE_BASE_PATH,

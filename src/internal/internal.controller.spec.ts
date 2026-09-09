@@ -9,16 +9,57 @@ describe("InternalController", () => {
     listRepoStats: jest.fn(),
     listRecent: jest.fn(),
   };
+  const mockRuntimeSettings = {
+    getSettingsDocument: jest.fn(),
+    updateGlobal: jest.fn(),
+    updateRepository: jest.fn(),
+  };
 
   let controller: InternalController;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    controller = new InternalController(mockReviewService as never);
+    controller = new InternalController(
+      mockReviewService as never,
+      mockRuntimeSettings as never,
+    );
+  });
+
+  it("delegates redacted runtime settings reads and updates", async () => {
+    const document = { global: { revision: 1 }, repositories: [] };
+    const updated = { revision: 2 };
+    mockRuntimeSettings.getSettingsDocument.mockResolvedValue(document);
+    mockRuntimeSettings.updateRepository.mockResolvedValue(updated);
+
+    await expect(controller.getSettings()).resolves.toBe(document);
+    await expect(
+      controller.updateRepositorySettings("workspace", "repo-a", {
+        expectedRevision: 1,
+        values: { model: "gpt-5.6-sol" },
+      }),
+    ).resolves.toBe(updated);
+    expect(mockRuntimeSettings.updateRepository).toHaveBeenCalledWith(
+      { workspaceSlug: "workspace", repositorySlug: "repo-a" },
+      { expectedRevision: 1, values: { model: "gpt-5.6-sol" } },
+    );
+  });
+
+  it("keeps latest-review lookup workspace-qualified", async () => {
+    mockReviewService.findLatestByPr.mockResolvedValue(null);
+
+    await expect(
+      controller.getLatestReview("workspace-a", "shared", 42),
+    ).resolves.toBeNull();
+    expect(mockReviewService.findLatestByPr).toHaveBeenCalledWith(
+      "workspace-a",
+      "shared",
+      42,
+    );
   });
 
   it("should return stats for a single repo", async () => {
     mockReviewService.getRepoStats.mockResolvedValue({
+      workspaceSlug: "workspace-a",
       repoSlug: "repo-a",
       counts: { total: 1, completed: 1, failed: 0, superseded: 0 },
       durations: {
@@ -40,11 +81,18 @@ describe("InternalController", () => {
       },
     });
 
-    await expect(controller.getRepoStats("repo-a")).resolves.toEqual(
+    await expect(
+      controller.getRepoStats("workspace-a", "repo-a"),
+    ).resolves.toEqual(
       expect.objectContaining({
+        workspaceSlug: "workspace-a",
         repoSlug: "repo-a",
         tokens: expect.objectContaining({ totalTokens: 520 }),
       }),
+    );
+    expect(mockReviewService.getRepoStats).toHaveBeenCalledWith(
+      "workspace-a",
+      "repo-a",
     );
   });
 

@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { DataSource } from "typeorm";
 import { ReviewRunEntity } from "../entities/review-run.entity";
+import { RuntimeSettingEntity } from "../entities/runtime-setting.entity";
 import { CustomNamingStrategy } from "../lib/database";
 import { SCHEMA_NAME_CODE_REVIEW } from "../lib";
 
@@ -13,8 +14,9 @@ export default new DataSource({
   username: process.env["DB_USERNAME"] || "root",
   password: process.env["DB_PASSWORD"] || "",
   database: process.env["DB_NAME"] || SCHEMA_NAME_CODE_REVIEW,
-  entities: [ReviewRunEntity],
+  entities: [ReviewRunEntity, RuntimeSettingEntity],
   migrations: ["dist/database/migrations/*.js"],
+  migrationsTransactionMode: "none",
   synchronize: false,
   logging: false,
   namingStrategy: new CustomNamingStrategy(),

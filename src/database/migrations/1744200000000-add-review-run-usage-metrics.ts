@@ -6,13 +6,19 @@ export class AddReviewRunUsageMetrics1744200000000
   name = "AddReviewRunUsageMetrics1744200000000";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`
-      ALTER TABLE review_runs
-        ADD COLUMN totalDurationMs int NULL,
-        ADD COLUMN inputTokens int NULL,
-        ADD COLUMN cachedInputTokens int NULL,
-        ADD COLUMN outputTokens int NULL
-    `);
+    const columns = [
+      ["totalDurationMs", "int NULL"],
+      ["inputTokens", "int NULL"],
+      ["cachedInputTokens", "int NULL"],
+      ["outputTokens", "int NULL"],
+    ] as const;
+    for (const [name, definition] of columns) {
+      if (!(await queryRunner.hasColumn("review_runs", name))) {
+        await queryRunner.query(
+          `ALTER TABLE review_runs ADD COLUMN ${name} ${definition}`,
+        );
+      }
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

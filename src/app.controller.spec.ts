@@ -31,6 +31,16 @@ describe("AppController", () => {
     expect(html).toContain("저장소 작업량");
   });
 
+  it("renders the public lock shell before protected dashboard content", () => {
+    const html = appController.getDashboard();
+
+    expect(html).toContain('id="dashboard-secret-key"');
+    expect(html).toContain('@submit.prevent="unlock()"');
+    expect(html).toContain(":class=\"{ 'd-none': !authenticated }\"");
+    expect(html).toContain("Runtime 설정");
+    expect(html).toContain("삭제하고 global 상속");
+  });
+
   it("should return dashboard script with stats endpoint", () => {
     const script = appController.getDashboardScript();
 
@@ -44,6 +54,10 @@ describe("AppController", () => {
     expect(script).toContain("renderRepoOverview");
     expect(script).toContain("renderHighlights");
     expect(script).toContain("toggleSidebar");
+  });
+
+  it("returns syntactically valid dashboard JavaScript", () => {
+    expect(() => new Function(appController.getDashboardScript())).not.toThrow();
   });
 
   it("should return local alpine runtime script", () => {

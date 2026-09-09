@@ -1,11 +1,12 @@
 import { Processor, WorkerHost, OnWorkerEvent } from "@nestjs/bullmq";
-import { OnApplicationBootstrap } from "@nestjs/common";
+import {
+  OnApplicationBootstrap,
+  OnApplicationShutdown,
+} from "@nestjs/common";
 import { Job, UnrecoverableError } from "bullmq";
-import { ConfigService } from "@nestjs/config";
 import { metrics } from "@opentelemetry/api";
 import { ServiceLogger } from "@lib/logger";
 import { REVIEW_QUEUE_NAME } from "../constants/queue.constants";
-import { DEFAULTS } from "../config/configuration";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
 import { ReviewRunStatus } from "../entities/review-run.entity";
 import { ReviewService } from "../review/review.service";
@@ -23,6 +24,13 @@ import {
   parseUnifiedReviewJson,
 } from "./review.formatter";
 import { type ReviewPromptMode, resolveReviewPrompt } from "./review.prompt";
+import { RuntimeSettingsService } from "../settings/runtime-settings.service";
+import {
+  type IBitbucketCredentialSnapshot,
+  type IJobCredentialSnapshot,
+  type IOpenAiConnectionSnapshot,
+  type IReviewSettingsSnapshot,
+} from "../settings/runtime-settings.types";
 
 // Codex turn/start currently rejects input above 1,048,576 chars.
 // Keep margin for base instructions, custom prompt text, and JSON schema.
@@ -43,7 +51,7 @@ function authenticationFailureStage(error: Error): "api" | "git" | null {
 @Processor(REVIEW_QUEUE_NAME)
 export class ReviewProcessor
   extends WorkerHost
-  implements OnApplicationBootstrap
+  implements OnApplicationBootstrap, OnApplicationShutdown
 {
   private readonly logger = new ServiceLogger(ReviewProcessor.name);
   private readonly authenticationFailureCounter = metrics
@@ -51,13 +59,15 @@ export class ReviewProcessor
     .createCounter("code_review_authentication_failures", {
       description: "Permanent Bitbucket authentication failures",
     });
+  private workerSettingsRevision = -1;
+  private workerSettingsTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly reviewService: ReviewService,
     private readonly workspaceService: WorkspaceService,
     private readonly codexService: CodexService,
     private readonly bitbucketService: BitbucketService,
-    private readonly configService: ConfigService,
+    private readonly runtimeSettings: RuntimeSettingsService,
   ) {
     super();
   }
@@ -69,13 +79,30 @@ export class ReviewProcessor
    * onModuleInit 시점에는 워커가 아직 없어(WorkerHost.worker가 throw) 반드시
    * onApplicationBootstrap이어야 한다. BullMQ run 루프는 매 회차 concurrency를 다시 읽는다.
    */
-  onApplicationBootstrap(): void {
-    const concurrency = this.configService.get<number>(
-      "workspace.maxConcurrent",
-      DEFAULTS.WORKSPACE_MAX_CONCURRENT,
+  async onApplicationBootstrap(): Promise<void> {
+    await this.refreshWorkerConcurrency();
+    this.workerSettingsTimer = setInterval(
+      () =>
+        void this.refreshWorkerConcurrency().catch((error: Error) => {
+          this.logger.error(
+            `Failed to refresh worker concurrency: ${error.message}`,
+          );
+        }),
+      5000,
     );
-    this.worker.concurrency = concurrency;
-    this.logger.log(`Review worker concurrency set to ${concurrency}`);
+    this.workerSettingsTimer.unref();
+  }
+
+  onApplicationShutdown(): void {
+    clearInterval(this.workerSettingsTimer);
+  }
+
+  private async refreshWorkerConcurrency(): Promise<void> {
+    const settings = await this.runtimeSettings.getWorkerSettings();
+    if (settings.revision === this.workerSettingsRevision) return;
+    this.worker.concurrency = settings.concurrency;
+    this.workerSettingsRevision = settings.revision;
+    this.logger.log(`Review worker concurrency set to ${settings.concurrency}`);
   }
 
   override async process(job: Job<IReviewJobData>): Promise<void> {
@@ -89,6 +116,7 @@ export class ReviewProcessor
     let reviewDiff = "";
     let publishStarted = false;
     let resultCommentId: number | undefined;
+    let credentials: IJobCredentialSnapshot | undefined;
 
     try {
       // 이 런이 아직 활성인지 DB가 판정한다. 조건에 맞는 행이 없으면(대체됨/삭제됨)
@@ -104,14 +132,19 @@ export class ReviewProcessor
         await this.logInactiveRun(data);
         return;
       }
+      credentials = await this.runtimeSettings.resolveJobCredentials(data);
 
       // Step 1: Prepare workspace
       const worktreeInfo = await this.workspaceService.prepareWorktree({
         cloneUrl: data.cloneUrl,
+        workspaceSlug: data.workspaceSlug,
         repositorySlug: data.repositorySlug,
         headBranch: data.headBranch,
         baseBranch: data.baseBranch,
+        reviewRunId: data.reviewRunId,
         headCommitHash: data.headCommitHash,
+        cloneTimeoutMs: data.settings.cloneTimeoutMs,
+        credentials: credentials.bitbucket,
       });
       worktreePath = worktreeInfo.worktreePath;
       bareRepoPath = worktreeInfo.bareRepoPath;
@@ -127,9 +160,9 @@ export class ReviewProcessor
         worktreePath,
         data.baseBranch,
         reviewDiff,
-        data.repositorySlug,
         excludedChangedFiles,
-        data.model,
+        data.settings,
+        credentials.openai,
       );
 
       // Step 3: Publish results to Bitbucket
@@ -170,6 +203,7 @@ export class ReviewProcessor
             );
           }
         },
+        credentials.bitbucket,
       );
 
       // Step 4: Mark completed
@@ -242,14 +276,14 @@ export class ReviewProcessor
               pullRequestId: data.pullRequestId,
               parentCommentId: data.triggerCommentId,
               body: errorBody,
-            });
+            }, credentials?.bitbucket ?? { apiTokens: [] });
           } else {
             await this.bitbucketService.createComment({
               workspace: data.workspaceSlug,
               repoSlug: data.repositorySlug,
               pullRequestId: data.pullRequestId,
               body: errorBody,
-            });
+            }, credentials?.bitbucket ?? { apiTokens: [] });
           }
         } catch (notificationErr) {
           this.logger.error(
@@ -325,18 +359,11 @@ export class ReviewProcessor
     worktreePath: string,
     baseBranch: string,
     reviewDiff: string,
-    repositorySlug: string,
     excludedChangedFiles: readonly string[] | null,
-    model?: string,
+    settings: IReviewSettingsSnapshot,
+    connection: IOpenAiConnectionSnapshot,
   ): Promise<ICodexReviewResult> {
-    // Resolve prompt file: repoCustomPromptFilepaths[repoSlug] → customPromptFilepath
-    const repoCustomPromptFilepaths =
-      this.configService.get<Record<string, string>>(
-        "codex.repoCustomPromptFilepaths",
-      ) ?? {};
-    const customPromptFilepath =
-      repoCustomPromptFilepaths[repositorySlug] ||
-      this.configService.get<string>("codex.customPromptFilepath", "");
+    const customPrompt = settings.customPrompt;
     let reviewPromptMode: ReviewPromptMode =
       reviewDiff.length > MAX_INLINE_REVIEW_PROMPT_CHARS
         ? "branch-diff"
@@ -348,7 +375,7 @@ export class ReviewProcessor
     }
     let prompt = await resolveReviewPrompt(
       baseBranch,
-      customPromptFilepath,
+      customPrompt,
       reviewDiff,
       reviewPromptMode,
       excludedChangedFiles,
@@ -363,7 +390,7 @@ export class ReviewProcessor
       );
       prompt = await resolveReviewPrompt(
         baseBranch,
-        customPromptFilepath,
+        customPrompt,
         reviewDiff,
         reviewPromptMode,
         excludedChangedFiles,
@@ -374,7 +401,8 @@ export class ReviewProcessor
       worktreePath,
       baseBranch,
       prompt,
-      model,
+      settings,
+      connection,
     );
 
     if (result.exitCode !== 0) {
@@ -398,6 +426,7 @@ export class ReviewProcessor
     codexResult: ICodexReviewResult,
     reviewDiff: string,
     onResultCommentPublished: ResultCommentPublishedCallback,
+    credentials: IBitbucketCredentialSnapshot,
   ): Promise<number | undefined> {
     const unified = parseUnifiedReviewJson(codexResult.rawOutput, (msg) =>
       this.logger.error(msg),
@@ -409,6 +438,7 @@ export class ReviewProcessor
         unified,
         reviewDiff,
         onResultCommentPublished,
+        credentials,
       );
     }
 
@@ -416,6 +446,7 @@ export class ReviewProcessor
       data,
       codexResult.rawOutput,
       onResultCommentPublished,
+      credentials,
     );
   }
 
@@ -425,6 +456,7 @@ export class ReviewProcessor
     unified: IUnifiedReviewResult,
     reviewDiff: string,
     onResultCommentPublished: ResultCommentPublishedCallback,
+    credentials: IBitbucketCredentialSnapshot,
   ): Promise<number | undefined> {
     const findings = this.filterFindingsToReviewDiff(
       unified.findings,
@@ -461,13 +493,18 @@ export class ReviewProcessor
       repoSlug: data.repositorySlug,
       pullRequestId: data.pullRequestId,
       body: summaryBody,
-    });
+    }, credentials);
     await onResultCommentPublished(summaryComment.id);
     this.logger.log(`Summary comment posted: ${summaryComment.id}`);
 
     // Post inline comments
     if (findings.length > 0) {
-      await this.postInlineComments(data, findings, summaryComment.id);
+      await this.postInlineComments(
+        data,
+        findings,
+        summaryComment.id,
+        credentials,
+      );
     }
 
     return summaryComment.id;
@@ -478,6 +515,7 @@ export class ReviewProcessor
     data: IReviewJobData,
     rawOutput: string,
     onResultCommentPublished: ResultCommentPublishedCallback,
+    credentials: IBitbucketCredentialSnapshot,
   ): Promise<number | undefined> {
     this.logger.warn("Unified JSON parse failed, falling back to raw output comment");
     const comment = await this.bitbucketService.createComment({
@@ -485,7 +523,7 @@ export class ReviewProcessor
       repoSlug: data.repositorySlug,
       pullRequestId: data.pullRequestId,
       body: `## 🔍 코드 리뷰\n\n${rawOutput}`,
-    });
+    }, credentials);
     await onResultCommentPublished(comment.id);
     this.logger.log(`Fallback comment posted: ${comment.id}`);
     return comment.id;
@@ -496,6 +534,7 @@ export class ReviewProcessor
     data: IReviewJobData,
     findings: ReadonlyArray<IReviewItem>,
     summaryCommentId: number,
+    credentials: IBitbucketCredentialSnapshot,
   ): Promise<void> {
     const failedItems: IReviewItem[] = [];
     for (const item of findings) {
@@ -508,7 +547,7 @@ export class ReviewProcessor
           filePath: item.path,
           line: item.lineRange.end,
           body,
-        });
+        }, credentials);
       } catch (err) {
         this.logger.warn(
           `Inline comment failed for ${item.path}:${item.lineRange.end}: ${(err as Error).message}`,
@@ -543,7 +582,7 @@ export class ReviewProcessor
       pullRequestId: data.pullRequestId,
       parentCommentId: summaryCommentId,
       body: `## 🔍 인라인 게시에 실패한 지적 ${failedItems.length}건\n\n인라인 코멘트 게시가 거부되어 아래로 옮겼습니다. 위치는 각 항목 헤딩을 참고하세요.\n\n${formatFindingsForGeneralComment(failedItems)}`,
-    });
+    }, credentials);
   }
 
   private filterFindingsToReviewDiff(

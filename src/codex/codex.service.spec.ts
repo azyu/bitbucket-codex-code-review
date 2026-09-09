@@ -12,6 +12,19 @@ jest.mock("@lib/logger", () => ({
   })),
 }));
 
+const DEFAULT_SETTINGS = {
+  revision: "1:0",
+  model: "o3",
+  reasoningEffort: "",
+  timeoutMs: 30_000,
+  triggerMode: "mention" as const,
+  customPrompt: "",
+  retryAttempts: 3,
+  retryDelay: 5000,
+  cloneTimeoutMs: 600_000,
+};
+const EMPTY_CONNECTION = {};
+
 interface MockChildProcess extends EventEmitter {
   stdout: EventEmitter;
   stderr: EventEmitter;
@@ -85,7 +98,7 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("review output text");
 
-    const promise = createService().executeCodex("/work", "main", "review this");
+    const promise = createService().executeCodex("/work", "main", "review this", DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     child.stdout.emit("data", makeTurnCompleted(1200, 300, 80) + "\n");
     child.emit("close", 0, null);
@@ -112,10 +125,13 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("out");
 
-    const promise = createService({
-      "codex.model": "gpt-6-astra",
-      "codex.reasoningEffort": "high",
-    }).executeCodex("/work", "main", "review this");
+    const promise = createService().executeCodex(
+      "/work",
+      "main",
+      "review this",
+      { ...DEFAULT_SETTINGS, model: "gpt-6-astra", reasoningEffort: "high" },
+      EMPTY_CONNECTION,
+    );
 
     child.stdout.emit("data", makeTurnCompleted(10, 5, 1) + "\n");
     child.emit("close", 0, null);
@@ -138,7 +154,7 @@ describe("CodexService", () => {
 
     const promise = createService({
       "codex.model": "gpt-5.6-sol",
-    }).executeCodex("/work", "main", "review this", "gpt-6-astra");
+    }).executeCodex("/work", "main", "review this", { ...DEFAULT_SETTINGS, model: "gpt-6-astra" }, EMPTY_CONNECTION);
 
     child.emit("close", 0, null);
     const result = await promise;
@@ -158,10 +174,13 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("review output text");
 
-    const promise = createService({
-      "codex.model": model,
-      "codex.reasoningEffort": "medium",
-    }).executeCodex("/work", "main", "review this");
+    const promise = createService().executeCodex(
+      "/work",
+      "main",
+      "review this",
+      { ...DEFAULT_SETTINGS, model, reasoningEffort: "medium" },
+      EMPTY_CONNECTION,
+    );
 
     child.emit("close", 0, null);
     await promise;
@@ -184,7 +203,7 @@ describe("CodexService", () => {
     readFileSpy.mockResolvedValue("review output text");
     const largePrompt = "review\n" + "x".repeat(300_000);
 
-    const promise = createService().executeCodex("/work", "main", largePrompt);
+    const promise = createService().executeCodex("/work", "main", largePrompt, DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     child.emit("close", 0, null);
 
@@ -201,39 +220,80 @@ describe("CodexService", () => {
     expect(child.stdin.end).toHaveBeenCalledWith(largePrompt);
   });
 
-  it("should not pass multiline auth env to codex child process", async () => {
+  it("passes only allowlisted env plus the job-start API key", async () => {
     const child = createMockChild();
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("review output text");
-    process.env["CODEX_AUTH_JSON"] = '{\n  "auth_mode": "chatgpt"\n}';
-    process.env["CODEX_SAFE_ENV"] = "safe-value";
+    const originalHttpProxy = process.env["http_proxy"];
+    const originalAllProxy = process.env["ALL_PROXY"];
+    process.env["DB_PASSWORD"] = "must-not-leak";
+    process.env["CODEX_SAFE_ENV"] = "also-not-allowlisted";
+    process.env["http_proxy"] = "http://lowercase-proxy.example:8080";
+    process.env["ALL_PROXY"] = "socks5://all-proxy.example:1080";
 
     try {
-      const promise = createService().executeCodex("/work", "main", "review");
-
+      const promise = createService().executeCodex(
+        "/work",
+        "main",
+        "review",
+        DEFAULT_SETTINGS,
+        { apiKey: "job-key", baseUrl: "https://api.openai.example/v1" },
+      );
       child.emit("close", 0, null);
-
       await promise;
-
-      const [, , options] = spawnSpy.mock.calls[0] as [
+      const [, args, options] = spawnSpy.mock.calls[0] as [
         string,
         string[],
         { env: NodeJS.ProcessEnv },
       ];
-      expect(options.env["CODEX_AUTH_JSON"]).toBeUndefined();
-      expect(options.env["CODEX_SAFE_ENV"]).toBe("safe-value");
+      expect(options.env["http_proxy"]).toBe(
+        "http://lowercase-proxy.example:8080",
+      );
+      expect(options.env["ALL_PROXY"]).toBe("socks5://all-proxy.example:1080");
+      expect(options.env["OPENAI_API_KEY"]).toBe("job-key");
+      expect(options.env["DB_PASSWORD"]).toBeUndefined();
+      expect(options.env["CODEX_SAFE_ENV"]).toBeUndefined();
+      expect(args).toContain('model_provider="openai"');
+      expect(args).toContain(
+        'openai_base_url="https://api.openai.example/v1"',
+      );
     } finally {
-      delete process.env["CODEX_AUTH_JSON"];
+      delete process.env["DB_PASSWORD"];
       delete process.env["CODEX_SAFE_ENV"];
+      if (originalHttpProxy === undefined) delete process.env["http_proxy"];
+      else process.env["http_proxy"] = originalHttpProxy;
+      if (originalAllProxy === undefined) delete process.env["ALL_PROXY"];
+      else process.env["ALL_PROXY"] = originalAllProxy;
     }
   });
+  it("escapes the OpenAI base URL before passing it as TOML", async () => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockResolvedValue("review output text");
+    const baseUrl = 'https://api.openai.example/v1"\nmodel="injected';
+
+    const promise = createService().executeCodex(
+      "/work",
+      "main",
+      "review",
+      DEFAULT_SETTINGS,
+      { baseUrl },
+    );
+    child.emit("close", 0, null);
+    await promise;
+
+    const args = spawnSpy.mock.calls[0][1] as string[];
+    expect(args).toContain(`openai_base_url=${JSON.stringify(baseUrl)}`);
+    expect(args).not.toContain(`openai_base_url="${baseUrl}"`);
+  });
+
 
   it("should handle large JSONL streams without crashing", async () => {
     const child = createMockChild();
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("output");
 
-    const promise = createService().executeCodex("/work", "main", "review");
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     // Emit many non-usage lines (simulating large output)
     for (let i = 0; i < 100; i++) {
@@ -253,7 +313,7 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("output");
 
-    const promise = createService().executeCodex("/work", "main", "review");
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     const fullLine = makeTurnCompleted(800, 200, 60);
     const splitAt = Math.floor(fullLine.length / 2);
@@ -274,7 +334,7 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("output");
 
-    const promise = createService().executeCodex("/work", "main", "review");
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     // No trailing newline
     child.stdout.emit("data", makeTurnCompleted(400, 100, 20));
@@ -291,10 +351,12 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockRejectedValue(new Error("ENOENT"));
 
-    const promise = createService({ "codex.timeoutMs": 50 }).executeCodex(
+    const promise = createService().executeCodex(
       "/work",
       "main",
       "review",
+      { ...DEFAULT_SETTINGS, timeoutMs: 50 },
+      EMPTY_CONNECTION,
     );
 
     child.emit("close", null, "SIGTERM");
@@ -310,7 +372,7 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockRejectedValue(new Error("ENOENT"));
 
-    const promise = createService().executeCodex("/work", "main", "review");
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     child.stdout.emit("data", makeTurnCompleted(300, 0, 15) + "\n");
     child.stderr.emit("data", "model rate limited");
@@ -334,7 +396,7 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockRejectedValue(new Error("ENOENT"));
 
-    const promise = createService().executeCodex("/work", "main", "review");
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     child.stdout.emit("data", `${JSON.stringify(event)}\n`);
     child.emit("close", 1, null);
@@ -351,7 +413,7 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockRejectedValue(new Error("ENOENT"));
 
-    const promise = createService().executeCodex("/work", "main", "review");
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     child.stdout.emit(
       "data",
@@ -371,7 +433,7 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockRejectedValue(new Error("ENOENT"));
 
-    const promise = createService().executeCodex("/work", "main", "review");
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     child.emit("close", 0, null);
 
@@ -383,7 +445,7 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("output");
 
-    const promise = createService().executeCodex("/work", "main", "review");
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     child.stdout.emit("data", makeTurnCompleted(100, 10, 5) + "\n");
     child.stdout.emit("data", makeTurnCompleted(999, 88, 77) + "\n");
@@ -401,7 +463,7 @@ describe("CodexService", () => {
     readFileSpy.mockRejectedValue(new Error("ENOENT"));
 
     const secretPrompt = "Review this code with SECRET_KEY=abc123";
-    const promise = createService().executeCodex("/work", "main", secretPrompt);
+    const promise = createService().executeCodex("/work", "main", secretPrompt, DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     child.stderr.emit("data", "process exited");
     child.emit("close", 1, null);
@@ -417,7 +479,7 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockRejectedValue(new Error("ENOENT"));
 
-    const promise = createService().executeCodex("/work", "main", "review");
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     // Real Node 24 ordering: error(AbortError) fires BEFORE close(null, 'SIGTERM')
     child.emit("error", new Error("The operation was aborted"));
@@ -434,7 +496,7 @@ describe("CodexService", () => {
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockRejectedValue(new Error("ENOENT"));
 
-    const promise = createService().executeCodex("/work", "main", "review");
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
 
     // Spawn failure: binary not found, no stderr output
     child.emit("error", new Error("spawn /usr/bin/codex ENOENT"));

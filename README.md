@@ -36,7 +36,7 @@ flowchart LR
 
 **인프라 (로컬 개발 시 Docker Compose로 자동 구성):**
 
-- MySQL 8.4
+- MySQL 26.7
 - Redis
 
 ## Quick Start
@@ -46,7 +46,7 @@ flowchart LR
 ```bash
 # 1. 환경 변수 설정
 cp .env.example .env
-# .env 파일 편집: BITBUCKET_API_TOKEN, BITBUCKET_WEBHOOK_SECRET 등 설정
+# .env 파일 편집: DASHBOARD_SECRET_KEY, SETTINGS_ENCRYPTION_KEY와 최초 이관 값을 설정
 
 # 2. 의존성 설치
 pnpm install
@@ -61,17 +61,27 @@ pnpm start:dev
 ### Docker Compose
 
 ```bash
-# Bitbucket 인증 정보를 환경변수로 전달
+# 필수 bootstrap key와 최초 이관용 자격증명
+# 아래 값은 최초 1회만 생성해 .env/secret manager에 저장합니다. 기존 MySQL volume에서 재생성하면 저장된 runtime secret을 복호화할 수 없습니다.
+export DASHBOARD_SECRET_KEY="$(openssl rand -base64 32)"
+export SETTINGS_ENCRYPTION_KEY="$(openssl rand -hex 16)"
 export BITBUCKET_API_TOKEN=your_token
 export BITBUCKET_WEBHOOK_SECRET=your_secret
 
 docker compose up -d
 ```
 
+Compose는 `database:prepare`에서 `review_runs`가 없는 clean volume만 현재 schema로 초기화한 뒤 migration을 적용하고 worker를 시작합니다. 기존 volume은 schema 동기화를 건너뛰고 migration만 실행하며, 실패 시 애플리케이션을 시작하지 않습니다. 애플리케이션의 `DB_SYNCHRONIZE`는 비활성화되어 부팅 뒤 schema 변경은 없습니다.
+
 > [!IMPORTANT]
 > Codex의 대형 PR branch-diff 모드는 worktree에서 `git`을 실행하는 sandbox를 사용합니다. 이 sandbox의 bubblewrap이 비특권 user namespace를 만들 수 있도록 `code-review-worker`는 `seccomp:unconfined`로 실행해야 합니다. `CAP_SYS_ADMIN`이나 `privileged`는 필요하지 않습니다. 배포 후 파드/컨테이너에서 `unshare --user --map-root-user true`가 성공하는지 확인하세요.
 
 ## Configuration
+
+DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path,
+`DASHBOARD_SECRET_KEY`, `SETTINGS_ENCRYPTION_KEY`는 bootstrap-static 설정입니다.
+나머지 리뷰/연동 설정은 최초 부팅 때 환경변수에서 MySQL로 한 번 이관되고 이후
+`/dashboard`에서 관리합니다. Pod 재시작 없이 새 webhook/job부터 적용됩니다.
 
 ### Core
 
@@ -81,6 +91,8 @@ docker compose up -d
 | `METRICS_PORT` | Prometheus 메트릭 포트 | `9463` |
 | `NODE_ENV` | 환경 | `development` |
 | `LOG_LEVEL` | 로그 레벨 | `info` |
+| `DASHBOARD_SECRET_KEY` | 내부 API Bearer key (최소 32 bytes, 필수) | - |
+| `SETTINGS_ENCRYPTION_KEY` | runtime secret AES-256-GCM key (정확히 32 bytes, 필수) | - |
 
 ### Database (MySQL)
 
@@ -102,30 +114,31 @@ docker compose up -d
 | `REDIS_QUEUE_PORT` | Redis 포트 | `6379` |
 | `REDIS_QUEUE_PASSWORD` | Redis 비밀번호 | - |
 | `REDIS_QUEUE_DB` | Redis DB 번호 | `0` |
-| `QUEUE_RETRY_ATTEMPTS` | 잡 총 시도 횟수 (BullMQ `attempts`) | `3` |
-| `QUEUE_RETRY_DELAY` | 재시도 백오프 기준 딜레이 (ms, exponential) | `5000` |
+| `QUEUE_RETRY_ATTEMPTS` | 최초 이관할 잡 총 시도 횟수 (1–10) | `3` |
+| `QUEUE_RETRY_DELAY` | 최초 이관할 재시도 딜레이 (ms) | `5000` |
 
 ### Codex CLI
 
 | 환경변수 | 설명 | 기본값 |
 |---|---|---|
 | `CODEX_BINARY_PATH` | Codex CLI 바이너리 경로 | `codex` |
-| `CODEX_MODEL` | 사용 모델 | `gpt-5.6-sol` |
-| `CODEX_REASONING_EFFORT` | 추론 노력도 (`none` / `low` / `medium` / `high` / `xhigh` / `max`) | `medium` |
-| `CODEX_TIMEOUT_MS` | 실행 타임아웃 (ms) | `600000` |
-| `OPENAI_API_KEY` | OpenAI API 키 (Codex CLI 인증) | - |
-| `OPENAI_BASE_URL` | OpenAI API 엔드포인트 URL (커스텀 엔드포인트용) | - |
-| `REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS` | repo slug별 커스텀 프롬프트 파일 경로 JSON 맵 (예: `{"frontend-app":"/prompts/js.md"}`). 매핑된 repo에 우선 적용 | - |
-| `REVIEW_CUSTOM_PROMPT_FILEPATH` | 전역 커스텀 리뷰 프롬프트 파일 경로 (기본 프롬프트에 append). repo별 매핑이 없는 repo의 fallback | - |
+| `CODEX_MODEL` | 최초 이관할 모델 | `gpt-5.6-sol` |
+| `CODEX_REASONING_EFFORT` | 최초 이관할 추론 노력도 | `medium` |
+| `CODEX_TIMEOUT_MS` | 최초 이관할 실행 타임아웃 (ms) | `600000` |
+| `OPENAI_API_KEY` | 최초 이관할 OpenAI API 키 | - |
+| `OPENAI_BASE_URL` | 최초 이관할 HTTPS API endpoint (최대 2,048 UTF-8 bytes) | - |
+| `REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS` | 최초 이관할 repo slug별 프롬프트 파일 JSON 맵 | - |
+| `REVIEW_CUSTOM_PROMPT_FILEPATH` | 최초 이관할 전역 프롬프트 파일 | - |
+| `RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP` | repo별 이관에 필요한 repo slug → workspace slug JSON 맵 | - |
 
 ### Bitbucket
 
 | 환경변수 | 설명 | 기본값 |
 |---|---|---|
 | `BITBUCKET_BASE_URL` | Bitbucket API 기본 URL | `https://api.bitbucket.org/2.0` |
-| `BITBUCKET_API_TOKEN` | Access Token (workspace / project / repository 3종 모두 사용 가능). workspace 토큰이면 해당 workspace의 모든 repo를 하나로 커버한다. 필요한 스코프: Repositories `Read`(clone) + Pull requests `Write`(리뷰 코멘트 게시) | - |
-| `BITBUCKET_WEBHOOK_SECRET` | Webhook HMAC secret | - |
-| `REVIEW_TRIGGER_MODE` | 트리거 모드 (아래 참조) | `mention` |
+| `BITBUCKET_API_TOKEN` | 최초 이관할 global API token | - |
+| `BITBUCKET_WEBHOOK_SECRET` | 최초 이관할 global webhook HMAC secret | - |
+| `REVIEW_TRIGGER_MODE` | 최초 이관할 트리거 모드 | `mention` |
 
 #### `REVIEW_TRIGGER_MODE` 상세
 
@@ -139,18 +152,31 @@ docker compose up -d
 > `auto`/`both` 모드에서 `pullrequest:updated` 이벤트도 처리됩니다. 동일 commit hash에 대한 중복 리뷰는 idempotency key로 자동 방지됩니다.
 > 동일 commit을 다시 리뷰하려면 트리거 모드와 관계없이 PR 댓글에 `@codex --force`를 입력합니다. 댓글 ID를 기준으로 웹훅 재전송은 중복 방지됩니다.
 >
-> 이번 리뷰에만 다른 모델을 쓰려면 `@codex --model:gpt-6-astra`처럼 지정합니다(`--model=`, `--model ` 형식도 동일). 지정하지 않으면 `CODEX_MODEL` 기본값을 사용하며, `--force`와 함께 쓸 때는 `@codex --force --model:gpt-6-astra` 순서로 입력합니다.
+> 이번 리뷰에만 다른 모델을 쓰려면 `@codex --model:gpt-6-astra`처럼 지정합니다(`--model=`, `--model ` 형식도 동일). 지정하지 않으면 대시보드의 repository → global → 코드 기본값 순서로 해석합니다.
 
 ### Workspace
 
 | 환경변수 | 설명 | 기본값 |
 |---|---|---|
 | `WORKSPACE_BASE_PATH` | 워크스페이스 경로 | `/tmp/code-review-workspaces` |
-| `WORKSPACE_MAX_CONCURRENT` | 최대 동시 워크스페이스 수 | `3` |
-| `GIT_CLONE_TIMEOUT_MS` | 최초 bare clone 타임아웃 (ms) | `600000` |
+| `WORKSPACE_MAX_CONCURRENT` | 최초 이관할 worker concurrency (1–32) | `3` |
+| `GIT_CLONE_TIMEOUT_MS` | 최초 이관할 bare clone 타임아웃 (ms) | `600000` |
 
 > [!TIP]
 > 전체 설정은 [`.env.example`](.env.example) 참조.
+
+### 최초 runtime settings cutover
+
+1. Webhook ingress를 중단합니다.
+2. 기존 queued/retrying/running job을 기존 이미지의 `job.data.model`로 모두 drain합니다.
+3. 각 legacy idempotency key의 raw job ID와 `review-${base64url(legacyKey)}` job ID를 제거하고 실행/복구 가능한 job이 0인지 확인합니다.
+4. `RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP`에 모든 repo별 import key의 workspace를 명시합니다. 누락되면 importer가 실패합니다.
+5. 새 이미지를 배포합니다. Docker Compose는 `database:prepare`가 migration을 완료한 뒤 worker를 시작하며, 외부 배포 환경은 애플리케이션 시작 전에 `pnpm database:prepare`를 실행해야 합니다.
+6. 모든 인스턴스에서 runtime settings import 및 worker concurrency 적용을 확인합니다.
+7. Webhook ingress를 재개합니다.
+
+이 migration의 workspace-qualified idempotency key 변환은 되돌릴 수 없습니다. Migration 적용 뒤에는 legacy 이미지만 교체해 rollback하면 안 됩니다. 호환되는 수정 이미지를 배포하거나, webhook ingress를 중단하고 새 형식 job을 모두 drain한 뒤 배포 전 DB backup과 환경변수 설정을 함께 복원해야 합니다.
+여러 인스턴스가 동시에 시작하면 MySQL advisory lock이 schema 준비와 migration ledger 기록까지 직렬화합니다. Idempotency key 변환은 별도 transaction marker와 함께 commit되며, 변환 중 실패하면 둘 다 rollback되어 다음 실행이 재시도합니다.
 
 ## Security
 
@@ -158,6 +184,8 @@ docker compose up -d
 > Webhook secret이 설정되지 않으면 **모든 요청이 거부**됩니다 (fail-closed).
 
 - **HMAC 검증** — Raw body 기반 SHA-256 서명 검증
+- **Runtime secret 저장** — MySQL에는 scope별 AES-256-GCM ciphertext만 저장하며 API는 `configured`/`source`만 반환
+- **Dashboard 인증** — 모든 `/api/internal/*` 요청에 `Authorization: Bearer <DASHBOARD_SECRET_KEY>` 필요
 - **Git 인증** — `GIT_ASKPASS` 방식 (URL에 토큰 미포함)
 - **Path traversal 방지** — Repository slug sanitize + workspace root 검증
 - **Payload 검증** — Webhook payload 필수 필드 타입 검증
@@ -166,6 +194,8 @@ docker compose up -d
 
 ```bash
 pnpm build          # 프로덕션 빌드
+pnpm database:prepare # clean DB 초기화(최초 1회) + pending migration 적용
+pnpm migration:run    # 기존 DB의 pending migration 적용
 pnpm start          # 프로덕션 실행
 pnpm start:dev      # 개발 서버 (watch)
 pnpm test           # 테스트 실행
@@ -173,42 +203,39 @@ pnpm test:cov       # 커버리지 포함 테스트
 pnpm lint           # ESLint
 ```
 
-## Internal Stats API
+## Internal API
 
-대시보드/운영 도구용 내부 전용 endpoint입니다. 공개 ingress로 노출하지 않는 것을 전제로 합니다.
+대시보드/운영 도구용 API입니다. 모든 route가
+`Authorization: Bearer <DASHBOARD_SECRET_KEY>`를 요구하고 `Cache-Control: no-store`를 반환합니다.
 
 | Method | Path | 설명 |
 |---|---|---|
+| `GET` | `/api/internal/settings` | redacted runtime settings 조회 |
+| `PATCH` | `/api/internal/settings/global` | global 설정 CAS 갱신 |
+| `PATCH` | `/api/internal/settings/repositories/:workspaceSlug/:repoSlug` | repository override CAS 갱신 |
 | `GET` | `/api/internal/reviews/:id` | 리뷰 실행 1건 상세 조회 |
-| `GET` | `/api/internal/reviews/:repoSlug/:prId/latest` | 특정 PR의 최신 리뷰 조회 |
-| `GET` | `/api/internal/stats/repos` | repo별 요약 통계 목록 (대시보드 첫 화면용) |
-| `GET` | `/api/internal/stats/repos/:repoSlug` | 특정 repo의 누적 요약 통계 |
+| `GET` | `/api/internal/reviews/:workspaceSlug/:repoSlug/:prId/latest` | 특정 PR의 최신 리뷰 조회 |
+| `GET` | `/api/internal/stats/repos` | workspace/repo별 요약 통계 목록 |
+| `GET` | `/api/internal/stats/repos/:workspaceSlug/:repoSlug` | 특정 workspace/repo의 누적 요약 통계 |
 
 repo 통계 응답에는 리뷰 건수, Codex/전체 소요 시간, input/cached/output token 합계, 최신 리뷰 메타데이터가 포함됩니다.
 
 ## Local Dashboard
 
-간단한 내장 대시보드는 `GET /dashboard` 에서 확인할 수 있습니다. 같은 origin의 `/api/internal/stats/repos`를 직접 읽어 repo별 리뷰 건수, 시간, 토큰 요약을 렌더링합니다.
+내장 대시보드는 `GET /dashboard`에서 확인합니다. 잠금 화면에 `DASHBOARD_SECRET_KEY`를 입력하면 모든 `/api/internal/*` 조회/수정 요청에 Bearer header로 사용합니다. Key는 브라우저 메모리에만 남으므로 새로고침·로그아웃·401 뒤에는 다시 입력해야 합니다. Runtime secret은 값 대신 configured/inherited 상태만 표시됩니다.
 
 ## Codex CLI 인증
 
-**방법 1: `OPENAI_API_KEY` 환경변수 (권장)**
+최초 배포에서는 `OPENAI_API_KEY`와 HTTPS `OPENAI_BASE_URL` 환경변수가 runtime settings로 이관됩니다. 이후 대시보드에서 함께 관리하며 새 job 시작 시 같은 DB revision에서 하나의 connection snapshot으로 읽습니다. Codex 실행은 API key만 allowlist child env로 전달하고 CLI에 `model_provider="openai"`와 `openai_base_url`을 명시합니다.
 
-환경변수로 API 키를 전달하면 Codex CLI가 자동으로 인식합니다.
-
-```bash
-export OPENAI_API_KEY=sk-...
-docker compose up -d
-```
-
-**방법 2: `auth.json` 볼륨 마운트**
+### `auth.json` 볼륨 마운트 대안
 
 `codex login`으로 생성되는 `~/.codex/auth.json`을 컨테이너의 `/root/.codex`에 마운트합니다. `docker-compose.yml`의 주석 처리된 볼륨 항목을 참고하세요.
 
 대형 PR의 branch-diff 리뷰를 사용하려면 Codex bubblewrap이 비특권 user namespace를 만들 수 있어야 합니다. `docker-compose.yml`은 워커에 `security_opt: seccomp:unconfined`를 적용합니다. `CAP_SYS_ADMIN`이나 `privileged`는 필요하지 않습니다. 컨테이너 안에서 `unshare --user --map-root-user true`가 성공하는지 확인하세요.
 
 > [!NOTE]
-> 커스텀 엔드포인트는 `OPENAI_BASE_URL` 환경변수 또는 Codex `config.toml`의 `openai_base_url` 키로 설정합니다. 둘 다 설정된 경우 config.toml이 우선합니다.
+> `auth.json` mount는 bootstrap-static 대안입니다. 대시보드 OpenAI API key를 사용하는 경우 HTTPS endpoint도 대시보드 값이 Codex `config.toml`보다 우선합니다.
 
 > [!TIP]
 > 프로덕션 환경에서는 시크릿 매니저를 사용하고, 이미지 태그는 `latest`가 아니라 git SHA로 고정하세요.

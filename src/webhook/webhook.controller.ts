@@ -9,7 +9,6 @@ import {
   BadRequestException,
   Req,
 } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { ServiceLogger } from "@lib/logger";
@@ -26,6 +25,12 @@ import { ReviewRunStatus, TriggerType } from "../entities/review-run.entity";
 import { ReviewService } from "../review/review.service";
 import { IReviewJobData } from "../queue/interfaces/queue.interfaces";
 import { BitbucketService } from "../bitbucket/bitbucket.service";
+import { RuntimeSettingsService } from "../settings/runtime-settings.service";
+import {
+  type IBitbucketCredentialSnapshot,
+  type IRepositoryIdentity,
+  type IReviewSettingsSnapshot,
+} from "../settings/runtime-settings.types";
 
 @Controller("webhooks")
 export class WebhookController {
@@ -35,7 +40,7 @@ export class WebhookController {
     @InjectQueue(REVIEW_QUEUE_NAME) private readonly reviewQueue: Queue,
     private readonly triggerService: TriggerService,
     private readonly reviewService: ReviewService,
-    private readonly configService: ConfigService,
+    private readonly runtimeSettings: RuntimeSettingsService,
     private readonly bitbucketService: BitbucketService,
   ) {}
 
@@ -45,37 +50,32 @@ export class WebhookController {
   async handleBitbucketWebhook(
     @Body() body: IBitbucketWebhookBase,
     @Headers("x-event-key") eventKey: string,
-    @Req() request: { verifiedRepoSlug?: string },
+    @Req() request: {
+      verifiedRepoSlug?: string;
+      verifiedWorkspaceSlug?: string;
+    },
   ): Promise<{ accepted: boolean; reason?: string }> {
-    // Enforce that the repo slug used for HMAC verification matches the payload
-    const payloadSlug =
-      body.repository?.full_name?.split("/")[1] ??
-      body.repository?.name;
-    if (
-      request.verifiedRepoSlug &&
-      payloadSlug &&
-      request.verifiedRepoSlug !== payloadSlug
-    ) {
-      this.logger.warn(
-        `Repo slug mismatch: verified="${request.verifiedRepoSlug}" vs payload="${payloadSlug}"`,
-      );
-      throw new BadRequestException("Repository identity mismatch");
+    const identity = {
+      workspaceSlug: request.verifiedWorkspaceSlug,
+      repositorySlug: request.verifiedRepoSlug,
+    };
+    if (!identity.workspaceSlug || !identity.repositorySlug) {
+      throw new BadRequestException("Verified repository identity missing");
     }
-
-    const triggerMode = this.configService.get<string>(
-      "trigger.mode",
-      "mention",
-    );
 
     if (eventKey === "pullrequest:comment_created") {
       return this.handleCommentEvent(
         body as IBitbucketCommentWebhook,
-        triggerMode,
+        identity as IRepositoryIdentity,
       );
     }
 
-    if (this.triggerService.shouldAutoReview(eventKey, triggerMode)) {
-      return this.handlePrEvent(body as IBitbucketPrWebhook);
+    if (eventKey === "pullrequest:created" || eventKey === "pullrequest:updated") {
+      return this.handlePrEvent(
+        body as IBitbucketPrWebhook,
+        eventKey,
+        identity as IRepositoryIdentity,
+      );
     }
 
     return { accepted: false, reason: `Ignored event: ${eventKey}` };
@@ -84,41 +84,56 @@ export class WebhookController {
   /** 댓글 이벤트 처리 (@codex 멘션 트리거) */
   private async handleCommentEvent(
     body: IBitbucketCommentWebhook,
-    triggerMode: string,
+    identity: IRepositoryIdentity,
   ): Promise<{ accepted: boolean; reason?: string }> {
     if (!body.comment?.id || !body.comment?.content?.raw) {
       throw new BadRequestException(
         "Missing required fields: comment.id, comment.content.raw",
       );
     }
+    const prPayload = this.extractPrPayload(body, identity);
+    const baseSettings = await this.runtimeSettings.resolveReviewSettings(
+      prPayload,
+    );
 
     const forceReview = this.triggerService.isForceReview(
       body.comment.content.raw,
     );
     if (
       !forceReview &&
-      (!this.triggerService.shouldMentionReview(triggerMode) ||
+      (!this.triggerService.shouldMentionReview(baseSettings.triggerMode) ||
         !this.triggerService.hasCodexMention(body.comment.content.raw))
     ) {
       return { accepted: false, reason: "No @codex mention found" };
     }
 
-    const prPayload = this.extractPrPayload(body);
 
     const model = this.triggerService.parseModelOverride(
       body.comment.content.raw,
     );
+    const settings: IReviewSettingsSnapshot = Object.freeze({
+      ...baseSettings,
+      ...(model ? { model } : {}),
+    });
+    const credentials = (
+      await this.runtimeSettings.resolveJobCredentials(prPayload)
+    ).bitbucket;
 
     const result = await this.enqueueReview(
       prPayload,
       TriggerType.MENTION,
       body.comment.id,
       forceReview,
-      model,
+      settings,
     );
 
     if (result.accepted) {
-      this.postInProgressReply(prPayload, body.comment.id, model);
+      this.postInProgressReply(
+        prPayload,
+        body.comment.id,
+        settings,
+        credentials,
+      );
     }
 
     return result;
@@ -127,13 +142,28 @@ export class WebhookController {
   /** PR 이벤트 처리 (자동 트리거) */
   private async handlePrEvent(
     body: IBitbucketPrWebhook,
+    eventKey: string,
+    identity: IRepositoryIdentity,
   ): Promise<{ accepted: boolean; reason?: string }> {
-    const prPayload = this.extractPrPayload(body);
+    const prPayload = this.extractPrPayload(body, identity);
+    const settings = await this.runtimeSettings.resolveReviewSettings(prPayload);
+    if (!this.triggerService.shouldAutoReview(eventKey, settings.triggerMode)) {
+      return { accepted: false, reason: `Ignored event: ${eventKey}` };
+    }
+    const credentials = (
+      await this.runtimeSettings.resolveJobCredentials(prPayload)
+    ).bitbucket;
 
-    const result = await this.enqueueReview(prPayload, TriggerType.AUTO);
+    const result = await this.enqueueReview(
+      prPayload,
+      TriggerType.AUTO,
+      undefined,
+      false,
+      settings,
+    );
 
     if (result.accepted) {
-      this.postInProgressComment(prPayload);
+      this.postInProgressComment(prPayload, settings, credentials);
     }
 
     return result;
@@ -143,17 +173,22 @@ export class WebhookController {
   private async enqueueReview(
     prPayload: IWebhookPrPayload,
     triggerType: TriggerType,
-    triggerCommentId?: number,
-    forceReview = false,
-    model?: string,
+    triggerCommentId: number | undefined,
+    forceReview: boolean,
+    settings: IReviewSettingsSnapshot,
   ): Promise<{ accepted: boolean; reason?: string }> {
-    const baseKey = `${prPayload.repositorySlug}:${prPayload.pullRequestId}:${prPayload.headCommitHash}`;
+    const legacyBaseKey = `${prPayload.repositorySlug}:${prPayload.pullRequestId}:${prPayload.headCommitHash}`;
+    const baseKey = `${prPayload.workspaceSlug}:${legacyBaseKey}`;
     const idempotencyKey =
       forceReview && triggerCommentId
         ? `${baseKey}-force-${triggerCommentId}`
         : baseKey;
-    // DB idempotency 의미는 유지하고 BullMQ의 콜론 없는 ID 제약과 분리한다.
     const jobId = `review-${Buffer.from(idempotencyKey).toString("base64url")}`;
+    const legacyKey =
+      forceReview && triggerCommentId
+        ? `${legacyBaseKey}-force-${triggerCommentId}`
+        : legacyBaseKey;
+    const legacyEncodedJobId = `review-${Buffer.from(legacyKey).toString("base64url")}`;
 
     const isDuplicate =
       await this.reviewService.existsByIdempotencyKey(idempotencyKey);
@@ -164,7 +199,12 @@ export class WebhookController {
 
     // 새 ID와 전환 전 idempotencyKey ID를 모두 정리해 rolling deploy 중 재큐잉을
     // 안전하게 유지한다. 이전 job은 queue retention이 끝난 뒤 자연히 조회되지 않는다.
-    for (const staleJobId of [jobId, idempotencyKey]) {
+    for (const staleJobId of [
+      jobId,
+      idempotencyKey,
+      legacyKey,
+      legacyEncodedJobId,
+    ]) {
       try {
         const existingJob = await this.reviewQueue.getJob(staleJobId);
         if (existingJob) {
@@ -183,10 +223,12 @@ export class WebhookController {
       idempotencyKey,
       triggerType,
       triggerCommentId,
+      settingsSnapshot: settings,
     });
 
     // Supersede any active reviews for the same PR
     await this.reviewService.supersedeActivePrReviews(
+      prPayload.workspaceSlug,
       prPayload.repositorySlug,
       prPayload.pullRequestId,
       reviewRun.id,
@@ -198,7 +240,7 @@ export class WebhookController {
       idempotencyKey,
       triggerType,
       triggerCommentId,
-      model,
+      settings,
     };
 
     // 등록이 실패하면 run을 FAILED로 남긴다. 게시 증거 없는 FAILED는
@@ -207,6 +249,11 @@ export class WebhookController {
     try {
       await this.reviewQueue.add("review", jobData, {
         jobId,
+        attempts: settings.retryAttempts,
+        backoff: {
+          type: "exponential",
+          delay: settings.retryDelay,
+        },
       });
     } catch (err) {
       await this.reviewService.updateStatus(
@@ -224,24 +271,19 @@ export class WebhookController {
     return { accepted: true };
   }
 
-  private buildProgressMessage(modelOverride?: string): string {
-    const model =
-      modelOverride ?? this.configService.getOrThrow<string>("codex.model");
-    const reasoningEffort = this.configService.get<string>(
-      "codex.reasoningEffort",
-      "",
-    );
-    const reasoningLine = reasoningEffort
-      ? `\n- Reasoning: ${reasoningEffort}`
+  private buildProgressMessage(settings: IReviewSettingsSnapshot): string {
+    const reasoningLine = settings.reasoningEffort
+      ? `\n- Reasoning: ${settings.reasoningEffort}`
       : "";
-    return `⏳ Summary & Code Review 진행 중...\n\n- Model: ${model}${reasoningLine}`;
+    return `⏳ Summary & Code Review 진행 중...\n\n- Model: ${settings.model}${reasoningLine}`;
   }
 
   /** Fire-and-forget: reply to trigger comment */
   private postInProgressReply(
     prPayload: IWebhookPrPayload,
     parentCommentId: number,
-    model?: string,
+    settings: IReviewSettingsSnapshot,
+    credentials: IBitbucketCredentialSnapshot,
   ): void {
     this.bitbucketService
       .replyToComment({
@@ -249,8 +291,8 @@ export class WebhookController {
         repoSlug: prPayload.repositorySlug,
         pullRequestId: prPayload.pullRequestId,
         parentCommentId,
-        body: this.buildProgressMessage(model),
-      })
+        body: this.buildProgressMessage(settings),
+      }, credentials)
       .catch((err) => {
         this.logger.error(
           `Failed to post in-progress reply: ${(err as Error).message}`,
@@ -259,14 +301,18 @@ export class WebhookController {
   }
 
   /** Fire-and-forget: top-level in-progress comment */
-  private postInProgressComment(prPayload: IWebhookPrPayload): void {
+  private postInProgressComment(
+    prPayload: IWebhookPrPayload,
+    settings: IReviewSettingsSnapshot,
+    credentials: IBitbucketCredentialSnapshot,
+  ): void {
     this.bitbucketService
       .createComment({
         workspace: prPayload.workspaceSlug,
         repoSlug: prPayload.repositorySlug,
         pullRequestId: prPayload.pullRequestId,
-        body: this.buildProgressMessage(),
-      })
+        body: this.buildProgressMessage(settings),
+      }, credentials)
       .catch((err) => {
         this.logger.error(
           `Failed to post in-progress comment: ${(err as Error).message}`,
@@ -274,7 +320,10 @@ export class WebhookController {
       });
   }
 
-  private extractPrPayload(body: IBitbucketWebhookBase): IWebhookPrPayload {
+  private extractPrPayload(
+    body: IBitbucketWebhookBase,
+    identity: IRepositoryIdentity,
+  ): IWebhookPrPayload {
     // Validate required nested fields
     if (!body.pullrequest?.id || !body.pullrequest?.source?.commit?.hash) {
       throw new BadRequestException(
@@ -286,24 +335,15 @@ export class WebhookController {
         "Missing required field: pullrequest.destination.branch.name",
       );
     }
-    if (!body.repository?.full_name || !body.repository?.workspace?.slug) {
-      throw new BadRequestException(
-        "Missing required fields: repository.full_name, repository.workspace.slug",
-      );
+    if (!body.repository?.full_name) {
+      throw new BadRequestException("Missing required field: repository.full_name");
     }
 
-    const cloneUrl =
-      body.repository.links.clone?.find((l) => l.name === "https")?.href ||
-      `https://bitbucket.org/${body.repository.full_name}.git`;
+    const cloneUrl = `https://bitbucket.org/${encodeURIComponent(identity.workspaceSlug)}/${encodeURIComponent(identity.repositorySlug)}.git`;
 
-    const repositorySlug =
-      body.repository.full_name.split("/").pop() ||
-      body.repository.name ||
-      "";
 
     return {
-      repositorySlug,
-      workspaceSlug: body.repository.workspace.slug,
+      ...identity,
       pullRequestId: body.pullrequest.id,
       headCommitHash: body.pullrequest.source.commit.hash,
       baseCommitHash: body.pullrequest.destination.commit.hash,

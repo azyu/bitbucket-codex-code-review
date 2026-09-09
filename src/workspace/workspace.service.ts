@@ -4,7 +4,7 @@ import { ServiceLogger } from "@lib/logger";
 import { execFile } from "child_process";
 import { randomUUID } from "crypto";
 import { promisify } from "util";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { mkdir, rm, writeFile, unlink } from "fs/promises";
 import { existsSync } from "fs";
 import {
@@ -31,7 +31,6 @@ const includePathspecs = REVIEW_DIFF_EXCLUDED_PATHS.map(
 export class WorkspaceService {
   private readonly logger = new ServiceLogger(WorkspaceService.name);
   private readonly basePath: string;
-  private readonly cloneTimeoutMs: number;
   /**
    * slug별 prepareWorktree 직렬화 큐. bare repo는 slug당 공유이므로 같은 repo의 두 job이
    * 동시에 `git fetch`를 돌리면 같은 ref lock을 다퉈 "cannot lock ref ... File exists"로
@@ -44,10 +43,6 @@ export class WorkspaceService {
     this.basePath = this.configService.get<string>(
       "workspace.basePath",
       "/tmp/code-review-workspaces",
-    );
-    this.cloneTimeoutMs = this.configService.get<number>(
-      "workspace.cloneTimeoutMs",
-      600_000,
     );
   }
 
@@ -71,29 +66,68 @@ export class WorkspaceService {
   async prepareWorktree(
     params: IPrepareWorktreeParams,
   ): Promise<IWorktreeInfo> {
+    const safeWorkspace = this.sanitizeSlug(params.workspaceSlug);
     const safeSlug = this.sanitizeSlug(params.repositorySlug);
-    if (!safeSlug) {
-      throw new Error(`Invalid repository slug: ${params.repositorySlug}`);
+    if (!safeWorkspace || !safeSlug) {
+      throw new Error(
+        `Invalid repository identity: ${params.workspaceSlug}/${params.repositorySlug}`,
+      );
     }
-
-    const bareRepoPath = join(this.basePath, "repos", `${safeSlug}.git`);
+    const bareRepoPath = join(
+      this.basePath,
+      "repos",
+      safeWorkspace,
+      `${safeSlug}.git`,
+    );
     const worktreePath = join(
       this.basePath,
       "worktrees",
-      `${safeSlug}-${params.headCommitHash.substring(0, 8)}`,
+      safeWorkspace,
+      safeSlug,
+      String(params.reviewRunId),
     );
 
     this.assertWithinBasePath(bareRepoPath);
     this.assertWithinBasePath(worktreePath);
 
-    return this.enqueueForSlug(safeSlug, async () => {
-      const gitAuthEnv = await this.buildGitAuthEnv(params.repositorySlug);
-      try {
-        await this.ensureBareRepo(bareRepoPath, params.cloneUrl, gitAuthEnv);
-        await this.fetchLatest(bareRepoPath, gitAuthEnv);
-      } finally {
-        if (gitAuthEnv["GIT_ASKPASS"]) {
-          await unlink(gitAuthEnv["GIT_ASKPASS"]).catch(() => {});
+    return this.enqueueForSlug(bareRepoPath, async () => {
+      const credentialPairs: Array<readonly [string, string] | undefined> =
+        params.credentials.apiTokens.map((token) => ["x-token-auth", token]);
+      if (params.credentials.username && params.credentials.appPassword) {
+        credentialPairs.push([
+          params.credentials.username,
+          params.credentials.appPassword,
+        ]);
+      }
+      if (credentialPairs.length === 0) credentialPairs.push(undefined);
+
+      for (const [index, credentialPair] of credentialPairs.entries()) {
+        const gitAuthEnv = credentialPair
+          ? await this.createAskpassEnv(...credentialPair)
+          : {};
+        try {
+          await this.ensureBareRepo(
+            bareRepoPath,
+            params.cloneUrl,
+            gitAuthEnv,
+            params.cloneTimeoutMs,
+          );
+          await this.fetchLatest(bareRepoPath, gitAuthEnv);
+          break;
+        } catch (error) {
+          const canRetry =
+            index < credentialPairs.length - 1 &&
+            /\bfatal: Authentication failed\b/i.test(
+              (error as Error).message,
+            );
+          if (!canRetry) throw error;
+          this.logger.warn(
+            `Git authentication failed for repo "${params.repositorySlug}" — trying the next configured credential`,
+          );
+        } finally {
+          if (gitAuthEnv["GIT_ASKPASS"]) {
+            await unlink(gitAuthEnv["GIT_ASKPASS"]).catch(() => {});
+          }
         }
       }
       await this.createWorktree(
@@ -242,12 +276,12 @@ export class WorkspaceService {
     bareRepoPath: string,
     cloneUrl: string,
     gitAuthEnv: Record<string, string>,
+    cloneTimeoutMs: number,
   ): Promise<void> {
     if (existsSync(bareRepoPath)) {
       return;
     }
-
-    await mkdir(join(this.basePath, "repos"), { recursive: true });
+    await mkdir(dirname(bareRepoPath), { recursive: true });
     this.logger.log(`Cloning bare repo: ${cloneUrl}`);
 
     try {
@@ -257,11 +291,12 @@ export class WorkspaceService {
         "git",
         ["clone", "--bare", cloneUrl, bareRepoPath],
         {
-          timeout: this.cloneTimeoutMs,
+          timeout: cloneTimeoutMs,
           env: { ...process.env, ...gitAuthEnv },
         },
       );
     } catch (err) {
+      await rm(bareRepoPath, { recursive: true, force: true }).catch(() => {});
       throw new Error(
         `Git clone failed: ${(err as Error).message.replace(/https:\/\/[^@]+@/g, "https://***@")}`,
       );
@@ -291,7 +326,7 @@ export class WorkspaceService {
     worktreePath: string,
     commitHash: string,
   ): Promise<void> {
-    await mkdir(join(this.basePath, "worktrees"), { recursive: true });
+    await mkdir(dirname(worktreePath), { recursive: true });
 
     if (existsSync(worktreePath)) {
       await rm(worktreePath, { recursive: true, force: true });
@@ -316,41 +351,6 @@ export class WorkspaceService {
       },
     );
     this.logger.debug(`Worktree created at: ${worktreePath}`);
-  }
-
-  /**
-   * Build GIT_ASKPASS env to avoid embedding credentials in clone URLs.
-   * Auth resolution order: repoTokens[repoSlug] → apiToken → username/appPassword.
-   */
-  private async buildGitAuthEnv(
-    repoSlug: string,
-  ): Promise<Record<string, string>> {
-    const repoTokens =
-      this.configService.get<Record<string, string>>("bitbucket.repoTokens") ??
-      {};
-    const repoToken = repoTokens[repoSlug];
-    if (repoToken) {
-      return this.createAskpassEnv("x-token-auth", repoToken);
-    }
-
-    const apiToken = this.configService.get<string>("bitbucket.apiToken", "");
-    if (apiToken) {
-      return this.createAskpassEnv("x-token-auth", apiToken);
-    }
-
-    const username = this.configService.get<string>("bitbucket.username", "");
-    const appPassword = this.configService.get<string>(
-      "bitbucket.appPassword",
-      "",
-    );
-    if (!username || !appPassword) {
-      this.logger.warn(
-        `No Bitbucket auth configured for repo "${repoSlug}" — git clone may fail`,
-      );
-      return {};
-    }
-
-    return this.createAskpassEnv(username, appPassword);
   }
 
   private async createAskpassEnv(

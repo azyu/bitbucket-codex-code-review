@@ -61,6 +61,12 @@ describe("TriggerService", () => {
     ])("%s → %s", (comment, expected) => {
       expect(service.parseModelOverride(comment)).toBe(expected);
     });
+
+    it("rejects model overrides wider than review_runs.codexModel", () => {
+      expect(() =>
+        service.parseModelOverride(`@codex --model:${"m".repeat(65)}`),
+      ).toThrow("Invalid model");
+    });
   });
 
   describe("shouldAutoReview", () => {

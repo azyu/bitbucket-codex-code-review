@@ -14,6 +14,8 @@ describe("AppModule", () => {
       REDIS_QUEUE_PORT: "6379",
       REDIS_QUEUE_PASSWORD: "",
       REDIS_QUEUE_DB: "0",
+      DASHBOARD_SECRET_KEY: "dashboard-secret-key-at-least-32!",
+      SETTINGS_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef",
     };
   });
 

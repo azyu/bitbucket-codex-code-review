@@ -11,6 +11,8 @@ describe("validationSchema", () => {
     REDIS_QUEUE_PORT: 6379,
     REDIS_QUEUE_PASSWORD: "",
     REDIS_QUEUE_DB: 0,
+    DASHBOARD_SECRET_KEY: "dashboard-secret-key-at-least-32!",
+    SETTINGS_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef",
   };
 
   it("accepts valid required env and applies defaults", () => {
@@ -27,6 +29,15 @@ describe("validationSchema", () => {
         REVIEW_TRIGGER_MODE: "mention",
       }),
     );
+  });
+
+  it("rejects model names wider than review_runs.codexModel", () => {
+    const { error } = validationSchema.validate({
+      ...validEnv,
+      CODEX_MODEL: "m".repeat(65),
+    });
+
+    expect(error?.message).toContain("CODEX_MODEL");
   });
 
   it("accepts repo token and webhook secret JSON objects", () => {
@@ -68,7 +79,19 @@ describe("validationSchema", () => {
       expect(error?.message).toContain("WORKSPACE_MAX_CONCURRENT");
     },
   );
+  it.each([
+    ["QUEUE_RETRY_ATTEMPTS", 11],
+    ["WORKSPACE_MAX_CONCURRENT", 33],
+    ["QUEUE_RETRY_DELAY", 2_147_483_648],
+    ["CODEX_TIMEOUT_MS", 2_147_483_648],
+  ])("rejects %s above its operational ceiling", (key, value) => {
+    const { error } = validationSchema.validate({
+      ...validEnv,
+      [key]: value,
+    });
 
+    expect(error?.message).toContain(key);
+  });
   it("defaults GIT_CLONE_TIMEOUT_MS to 600000ms", () => {
     const { error, value } = validationSchema.validate(validEnv);
 
@@ -160,6 +183,15 @@ describe("validationSchema", () => {
     expect(error?.message).toContain(
       "Invalid REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS",
     );
+  });
+
+  it("rejects an OpenAI base URL above the argument-size boundary", () => {
+    const { error } = validationSchema.validate({
+      ...validEnv,
+      OPENAI_BASE_URL: `https://api.example/${"😀".repeat(600)}`,
+    });
+
+    expect(error?.message).toContain("OPENAI_BASE_URL");
   });
 
   it("rejects unsupported trigger modes", () => {

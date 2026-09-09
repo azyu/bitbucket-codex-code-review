@@ -6,6 +6,7 @@ import {
   ICreateCommentParams,
   ICreateInlineCommentParams,
 } from "./interfaces/bitbucket.interfaces";
+import { IBitbucketCredentialSnapshot } from "../settings/runtime-settings.types";
 
 @Injectable()
 export class BitbucketService {
@@ -19,29 +20,17 @@ export class BitbucketService {
     );
   }
 
-  /** Auth order: repository token, then configured global credentials. */
-  private resolveAuthHeaders(repoSlug: string): readonly string[] {
-    const repoTokens =
-      this.configService.get<Record<string, string>>("bitbucket.repoTokens") ??
-      {};
-    const repoToken = repoTokens[repoSlug];
-    const apiToken = this.configService.get<string>("bitbucket.apiToken", "");
-    const username = this.configService.get<string>("bitbucket.username", "");
-    const appPassword = this.configService.get<string>(
-      "bitbucket.appPassword",
-      "",
-    );
-    const authHeaders: string[] = [];
-
-    if (repoToken) authHeaders.push(`Bearer ${repoToken}`);
-    if (apiToken && apiToken !== repoToken) {
-      authHeaders.push(`Bearer ${apiToken}`);
-    } else if (username && appPassword) {
+  /** Auth order: repository token, global token, then legacy Basic credentials. */
+  private resolveAuthHeaders(
+    repoSlug: string,
+    credentials: IBitbucketCredentialSnapshot,
+  ): readonly string[] {
+    const authHeaders = credentials.apiTokens.map((token) => `Bearer ${token}`);
+    if (credentials.username && credentials.appPassword) {
       authHeaders.push(
-        `Basic ${Buffer.from(`${username}:${appPassword}`).toString("base64")}`,
+        `Basic ${Buffer.from(`${credentials.username}:${credentials.appPassword}`).toString("base64")}`,
       );
     }
-
     if (authHeaders.length === 0) {
       this.logger.warn(
         `No Bitbucket auth configured for repo "${repoSlug}" — API calls will fail`,
@@ -55,8 +44,9 @@ export class BitbucketService {
     url: string,
     repoSlug: string,
     body: string,
+    credentials: IBitbucketCredentialSnapshot,
   ): Promise<Response> {
-    const authHeaders = this.resolveAuthHeaders(repoSlug);
+    const authHeaders = this.resolveAuthHeaders(repoSlug, credentials);
     for (const [index, authHeader] of authHeaders.entries()) {
       const response = await fetch(url, {
         method: "POST",
@@ -79,6 +69,7 @@ export class BitbucketService {
   /** PR에 리뷰 결과 댓글 생성 */
   async createComment(
     params: ICreateCommentParams,
+    credentials: IBitbucketCredentialSnapshot,
   ): Promise<IBitbucketComment> {
     const url = `${this.baseUrl}/repositories/${params.workspace}/${params.repoSlug}/pullrequests/${params.pullRequestId}/comments`;
 
@@ -88,6 +79,7 @@ export class BitbucketService {
       JSON.stringify({
         content: { raw: params.body },
       }),
+      credentials,
     );
 
     if (!response.ok) {
@@ -105,6 +97,7 @@ export class BitbucketService {
   /** 특정 댓글에 답글 달기 */
   async replyToComment(
     params: ICreateCommentParams & { parentCommentId: number },
+    credentials: IBitbucketCredentialSnapshot,
   ): Promise<IBitbucketComment> {
     const url = `${this.baseUrl}/repositories/${params.workspace}/${params.repoSlug}/pullrequests/${params.pullRequestId}/comments`;
 
@@ -115,6 +108,7 @@ export class BitbucketService {
         content: { raw: params.body },
         parent: { id: params.parentCommentId },
       }),
+      credentials,
     );
 
     if (!response.ok) {
@@ -128,6 +122,7 @@ export class BitbucketService {
   /** PR의 특정 파일/라인에 inline 댓글 생성 */
   async createInlineComment(
     params: ICreateInlineCommentParams,
+    credentials: IBitbucketCredentialSnapshot,
   ): Promise<IBitbucketComment> {
     const url = `${this.baseUrl}/repositories/${params.workspace}/${params.repoSlug}/pullrequests/${params.pullRequestId}/comments`;
 
@@ -141,6 +136,7 @@ export class BitbucketService {
           to: params.line,
         },
       }),
+      credentials,
     );
 
     if (!response.ok) {

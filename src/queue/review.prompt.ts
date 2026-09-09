@@ -1,6 +1,5 @@
 /** 리뷰 프롬프트 템플릿 — Codex review_prompt.md 기반 하이브리드 */
 
-import { readFile } from "fs/promises";
 
 export type ReviewPromptMode = "inline-diff" | "branch-diff";
 
@@ -8,13 +7,10 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-/**
- * 기본 프롬프트를 빌드한 뒤, customPromptFilepath가 있으면
- * 해당 파일 내용을 추가 지시사항으로 append.
- */
+/** 기본 프롬프트에 저장된 custom prompt 본문을 추가한다. */
 export async function resolveReviewPrompt(
   baseBranch: string,
-  customPromptFilepath: string,
+  customPrompt: string,
   reviewDiff = "",
   mode: ReviewPromptMode = "inline-diff",
   excludedChangedFiles: readonly string[] | null = [],
@@ -25,19 +21,9 @@ export async function resolveReviewPrompt(
     mode,
     excludedChangedFiles,
   );
-
-  if (!customPromptFilepath) {
-    return base;
-  }
-
-  try {
-    const custom = await readFile(customPromptFilepath, "utf-8");
-    return [base, "", "## 추가 리뷰 지시사항", "", custom].join("\n");
-  } catch (err) {
-    throw new Error(
-      `Failed to read custom prompt file "${customPromptFilepath}": ${(err as Error).message}`,
-    );
-  }
+  return customPrompt
+    ? [base, "", "## 추가 리뷰 지시사항", "", customPrompt].join("\n")
+    : base;
 }
 
 /**

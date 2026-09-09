@@ -10,12 +10,34 @@ import {
   parseCodexErrorLine,
   parseCodexUsageLine,
 } from "./codex-output.parser";
+import {
+  IOpenAiConnectionSnapshot,
+  IReviewSettingsSnapshot,
+} from "../settings/runtime-settings.types";
 
 const MAX_STDERR_BYTES = 64 * 1024;
 const CAPACITY_ERROR_MESSAGE =
   "Selected model is at capacity. Please try a different model.";
 const TIMEOUT_EXIT_CODE = 124;
-const CODEX_ENV_DENYLIST = new Set(["CODEX_AUTH_JSON"]);
+const CODEX_ENV_ALLOWLIST = [
+  "PATH",
+  "HOME",
+  "TMPDIR",
+  "LANG",
+  "LC_ALL",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "HTTP_PROXY",
+  "http_proxy",
+  "HTTPS_PROXY",
+  "https_proxy",
+  "NO_PROXY",
+  "ALL_PROXY",
+  "all_proxy",
+  "no_proxy",
+  "NODE_EXTRA_CA_CERTS",
+  "CODEX_HOME",
+] as const;
 
 interface ISpawnResult {
   readonly code: number;
@@ -28,59 +50,48 @@ interface ISpawnResult {
 export class CodexService {
   private readonly logger = new ServiceLogger(CodexService.name);
   private readonly binaryPath: string;
-  private readonly timeoutMs: number;
-  private readonly model: string;
-  private readonly reasoningEffort: string;
 
   constructor(private readonly configService: ConfigService) {
     this.binaryPath = this.configService.getOrThrow<string>("codex.binaryPath");
-    this.timeoutMs = this.configService.getOrThrow<number>("codex.timeoutMs");
-    this.model = this.configService.getOrThrow<string>("codex.model");
-    this.reasoningEffort = this.configService.get<string>(
-      "codex.reasoningEffort",
-      "",
-    );
   }
 
-  private buildCodexArgs(outputFile: string, model: string): string[] {
+  private buildCodexArgs(
+    outputFile: string,
+    settings: IReviewSettingsSnapshot,
+    connection: IOpenAiConnectionSnapshot,
+  ): string[] {
     const args = [
       "exec",
       "--model",
-      model,
+      settings.model,
       "--sandbox",
       "read-only",
       "--json",
       "--output-last-message",
       outputFile,
     ];
-
-    if (this.reasoningEffort) {
-      args.push("-c", `model_reasoning_effort="${this.reasoningEffort}"`);
+    if (settings.reasoningEffort) {
+      args.push("-c", `model_reasoning_effort="${settings.reasoningEffort}"`);
     }
-
+    if (connection.baseUrl) {
+      args.push("-c", 'model_provider="openai"');
+      args.push("-c", `openai_base_url=${JSON.stringify(connection.baseUrl)}`);
+    }
     args.push("-");
     return args;
   }
 
-  private buildCodexEnv(): NodeJS.ProcessEnv {
+  private buildCodexEnv(
+    connection: IOpenAiConnectionSnapshot,
+  ): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {};
-
-    for (const [key, value] of Object.entries(process.env)) {
-      if (value === undefined) {
-        continue;
+    for (const key of CODEX_ENV_ALLOWLIST) {
+      const value = process.env[key];
+      if (value !== undefined && !value.includes("\n") && !value.includes("\r")) {
+        env[key] = value;
       }
-
-      if (
-        CODEX_ENV_DENYLIST.has(key) ||
-        value.includes("\n") ||
-        value.includes("\r")
-      ) {
-        continue;
-      }
-
-      env[key] = value;
     }
-
+    if (connection.apiKey) env["OPENAI_API_KEY"] = connection.apiKey;
     return env;
   }
 
@@ -88,14 +99,16 @@ export class CodexService {
     args: readonly string[],
     worktreePath: string,
     prompt: string,
+    timeoutMs: number,
+    connection: IOpenAiConnectionSnapshot,
   ): Promise<ISpawnResult> {
     return new Promise((resolve) => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       const child = spawn(this.binaryPath, [...args], {
         cwd: worktreePath,
-        env: this.buildCodexEnv(),
+        env: this.buildCodexEnv(connection),
         signal: controller.signal,
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -188,7 +201,8 @@ export class CodexService {
     worktreePath: string,
     baseBranch: string,
     prompt: string,
-    model: string = this.model,
+    settings: IReviewSettingsSnapshot,
+    connection: IOpenAiConnectionSnapshot,
   ): Promise<ICodexReviewResult> {
     const startTime = Date.now();
     const outputFile = join(
@@ -197,12 +211,18 @@ export class CodexService {
     );
 
     this.logger.log(
-      `Starting codex exec in ${worktreePath}, base: ${baseBranch}, model: ${model}, reasoning: ${this.reasoningEffort || "default"}`,
+      `Starting codex exec in ${worktreePath}, base: ${baseBranch}, model: ${settings.model}, reasoning: ${settings.reasoningEffort || "default"}`,
     );
 
     try {
-      const args = this.buildCodexArgs(outputFile, model);
-      const result = await this.spawnCodex(args, worktreePath, prompt);
+      const args = this.buildCodexArgs(outputFile, settings, connection);
+      const result = await this.spawnCodex(
+        args,
+        worktreePath,
+        prompt,
+        settings.timeoutMs,
+        connection,
+      );
       const durationMs = Date.now() - startTime;
 
       if (result.code === 0) {
@@ -236,8 +256,8 @@ export class CodexService {
         inputTokens: result.usage.inputTokens,
         cachedInputTokens: result.usage.cachedInputTokens,
         outputTokens: result.usage.outputTokens,
-        model,
-        reasoningEffort: this.reasoningEffort || null,
+        model: settings.model,
+        reasoningEffort: settings.reasoningEffort || null,
       };
     } finally {
       rm(outputFile, { force: true }).catch((err) => {

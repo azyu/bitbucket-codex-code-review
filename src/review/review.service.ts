@@ -45,6 +45,7 @@ const RECENT_LIMIT_DEFAULT = 10;
 
 export interface IRecentReview {
   readonly id: number;
+  readonly workspaceSlug: string;
   readonly repositorySlug: string;
   readonly pullRequestId: number;
   readonly headCommitHash: string;
@@ -90,6 +91,7 @@ export function sanitizeErrorMessage(
 
 export interface ILatestReviewStats {
   readonly id: number;
+  readonly workspaceSlug: string;
   readonly repositorySlug: string;
   readonly pullRequestId: number;
   readonly reviewStatus: ReviewRunStatus;
@@ -102,6 +104,7 @@ export interface ILatestReviewStats {
 }
 
 export interface IRepoStatsOverview {
+  readonly workspaceSlug: string;
   readonly repoSlug: string;
   readonly counts: {
     readonly total: number;
@@ -125,6 +128,7 @@ export interface IRepoStatsOverview {
 }
 
 interface IRepoAggregateRow {
+  readonly workspaceSlug: string;
   readonly repositorySlug: string;
   readonly totalCount: string | number | null;
   readonly completedCount: string | number | null;
@@ -140,6 +144,7 @@ interface IRepoAggregateRow {
 }
 
 interface ILatestReviewRow {
+  readonly workspaceSlug: string;
   readonly id: number;
   readonly repositorySlug: string;
   readonly pullRequestId: number;
@@ -191,6 +196,7 @@ export class ReviewService {
       idempotencyKey: params.idempotencyKey,
       triggerType: params.triggerType,
       triggerCommentId: params.triggerCommentId,
+      settingsSnapshot: params.settingsSnapshot,
       reviewStatus: ReviewRunStatus.QUEUED,
     });
 
@@ -244,11 +250,12 @@ export class ReviewService {
 
   /** 특정 PR의 최근 리뷰 결과 조회 */
   async findLatestByPr(
+    workspaceSlug: string,
     repositorySlug: string,
     pullRequestId: number,
   ): Promise<ReviewRunEntity | null> {
     return this.reviewRunRepository.findOne({
-      where: { repositorySlug, pullRequestId },
+      where: { workspaceSlug, repositorySlug, pullRequestId },
       order: { createdAt: "DESC" },
     });
   }
@@ -274,6 +281,7 @@ export class ReviewService {
   private toRecentReview(row: ReviewRunEntity): IRecentReview {
     return {
       id: toNumber(row.id),
+      workspaceSlug: row.workspaceSlug,
       repositorySlug: row.repositorySlug,
       pullRequestId: toNumber(row.pullRequestId),
       headCommitHash: row.headCommitHash,
@@ -291,14 +299,24 @@ export class ReviewService {
     };
   }
 
-  async getRepoStats(repositorySlug: string): Promise<IRepoStatsOverview> {
-    const aggregates = await this.queryRepoAggregates(repositorySlug);
-    const latestByRepo = await this.queryLatestReviews(repositorySlug);
+  async getRepoStats(
+    workspaceSlug: string,
+    repositorySlug: string,
+  ): Promise<IRepoStatsOverview> {
+    const aggregates = await this.queryRepoAggregates(
+      workspaceSlug,
+      repositorySlug,
+    );
+    const latestByRepo = await this.queryLatestReviews(
+      workspaceSlug,
+      repositorySlug,
+    );
 
     return this.buildRepoStatsOverview(
+      workspaceSlug,
       repositorySlug,
       aggregates[0],
-      latestByRepo.get(repositorySlug) ?? null,
+      latestByRepo.get(JSON.stringify([workspaceSlug, repositorySlug])) ?? null,
     );
   }
 
@@ -309,9 +327,15 @@ export class ReviewService {
     return aggregates
       .map((aggregate) =>
         this.buildRepoStatsOverview(
+          aggregate.workspaceSlug,
           aggregate.repositorySlug,
           aggregate,
-          latestByRepo.get(aggregate.repositorySlug) ?? null,
+          latestByRepo.get(
+            JSON.stringify([
+              aggregate.workspaceSlug,
+              aggregate.repositorySlug,
+            ]),
+          ) ?? null,
         ),
       )
       .sort((left, right) => {
@@ -359,6 +383,7 @@ export class ReviewService {
 
   /** 같은 PR의 진행 중인 리뷰를 SUPERSEDED로 전환 */
   async supersedeActivePrReviews(
+    workspaceSlug: string,
     repositorySlug: string,
     pullRequestId: number,
     excludeId: number,
@@ -375,6 +400,7 @@ export class ReviewService {
 
     const result = await this.reviewRunRepository.update(
       {
+        workspaceSlug,
         repositorySlug,
         pullRequestId,
         reviewStatus: In(activeStatuses),
@@ -388,17 +414,19 @@ export class ReviewService {
     const affected = result.affected ?? 0;
     if (affected > 0) {
       this.logger.log(
-        `Superseded ${affected} active review(s) for ${repositorySlug}:PR#${pullRequestId}`,
+        `Superseded ${affected} active review(s) for ${workspaceSlug}/${repositorySlug}:PR#${pullRequestId}`,
       );
     }
     return affected;
   }
 
   private async queryRepoAggregates(
+    workspaceSlug?: string,
     repositorySlug?: string,
   ): Promise<ReadonlyArray<IRepoAggregateRow>> {
     const sql = `
       SELECT
+        workspaceSlug AS workspaceSlug,
         repositorySlug AS repositorySlug,
         COUNT(*) AS totalCount,
         SUM(CASE WHEN reviewStatus = 'completed' THEN 1 ELSE 0 END) AS completedCount,
@@ -412,22 +440,24 @@ export class ReviewService {
         COALESCE(SUM(cachedInputTokens), 0) AS cachedInputTokens,
         COALESCE(SUM(outputTokens), 0) AS outputTokens
       FROM review_runs
-      ${repositorySlug ? "WHERE repositorySlug = ?" : ""}
-      GROUP BY repositorySlug
+      ${workspaceSlug ? "WHERE workspaceSlug = ? AND repositorySlug = ?" : ""}
+      GROUP BY workspaceSlug, repositorySlug
     `;
 
     return this.reviewRunRepository.query(
       sql,
-      repositorySlug ? [repositorySlug] : [],
+      workspaceSlug ? [workspaceSlug, repositorySlug] : [],
     );
   }
 
   private async queryLatestReviews(
+    workspaceSlug?: string,
     repositorySlug?: string,
   ): Promise<Map<string, ILatestReviewStats>> {
     const sql = `
       SELECT
         rr.id AS id,
+        rr.workspaceSlug AS workspaceSlug,
         rr.repositorySlug AS repositorySlug,
         rr.pullRequestId AS pullRequestId,
         rr.reviewStatus AS reviewStatus,
@@ -439,19 +469,20 @@ export class ReviewService {
         rr.createdAt AS createdAt
       FROM review_runs rr
       INNER JOIN (
-        SELECT repositorySlug, MAX(createdAt) AS latestCreatedAt
+        SELECT workspaceSlug, repositorySlug, MAX(createdAt) AS latestCreatedAt
         FROM review_runs
-        ${repositorySlug ? "WHERE repositorySlug = ?" : ""}
-        GROUP BY repositorySlug
+        ${workspaceSlug ? "WHERE workspaceSlug = ? AND repositorySlug = ?" : ""}
+        GROUP BY workspaceSlug, repositorySlug
       ) latest
-        ON latest.repositorySlug = rr.repositorySlug
+        ON latest.workspaceSlug = rr.workspaceSlug
+       AND latest.repositorySlug = rr.repositorySlug
        AND latest.latestCreatedAt = rr.createdAt
-      ${repositorySlug ? "WHERE rr.repositorySlug = ?" : ""}
+      ${workspaceSlug ? "WHERE rr.workspaceSlug = ? AND rr.repositorySlug = ?" : ""}
       ORDER BY rr.createdAt DESC
     `;
 
-    const params = repositorySlug
-      ? [repositorySlug, repositorySlug]
+    const params = workspaceSlug
+      ? [workspaceSlug, repositorySlug, workspaceSlug, repositorySlug]
       : [];
     const rows = await this.reviewRunRepository.query(
       sql,
@@ -460,9 +491,10 @@ export class ReviewService {
 
     return new Map(
       rows.map((row) => [
-        row.repositorySlug,
+        JSON.stringify([row.workspaceSlug, row.repositorySlug]),
         {
           id: toNumber(row.id),
+          workspaceSlug: row.workspaceSlug,
           repositorySlug: row.repositorySlug,
           pullRequestId: toNumber(row.pullRequestId),
           reviewStatus: row.reviewStatus,
@@ -478,6 +510,7 @@ export class ReviewService {
   }
 
   private buildRepoStatsOverview(
+    workspaceSlug: string,
     repositorySlug: string,
     aggregate: IRepoAggregateRow | undefined,
     latestReview: ILatestReviewStats | null,
@@ -486,6 +519,7 @@ export class ReviewService {
     const outputTokens = toNumber(aggregate?.outputTokens);
 
     return {
+      workspaceSlug,
       repoSlug: repositorySlug,
       counts: {
         total: toNumber(aggregate?.totalCount),

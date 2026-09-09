@@ -1,5 +1,6 @@
 import { Column, Entity, Index } from "typeorm";
 import { BaseTableEntity, SCHEMA_NAME_CODE_REVIEW } from "@lib/index";
+import { IReviewSettingsSnapshot } from "../settings/runtime-settings.types";
 
 /** 리뷰 실행 상태 */
 export enum ReviewRunStatus {
@@ -43,8 +44,11 @@ export class ReviewRunEntity extends BaseTableEntity {
   @Column({ type: "varchar", length: 255 })
   headBranch: string;
 
-  @Column({ type: "varchar", length: 255 })
+  @Column({ type: "varchar", length: 600 })
   idempotencyKey: string;
+
+  @Column({ type: "json", nullable: true })
+  settingsSnapshot: IReviewSettingsSnapshot | null;
 
   @Column({ type: "enum", enum: TriggerType, default: TriggerType.MENTION })
   triggerType: TriggerType;

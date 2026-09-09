@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, rm, stat } from "fs/promises";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
@@ -20,6 +20,13 @@ jest.mock("@lib/logger", () => ({
 jest.mock("child_process", () => ({
   execFile: jest.fn(),
 }));
+
+const RUNTIME_PARAMS = {
+  workspaceSlug: "workspace",
+  reviewRunId: 99,
+  cloneTimeoutMs: 900_000,
+  credentials: { apiTokens: ["repo-token"] },
+};
 
 type ExecFileCallback = (
   error: Error | null,
@@ -75,6 +82,7 @@ describe("WorkspaceService", () => {
     };
 
     const result = await service.prepareWorktree({
+      ...RUNTIME_PARAMS,
       cloneUrl: "https://bitbucket.org/workspace/repo-a.git",
       repositorySlug: "repo/a..",
       headBranch: "feature",
@@ -83,8 +91,14 @@ describe("WorkspaceService", () => {
     });
 
     expect(result).toEqual({
-      bareRepoPath: join(basePath, "repos", "repoa.git"),
-      worktreePath: join(basePath, "worktrees", "repoa-abcdef12"),
+      bareRepoPath: join(basePath, "repos", "workspace", "repoa.git"),
+      worktreePath: join(
+        basePath,
+        "worktrees",
+        "workspace",
+        "repoa",
+        "99",
+      ),
     });
     expect(execFileMock).toHaveBeenNthCalledWith(
       1,
@@ -93,7 +107,7 @@ describe("WorkspaceService", () => {
         "clone",
         "--bare",
         "https://bitbucket.org/workspace/repo-a.git",
-        join(basePath, "repos", "repoa.git"),
+        join(basePath, "repos", "workspace", "repoa.git"),
       ],
       expect.objectContaining({
         timeout: 900_000,
@@ -108,7 +122,7 @@ describe("WorkspaceService", () => {
       "git",
       ["fetch", "origin", "+refs/heads/*:refs/heads/*", "--prune"],
       expect.objectContaining({
-        cwd: join(basePath, "repos", "repoa.git"),
+        cwd: join(basePath, "repos", "workspace", "repoa.git"),
       }),
       expect.any(Function),
     );
@@ -117,7 +131,7 @@ describe("WorkspaceService", () => {
       "git",
       ["worktree", "prune"],
       expect.objectContaining({
-        cwd: join(basePath, "repos", "repoa.git"),
+        cwd: join(basePath, "repos", "workspace", "repoa.git"),
       }),
       expect.any(Function),
     );
@@ -128,11 +142,11 @@ describe("WorkspaceService", () => {
         "worktree",
         "add",
         "--detach",
-        join(basePath, "worktrees", "repoa-abcdef12"),
+        join(basePath, "worktrees", "workspace", "repoa", "99"),
         "abcdef1234567890",
       ],
       expect.objectContaining({
-        cwd: join(basePath, "repos", "repoa.git"),
+        cwd: join(basePath, "repos", "workspace", "repoa.git"),
       }),
       expect.any(Function),
     );
@@ -144,6 +158,29 @@ describe("WorkspaceService", () => {
     await expect(stat(askpassPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("keeps delimiter-colliding identities on different paths", async () => {
+    const base = {
+      ...RUNTIME_PARAMS,
+      cloneUrl: "https://bitbucket.org/workspace/repo-a.git",
+      headBranch: "feature",
+      baseBranch: "main",
+      headCommitHash: "abcdef1234567890",
+    };
+
+    const first = await service.prepareWorktree({
+      ...base,
+      workspaceSlug: "a-b",
+      repositorySlug: "c",
+    });
+    const second = await service.prepareWorktree({
+      ...base,
+      workspaceSlug: "a",
+      repositorySlug: "b-c",
+    });
+
+    expect(first.bareRepoPath).not.toBe(second.bareRepoPath);
+    expect(first.worktreePath).not.toBe(second.worktreePath);
+  });
   it("recovers when the worktree directory is gone but its git registration survived", async () => {
     // 리뷰 도중 컨테이너가 재시작되면(배포·설정 반영) 정리 경로를 못 탄다. 다음 시도는
     // 남은 디렉터리만 지우고 add하므로 "missing but already registered"로 죽고, 재시도도
@@ -154,6 +191,7 @@ describe("WorkspaceService", () => {
     ).execFile;
     execFileMock.mockImplementation(realExecFile);
     const git = promisify(realExecFile);
+
 
     const sourcePath = join(basePath, "source");
     await mkdir(sourcePath, { recursive: true });
@@ -177,6 +215,7 @@ describe("WorkspaceService", () => {
       cwd: sourcePath,
     });
     const params = {
+      ...RUNTIME_PARAMS,
       cloneUrl: sourcePath,
       repositorySlug: "repo-a",
       headBranch: "main",
@@ -189,7 +228,7 @@ describe("WorkspaceService", () => {
 
     await expect(service.prepareWorktree(params)).resolves.toEqual({
       worktreePath,
-      bareRepoPath: join(basePath, "repos", "repo-a.git"),
+      bareRepoPath: join(basePath, "repos", "workspace", "repo-a.git"),
     });
     expect(existsSync(worktreePath)).toBe(true);
   }, 30_000);
@@ -224,7 +263,9 @@ describe("WorkspaceService", () => {
     };
 
     const params = (slug: string, headCommitHash: string) => ({
+      ...RUNTIME_PARAMS,
       cloneUrl: `https://bitbucket.org/workspace/${slug}.git`,
+      reviewRunId: headCommitHash.startsWith("a") ? 1 : 2,
       repositorySlug: slug,
       headBranch: "feature",
       baseBranch: "main",
@@ -260,14 +301,14 @@ describe("WorkspaceService", () => {
 
       pendingFetches[0]!();
       await expect(first).resolves.toMatchObject({
-        worktreePath: join(basePath, "worktrees", "repo-a-aaaaaaaa"),
+        worktreePath: join(basePath, "worktrees", "workspace", "repo-a", "1"),
       });
       await settle();
 
       expect(pendingFetches).toHaveLength(2);
       pendingFetches[1]!();
       await expect(second).resolves.toMatchObject({
-        worktreePath: join(basePath, "worktrees", "repo-a-bbbbbbbb"),
+        worktreePath: join(basePath, "worktrees", "workspace", "repo-a", "2"),
       });
     });
 
@@ -332,7 +373,7 @@ describe("WorkspaceService", () => {
       expect(pendingFetches).toHaveLength(2);
       pendingFetches[1]!();
       await expect(second).resolves.toMatchObject({
-        worktreePath: join(basePath, "worktrees", "repo-a-bbbbbbbb"),
+        worktreePath: join(basePath, "worktrees", "workspace", "repo-a", "2"),
       });
     });
   });
@@ -340,15 +381,52 @@ describe("WorkspaceService", () => {
   it("rejects repository slugs that sanitize to an empty value", async () => {
     await expect(
       service.prepareWorktree({
+        ...RUNTIME_PARAMS,
         cloneUrl: "https://bitbucket.org/workspace/repo-a.git",
         repositorySlug: "../",
         headBranch: "feature",
         baseBranch: "main",
         headCommitHash: "abcdef1234567890",
       }),
-    ).rejects.toThrow("Invalid repository slug: ../");
+    ).rejects.toThrow("Invalid repository identity: workspace/../");
 
     expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it("retries authentication with the next credential only", async () => {
+    const askpassPaths: string[] = [];
+    execFileMock.mockImplementation(
+      (
+        _command: string,
+        args: string[],
+        options: { env?: Record<string, string> },
+        callback: ExecFileCallback,
+      ) => {
+        const askpassPath = options.env?.["GIT_ASKPASS"];
+        if (args[0] === "clone" && askpassPath) {
+          askpassPaths.push(askpassPath);
+          const script = readFileSync(askpassPath, "utf8");
+          if (script.includes("stale-token")) {
+            callback(new Error("fatal: Authentication failed"));
+            return;
+          }
+        }
+        callback(null, { stdout: "", stderr: "" });
+      },
+    );
+
+    await service.prepareWorktree({
+      ...RUNTIME_PARAMS,
+      cloneUrl: "https://bitbucket.org/workspace/repo-a.git",
+      repositorySlug: "repo-a",
+      headBranch: "feature",
+      baseBranch: "main",
+      headCommitHash: "abcdef1234567890",
+      credentials: { apiTokens: ["stale-token", "global-token"] },
+    });
+
+    expect(askpassPaths).toHaveLength(2);
+    for (const path of askpassPaths) expect(existsSync(path)).toBe(false);
   });
 
   it("redacts credentials from clone errors", async () => {
@@ -373,15 +451,18 @@ describe("WorkspaceService", () => {
 
     await expect(
       service.prepareWorktree({
+        ...RUNTIME_PARAMS,
         cloneUrl: "https://bitbucket.org/workspace/repo-a.git",
         repositorySlug: "repo-a",
         headBranch: "feature",
         baseBranch: "main",
         headCommitHash: "abcdef1234567890",
+        credentials: { apiTokens: ["repo-token", "global-token"] },
       }),
     ).rejects.toThrow(
       "Git clone failed: fatal: could not read https://***@bitbucket.org/ws/repo.git",
     );
+    expect(execFileMock).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to rm when git worktree cleanup fails", async () => {
