@@ -62,7 +62,7 @@ Bearer header는 ambient credential이 아니고 CORS를 열지 않으므로 coo
 - Queue: 새 job의 retry attempts/delay
 - Worker: global concurrency
 - Workspace: git clone timeout
-- Bitbucket: global/repository API token, global/repository webhook secret
+- Bitbucket: global/repository API token, global/repository webhook secret, global legacy Basic credential pair(username + app password)
 
 repository override 우선순위:
 
@@ -94,6 +94,14 @@ PATCH에서:
 - `{ "operation": "replace", "value": "..." }`: 교체
 - `{ "operation": "clear" }`: 삭제; repository에서는 global 상속으로 복귀
 
+legacy Basic credential은 전역에서만 하나의 atomic secret으로 관리한다.
+
+- `{ "operation": "replace", "username": "...", "appPassword": "..." }`: 두 값을 함께 교체
+- `{ "operation": "clear" }`: 두 값을 함께 삭제
+- username이나 app password 한쪽만 저장·수정하는 요청은 거부
+
+GET은 `basicCredentialConfigured`만 반환한다.
+
 빈 secret, unknown key, 잘못된 scope/type/range는 저장 전에 400으로 거부한다. `expectedRevision` 불일치는 현재 redacted 문서와 함께 409를 반환하며 자동 재시도나 force overwrite는 하지 않는다.
 
 ### 6. 최초 이관과 cutover
@@ -107,6 +115,7 @@ PATCH에서:
 - webhook 검증 secret은 요청 시작 때 한 번 읽는다.
 - webhook controller는 effective 비밀 아닌 review 설정을 resolve하고 model override를 적용한 뒤 `review_runs`의 JSON snapshot으로 저장한다. OpenAI base URL은 제외한다.
 - queue attempts/backoff는 enqueue 옵션에 명시해 새 job에만 적용한다.
+- `postInProgressReply`, `postInProgressComment`, `buildProgressMessage`는 별도 `ConfigService` 조회 없이 같은 resolved review snapshot의 model/reasoning을 표시한다.
 - processor는 저장된 review snapshot과 작업 시작 시 읽은 credential snapshot을 끝까지 재사용한다.
 - OpenAI HTTPS base URL과 API key는 같은 job-start DB 읽기에서 하나의 immutable connection snapshot으로 만들고 함께 재사용한다. 서로 다른 revision의 endpoint와 key를 섞지 않는다.
 - 실행 중 설정 변경은 해당 webhook/job/Bitbucket 게시 흐름을 바꾸지 않는다.
@@ -155,6 +164,7 @@ route:
 - Codex model/reasoning/timeout/prompt를 review snapshot 인자로 전환
 - OpenAI HTTPS base URL/API key를 같은 job-start 읽기의 atomic connection snapshot 인자로 전환
 - Bitbucket/Git credential을 작업 시작 snapshot으로 전환
+- 진행 중 댓글의 model/reasoning도 review snapshot에서 렌더링하도록 `WebhookController`의 별도 `ConfigService` 조회 제거
 - clone timeout과 worker concurrency live 적용
 - Codex child env를 allowlist로 전환
 
@@ -163,6 +173,7 @@ route:
 - 잠금 화면과 memory-only key 처리
 - global/repository 설정 form
 - secret configured/inherited 표시와 replace/clear UX
+- legacy Basic credential pair의 configured 표시와 atomic replace/clear UX
 - 400/401/409/5xx 상태 처리
 
 ### Phase 4: 정리와 검증
@@ -183,7 +194,9 @@ route:
 - 최초 이관이 현재 runtime env/default의 global 값 전체와 repository prompt 본문·API token·webhook secret을 모두 보존하며 `repositorySlug`-only 항목은 명시적 workspace mapping 없이는 cutover되지 않음
 - ingress pause와 queue drain 뒤 배포되어 snapshot 없는 queued/retrying job이 새 processor에서 실행되지 않고, drain 중 기존 job은 현재 `job.data.model`을 유지
 - OpenAI base URL은 HTTPS만 허용되고 API key와 같은 job-start 읽기에서 생성된 connection snapshot이어서 새 key가 이전 endpoint와 결합되지 않음
+- 진행 중 댓글이 같은 review snapshot의 model/reasoning을 표시해 실제 job 설정과 일치
 - repository slug가 같아도 workspace가 다르면 설정/secret이 분리
+- legacy Basic credential은 username/app password를 항상 함께 replace/clear할 수 있고 GET에는 configured 여부만 노출
 - Codex child env에 dashboard/encryption/Bitbucket/DB/Redis secret이 없음
 - 여러 Pod가 같은 새 concurrency revision을 관측해 각 worker setter에 적용하고, 이미 실행 중인 job은 유지
 - bootstrap-static 설정은 대시보드에서 노출·수정되지 않음

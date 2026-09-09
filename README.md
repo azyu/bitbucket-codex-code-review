@@ -156,11 +156,12 @@ docker compose up -d
 
 현재 구현은 위 설정을 환경변수에서 읽으므로 값을 바꾸면 프로세스를 다시 시작해야 합니다. 향후에는 운영 중 바꿔야 하는 설정만 MySQL-backed 대시보드 설정으로 옮깁니다.
 
-- **대시보드 관리**: Codex model/reasoning/timeout/custom prompt 본문, OpenAI API key/HTTPS base URL, trigger mode, queue retry, worker concurrency, clone timeout, Bitbucket global/repository token과 webhook secret
+- **대시보드 관리**: Codex model/reasoning/timeout/custom prompt 본문, OpenAI API key/HTTPS base URL, trigger mode, queue retry, worker concurrency, clone timeout, Bitbucket global/repository token·webhook secret과 global legacy Basic credential pair
 - **Secret Manager 유지**: DB/Redis 연결, 서버/metrics port, telemetry, Codex executable/auth.json, workspace root, `DASHBOARD_SECRET_KEY`, `SETTINGS_ENCRYPTION_KEY`
 - **적용 시점**: 새 webhook/job부터 적용하며 실행 중인 작업은 시작 시점 snapshot을 유지
 - **인증**: HTTPS에서 단일 `DASHBOARD_SECRET_KEY`를 Bearer header로 사용하고 모든 `/api/internal/*` route를 보호
 - **secret 저장**: AES-256-GCM 암호화. 조회 API는 값 대신 configured/inherited 상태만 반환
+- **설정 일관성**: 진행 중 댓글도 job과 같은 review snapshot의 model/reasoning을 표시하며 legacy Basic username/app password는 항상 함께 교체하거나 삭제
 
 초기 migration/import와 기존 queue drain을 위한 rollout은 한 번 필요합니다. 전환 후 runtime 설정 변경에는 Pod 재시작이 필요하지 않습니다. 상세 설계와 수용 기준은 [`.context/PLAN.md`](.context/PLAN.md)를 참조하세요.
 
