@@ -123,6 +123,8 @@ GET은 `basicCredentialConfigured`만 반환한다.
 - OpenAI HTTPS base URL과 API key는 같은 job-start DB 읽기에서 하나의 immutable connection snapshot으로 만들고 함께 재사용한다. 서로 다른 revision의 endpoint와 key를 섞지 않는다.
 - 실행 중 설정 변경은 해당 webhook/job/Bitbucket 게시 흐름을 바꾸지 않는다.
 - 새 webhook은 새 review 설정을, 새 job 시작은 새 credential과 OpenAI connection 설정을 사용한다.
+- worker concurrency만 live global control이며 각 Pod가 짧은 revision polling으로 DB를 읽어 자신의 `worker.concurrency` setter에 적용한다. 낮춰도 이미 실행 중인 job은 취소하지 않는다.
+
 `CodexService`는 binary path만 constructor에 유지하고 model/reasoning/timeout/prompt는 review snapshot, OpenAI HTTPS base URL/API key는 atomic job-start connection snapshot 인자로 받는다. 실행 시 CLI `-c model_provider="openai"`와 `-c openai_base_url=<validated-url>`를 함께 override하고 API key만 명시적 child env에 넣어 기존 `config.toml`의 custom provider나 endpoint가 새 key를 받지 못하게 한다. 현재 `process.env` 전체를 child에 복사하는 방식은 고정 allowlist로 바꿔 dashboard/encryption/Bitbucket/DB/Redis secret 유출을 막는다.
 
 `WorkspaceService`는 base path만 constructor에 유지하고 clone timeout과 credential을 작업 snapshot으로 받는다. repo path와 lock key도 workspace+repository 복합 식별자를 사용한다.
