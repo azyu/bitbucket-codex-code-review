@@ -6,6 +6,7 @@ services:
       args:
         GIT_COMMIT_HASH: ${GIT_COMMIT_HASH:-unknown}
     container_name: code-review-worker
+    command: ["sh", "-c", "pnpm database:prepare && exec node dist/main"]
     # Codex branch-diff reviews invoke bubblewrap, which needs user namespaces.
     security_opt:
       - seccomp:unconfined
@@ -29,7 +30,7 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${DB_PASSWORD:-rootpass}
       DB_NAME: lxp_code_review
-      DB_SYNCHRONIZE: "true"
+      DB_SYNCHRONIZE: "false"
       DB_LOGGING: "false"
       DB_POOL_SIZE: 5
       DB_POOL_MAX_IDLE: 2

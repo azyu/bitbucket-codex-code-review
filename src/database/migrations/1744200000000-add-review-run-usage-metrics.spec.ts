@@ -4,10 +4,12 @@ import { AddReviewRunUsageMetrics1744200000000 } from "./1744200000000-add-revie
 describe("AddReviewRunUsageMetrics1744200000000", () => {
   const queryRunner = {
     query: jest.fn(),
+    hasColumn: jest.fn().mockResolvedValue(false),
   } as unknown as QueryRunner;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (queryRunner.hasColumn as jest.Mock).mockResolvedValue(false);
   });
 
   it("adds usage metric columns", async () => {
@@ -21,6 +23,14 @@ describe("AddReviewRunUsageMetrics1744200000000", () => {
     expect(queryRunner.query).toHaveBeenCalledWith(
       expect.stringContaining("ADD COLUMN outputTokens int NULL"),
     );
+  });
+
+  it("skips columns already created by schema sync", async () => {
+    (queryRunner.hasColumn as jest.Mock).mockResolvedValue(true);
+
+    await new AddReviewRunUsageMetrics1744200000000().up(queryRunner);
+
+    expect(queryRunner.query).not.toHaveBeenCalled();
   });
 
   it("drops usage metric columns in reverse order", async () => {

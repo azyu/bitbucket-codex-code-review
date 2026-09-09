@@ -2,9 +2,17 @@ import { QueryRunner } from "typeorm";
 import { AddRuntimeSettings1788912000000 } from "./1788912000000-add-runtime-settings";
 
 describe("AddRuntimeSettings1788912000000", () => {
-  const queryRunner = { query: jest.fn() } as unknown as QueryRunner;
+  const queryRunner = {
+    query: jest.fn(),
+    hasTable: jest.fn().mockResolvedValue(false),
+    hasColumn: jest.fn().mockResolvedValue(false),
+  } as unknown as QueryRunner;
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (queryRunner.hasTable as jest.Mock).mockResolvedValue(false);
+    (queryRunner.hasColumn as jest.Mock).mockResolvedValue(false);
+  });
 
   it("creates encrypted settings storage before workspace-qualifying review keys", async () => {
     await new AddRuntimeSettings1788912000000().up(queryRunner);
@@ -18,12 +26,32 @@ describe("AddRuntimeSettings1788912000000", () => {
     expect(statements[1]).toContain(
       "MODIFY COLUMN idempotencyKey varchar(600) NOT NULL",
     );
-    expect(statements[1]).toContain("ADD COLUMN settingsSnapshot json NULL");
     expect(statements[2]).toContain(
+      "ADD COLUMN settingsSnapshot json NULL",
+    );
+    expect(statements[3]).toContain(
       "SET idempotencyKey = CONCAT(workspaceSlug, ':', idempotencyKey)",
     );
-    expect(statements[2]).toContain("WHERE workspaceSlug <> ''");
-    expect(statements[2]).not.toContain("idempotencyKey NOT LIKE");
+    expect(statements[3]).toContain("WHERE workspaceSlug <> ''");
+    expect(statements[3]).not.toContain("idempotencyKey NOT LIKE");
+  });
+
+  it("runs only the data migration when schema sync created current tables", async () => {
+    (queryRunner.hasTable as jest.Mock).mockResolvedValue(true);
+    (queryRunner.hasColumn as jest.Mock).mockResolvedValue(true);
+
+    await new AddRuntimeSettings1788912000000().up(queryRunner);
+
+    const statements = (queryRunner.query as jest.Mock).mock.calls.map(
+      ([sql]: [string]) => sql,
+    );
+    expect(statements).toHaveLength(2);
+    expect(statements[0]).toContain(
+      "MODIFY COLUMN idempotencyKey varchar(600) NOT NULL",
+    );
+    expect(statements[1]).toContain(
+      "SET idempotencyKey = CONCAT(workspaceSlug, ':', idempotencyKey)",
+    );
   });
 
   it("rejects rollback because workspace-qualified keys are irreversible", async () => {

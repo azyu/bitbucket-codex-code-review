@@ -36,7 +36,7 @@ flowchart LR
 
 **인프라 (로컬 개발 시 Docker Compose로 자동 구성):**
 
-- MySQL 8.4
+- MySQL 26.7
 - Redis
 
 ## Quick Start
@@ -70,6 +70,8 @@ export BITBUCKET_WEBHOOK_SECRET=your_secret
 
 docker compose up -d
 ```
+
+Compose는 `database:prepare`에서 `review_runs`가 없는 clean volume만 현재 schema로 초기화한 뒤 migration을 적용하고 worker를 시작합니다. 기존 volume은 schema 동기화를 건너뛰고 migration만 실행하며, 실패 시 애플리케이션을 시작하지 않습니다. 애플리케이션의 `DB_SYNCHRONIZE`는 비활성화되어 부팅 뒤 schema 변경은 없습니다.
 
 > [!IMPORTANT]
 > Codex의 대형 PR branch-diff 모드는 worktree에서 `git`을 실행하는 sandbox를 사용합니다. 이 sandbox의 bubblewrap이 비특권 user namespace를 만들 수 있도록 `code-review-worker`는 `seccomp:unconfined`로 실행해야 합니다. `CAP_SYS_ADMIN`이나 `privileged`는 필요하지 않습니다. 배포 후 파드/컨테이너에서 `unshare --user --map-root-user true`가 성공하는지 확인하세요.
@@ -169,8 +171,9 @@ DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path
 2. 기존 queued/retrying/running job을 기존 이미지의 `job.data.model`로 모두 drain합니다.
 3. 각 legacy idempotency key의 raw job ID와 `review-${base64url(legacyKey)}` job ID를 제거하고 실행/복구 가능한 job이 0인지 확인합니다.
 4. `RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP`에 모든 repo별 import key의 workspace를 명시합니다. 누락되면 importer가 실패합니다.
-5. migration과 새 이미지를 rolling deploy하고 모든 Pod에서 import 및 worker concurrency 적용을 확인합니다.
-6. Webhook ingress를 재개합니다.
+5. 새 이미지를 배포합니다. Docker Compose는 `database:prepare`가 migration을 완료한 뒤 worker를 시작하며, 외부 배포 환경은 애플리케이션 시작 전에 `pnpm database:prepare`를 실행해야 합니다.
+6. 모든 인스턴스에서 runtime settings import 및 worker concurrency 적용을 확인합니다.
+7. Webhook ingress를 재개합니다.
 
 이 migration의 workspace-qualified idempotency key 변환은 되돌릴 수 없습니다. Migration 적용 뒤에는 legacy 이미지만 교체해 rollback하면 안 됩니다. 호환되는 수정 이미지를 배포하거나, webhook ingress를 중단하고 새 형식 job을 모두 drain한 뒤 배포 전 DB backup과 환경변수 설정을 함께 복원해야 합니다.
 
@@ -190,6 +193,8 @@ DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path
 
 ```bash
 pnpm build          # 프로덕션 빌드
+pnpm database:prepare # clean DB 초기화(최초 1회) + pending migration 적용
+pnpm migration:run    # 기존 DB의 pending migration 적용
 pnpm start          # 프로덕션 실행
 pnpm start:dev      # 개발 서버 (watch)
 pnpm test           # 테스트 실행

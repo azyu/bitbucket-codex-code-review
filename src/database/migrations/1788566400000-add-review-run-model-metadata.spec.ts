@@ -4,10 +4,12 @@ import { AddReviewRunModelMetadata1788566400000 } from "./1788566400000-add-revi
 describe("AddReviewRunModelMetadata1788566400000", () => {
   const queryRunner = {
     query: jest.fn(),
+    hasColumn: jest.fn().mockResolvedValue(false),
   } as unknown as QueryRunner;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (queryRunner.hasColumn as jest.Mock).mockResolvedValue(false);
   });
 
   it("adds model attribution columns", async () => {
@@ -23,6 +25,14 @@ describe("AddReviewRunModelMetadata1788566400000", () => {
         "ADD COLUMN codexReasoningEffort varchar(16) NULL",
       ),
     );
+  });
+
+  it("skips columns already created by schema sync", async () => {
+    (queryRunner.hasColumn as jest.Mock).mockResolvedValue(true);
+
+    await new AddReviewRunModelMetadata1788566400000().up(queryRunner);
+
+    expect(queryRunner.query).not.toHaveBeenCalled();
   });
 
   it("drops model attribution columns in reverse order", async () => {
