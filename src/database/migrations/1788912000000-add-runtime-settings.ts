@@ -30,10 +30,29 @@ export class AddRuntimeSettings1788912000000 implements MigrationInterface {
       `);
     }
     await queryRunner.query(`
-      UPDATE review_runs
-      SET idempotencyKey = CONCAT(workspaceSlug, ':', idempotencyKey)
-      WHERE workspaceSlug <> ''
+      CREATE TABLE IF NOT EXISTS schema_migration_markers (
+        name varchar(255) NOT NULL,
+        PRIMARY KEY (name)
+      ) ENGINE=InnoDB
     `);
+    await queryRunner.startTransaction();
+    try {
+      const marker = await queryRunner.query(`
+        INSERT IGNORE INTO schema_migration_markers (name)
+        VALUES ('workspace-qualified-idempotency-keys')
+      `) as { affectedRows?: number };
+      if (marker.affectedRows === 1) {
+        await queryRunner.query(`
+          UPDATE review_runs
+          SET idempotencyKey = CONCAT(workspaceSlug, ':', idempotencyKey)
+          WHERE workspaceSlug <> ''
+        `);
+      }
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    }
   }
 
   public async down(_queryRunner: QueryRunner): Promise<void> {

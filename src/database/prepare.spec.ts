@@ -1,4 +1,5 @@
 import { DataSource } from "typeorm";
+import dataSource from "./data-source";
 import { prepareDatabase } from "./prepare";
 
 function createSource(hasReviewRuns: boolean) {
@@ -17,6 +18,10 @@ function createSource(hasReviewRuns: boolean) {
 }
 
 describe("prepareDatabase", () => {
+  it("leaves migration transactions to migrations that need atomicity", () => {
+    expect(dataSource.options.migrationsTransactionMode).toBe("none");
+  });
+
   it("initializes a clean database before running migrations", async () => {
     const { source, mocks, queryRunner } = createSource(false);
 

@@ -176,6 +176,7 @@ DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path
 7. Webhook ingress를 재개합니다.
 
 이 migration의 workspace-qualified idempotency key 변환은 되돌릴 수 없습니다. Migration 적용 뒤에는 legacy 이미지만 교체해 rollback하면 안 됩니다. 호환되는 수정 이미지를 배포하거나, webhook ingress를 중단하고 새 형식 job을 모두 drain한 뒤 배포 전 DB backup과 환경변수 설정을 함께 복원해야 합니다.
+동시에 여러 인스턴스가 준비 작업을 실행해도 transaction marker를 먼저 획득한 인스턴스만 idempotency key를 변환합니다. 변환 중 실패하면 marker와 key 변경을 함께 rollback하므로 다음 실행이 재시도합니다.
 
 ## Security
 

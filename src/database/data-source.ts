@@ -16,6 +16,7 @@ export default new DataSource({
   database: process.env["DB_NAME"] || SCHEMA_NAME_CODE_REVIEW,
   entities: [ReviewRunEntity, RuntimeSettingEntity],
   migrations: ["dist/database/migrations/*.js"],
+  migrationsTransactionMode: "none",
   synchronize: false,
   logging: false,
   namingStrategy: new CustomNamingStrategy(),
