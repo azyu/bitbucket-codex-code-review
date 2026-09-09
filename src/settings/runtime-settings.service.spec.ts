@@ -374,6 +374,9 @@ describe("RuntimeSettingsService", () => {
       await expect(service.updateGlobal(patch as never)).rejects.toThrow(message);
     }
     await expect(
+      service.updateRepository(identity, null as never),
+    ).rejects.toThrow("expectedRevision");
+    await expect(
       service.updateRepository(identity, {
         expectedRevision: 0,
         basicCredential: { operation: "clear" },

@@ -201,13 +201,13 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
     patch: ISettingsPatch,
   ): Promise<ISettingsScopeDocument> {
     this.validateIdentity(identity);
+    this.validatePatch(patch, false);
     const key = this.repositoryKey(identity);
     let row = await this.repository.findOneBy({ scopeKey: key });
     if (!row) {
       if (patch.expectedRevision !== 0) {
         throw await this.conflict(key);
       }
-      this.validatePatch(patch, false);
       row = this.repository.create({
         scopeKey: key,
         scope: "repository",
