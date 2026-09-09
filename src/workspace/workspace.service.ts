@@ -149,37 +149,45 @@ export class WorkspaceService {
     baseBranch: string,
   ): Promise<IReviewDiff> {
     const baseRef = `refs/heads/${baseBranch}`;
-    const { stdout: mergeBase } = await execFileAsync(
-      "git",
-      ["merge-base", baseRef, "HEAD"],
-      {
+    const mergeBaseArgs = ["merge-base", baseRef, "HEAD"];
+    let mergeBase: string;
+    try {
+      ({ stdout: mergeBase } = await execFileAsync("git", mergeBaseArgs, {
         cwd: worktreePath,
         timeout: 30_000,
-      },
-    );
+      }));
+    } catch (err) {
+      throw new Error(
+        `Git command failed: git ${JSON.stringify(mergeBaseArgs)}: ${(err as Error).message}`,
+      );
+    }
     const baseCommit = mergeBase.trim();
     if (!baseCommit) {
       throw new Error(`Git merge-base failed for ${baseRef} and HEAD`);
     }
 
-    const { stdout } = await execFileAsync(
-      "git",
-      [
-        "diff",
-        "--no-ext-diff",
-        "--find-renames",
-        "--unified=80",
-        `${baseCommit}..HEAD`,
-        "--",
-        ".",
-        ...excludePathspecs,
-      ],
-      {
+    const diffArgs = [
+      "diff",
+      "--no-ext-diff",
+      "--find-renames",
+      "--unified=80",
+      `${baseCommit}..HEAD`,
+      "--",
+      ".",
+      ...excludePathspecs,
+    ];
+    let stdout: string;
+    try {
+      ({ stdout } = await execFileAsync("git", diffArgs, {
         cwd: worktreePath,
         timeout: 60_000,
         maxBuffer: 20 * 1024 * 1024,
-      },
-    );
+      }));
+    } catch (err) {
+      throw new Error(
+        `Git command failed: git ${JSON.stringify(diffArgs)} (base ref ${JSON.stringify(baseRef)}): ${(err as Error).message}`,
+      );
+    }
 
     const excludedChangedFiles = await this.listExcludedChangedFiles(
       worktreePath,
