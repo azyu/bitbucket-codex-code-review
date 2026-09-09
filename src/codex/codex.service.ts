@@ -28,8 +28,13 @@ const CODEX_ENV_ALLOWLIST = [
   "SSL_CERT_FILE",
   "SSL_CERT_DIR",
   "HTTP_PROXY",
+  "http_proxy",
   "HTTPS_PROXY",
+  "https_proxy",
   "NO_PROXY",
+  "ALL_PROXY",
+  "all_proxy",
+  "no_proxy",
   "NODE_EXTRA_CA_CERTS",
   "CODEX_HOME",
 ] as const;

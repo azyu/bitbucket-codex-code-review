@@ -224,8 +224,12 @@ describe("CodexService", () => {
     const child = createMockChild();
     spawnSpy.mockReturnValue(child);
     readFileSpy.mockResolvedValue("review output text");
+    const originalHttpProxy = process.env["http_proxy"];
+    const originalAllProxy = process.env["ALL_PROXY"];
     process.env["DB_PASSWORD"] = "must-not-leak";
     process.env["CODEX_SAFE_ENV"] = "also-not-allowlisted";
+    process.env["http_proxy"] = "http://lowercase-proxy.example:8080";
+    process.env["ALL_PROXY"] = "socks5://all-proxy.example:1080";
 
     try {
       const promise = createService().executeCodex(
@@ -242,6 +246,10 @@ describe("CodexService", () => {
         string[],
         { env: NodeJS.ProcessEnv },
       ];
+      expect(options.env["http_proxy"]).toBe(
+        "http://lowercase-proxy.example:8080",
+      );
+      expect(options.env["ALL_PROXY"]).toBe("socks5://all-proxy.example:1080");
       expect(options.env["OPENAI_API_KEY"]).toBe("job-key");
       expect(options.env["DB_PASSWORD"]).toBeUndefined();
       expect(options.env["CODEX_SAFE_ENV"]).toBeUndefined();
@@ -252,6 +260,10 @@ describe("CodexService", () => {
     } finally {
       delete process.env["DB_PASSWORD"];
       delete process.env["CODEX_SAFE_ENV"];
+      if (originalHttpProxy === undefined) delete process.env["http_proxy"];
+      else process.env["http_proxy"] = originalHttpProxy;
+      if (originalAllProxy === undefined) delete process.env["ALL_PROXY"];
+      else process.env["ALL_PROXY"] = originalAllProxy;
     }
   });
 
