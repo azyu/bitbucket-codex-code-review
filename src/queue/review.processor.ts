@@ -191,6 +191,9 @@ export class ReviewProcessor
           repository: data.repositorySlug,
           stage: authFailureStage,
         });
+        this.logger.error(
+          `Review authentication failure: repository=${data.workspaceSlug}/${data.repositorySlug} stage=${authFailureStage}`,
+        );
       }
 
       // 게시 전 일시 실패이고 시도가 남았으면 FAILED 기록·실패 코멘트를 보류한다.

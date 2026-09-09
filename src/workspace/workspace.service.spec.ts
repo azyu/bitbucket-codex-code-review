@@ -561,6 +561,32 @@ describe("WorkspaceService", () => {
     expect(result.excludedChangedFiles).toBeNull();
   });
 
+  it("attributes an oversized review diff to its exact git comparison", async () => {
+    execFileMock
+      .mockImplementationOnce(
+        (
+          _command: string,
+          _args: string[],
+          _options: Record<string, unknown>,
+          callback: ExecFileCallback,
+        ) => callback(null, { stdout: "basecommit123\n", stderr: "" }),
+      )
+      .mockImplementationOnce(
+        (
+          _command: string,
+          _args: string[],
+          _options: Record<string, unknown>,
+          callback: ExecFileCallback,
+        ) => callback(new Error("stdout maxBuffer length exceeded")),
+      );
+
+    await expect(
+      service.createReviewDiff("/tmp/worktree", "develop"),
+    ).rejects.toThrow(
+      'Git command failed: git ["diff","--no-ext-diff","--find-renames","--unified=80","basecommit123..HEAD","--",".",":(exclude,glob)**/pnpm-lock.yaml",":(exclude,glob)**/package-lock.json",":(exclude,glob)**/yarn.lock",":(exclude,glob)**/bun.lockb"] (base ref "refs/heads/develop"): stdout maxBuffer length exceeded',
+    );
+  });
+
   it("throws when merge-base returns an empty commit", async () => {
     execFileMock.mockImplementation(
       (

@@ -20,11 +20,13 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { initOpenTelemetry } from "../lib/opentelemetry";
 import { DEFAULTS } from "../config/configuration";
+const mockLoggerError = jest.fn();
+
 
 jest.mock("@lib/logger", () => ({
   ServiceLogger: jest.fn().mockImplementation(() => ({
     log: jest.fn(),
-    error: jest.fn(),
+    error: mockLoggerError,
     warn: jest.fn(),
     debug: jest.fn(),
     verbose: jest.fn(),
@@ -1882,6 +1884,9 @@ describe("ReviewProcessor error handling", () => {
       expect(metricsBody).toContain("code_review_authentication_failures_total");
       expect(metricsBody).toContain('repository="my-repo"');
       expect(metricsBody).toContain('stage="git"');
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        "Review authentication failure: repository=my-workspace/my-repo stage=git",
+      );
       expect(rejection).toBeInstanceOf(UnrecoverableError);
       expect(mockReviewService.claimFailure).toHaveBeenCalledWith(
         1,
