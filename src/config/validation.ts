@@ -68,7 +68,10 @@ export const validationSchema = Joi.object({
     .default(DEFAULTS.QUEUE_RETRY_DELAY),
   CODEX_BINARY_PATH: Joi.string().default(DEFAULTS.CODEX_BINARY_PATH),
   CODEX_TIMEOUT_MS: Joi.number().default(DEFAULTS.CODEX_TIMEOUT_MS),
-  CODEX_MODEL: Joi.string().default(DEFAULTS.CODEX_MODEL),
+  CODEX_MODEL: Joi.string()
+    .max(64)
+    .pattern(/^[A-Za-z0-9][\w.-]*$/)
+    .default(DEFAULTS.CODEX_MODEL),
   CODEX_REASONING_EFFORT: Joi.string()
     .valid("none", "low", "medium", "high", "xhigh", "max")
     .default(DEFAULTS.CODEX_REASONING_EFFORT),

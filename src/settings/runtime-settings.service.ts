@@ -318,7 +318,8 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
     if (key === "model" || key === "customPrompt") {
       if (
         typeof value !== "string" ||
-        (key === "model" && !/^[A-Za-z0-9][\w.-]*$/.test(value))
+        (key === "model" &&
+          (value.length > 64 || !/^[A-Za-z0-9][\w.-]*$/.test(value)))
       ) {
         throw new BadRequestException(`Invalid ${key}`);
       }

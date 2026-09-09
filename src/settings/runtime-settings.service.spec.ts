@@ -355,6 +355,7 @@ describe("RuntimeSettingsService", () => {
       [{ expectedRevision: 1, unexpected: true }, "Unknown field"],
       [{ expectedRevision: 1, values: { unknown: "value" } }, "Unknown setting"],
       [{ expectedRevision: 1, values: { model: "bad model" } }, "Invalid model"],
+      [{ expectedRevision: 1, values: { model: "m".repeat(65) } }, "Invalid model"],
       [{ expectedRevision: 1, values: { reasoningEffort: "extreme" } }, "Invalid reasoningEffort"],
       [{ expectedRevision: 1, values: { triggerMode: "manual" } }, "Invalid triggerMode"],
       [{ expectedRevision: 1, values: { openaiBaseUrl: 1 } }, "Invalid openaiBaseUrl"],

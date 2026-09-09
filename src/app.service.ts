@@ -1071,7 +1071,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
             </div>
             <form class="p-4 pt-0" @submit.prevent="saveGlobalSettings()">
               <div class="row g-3">
-                <div class="col-md-6"><label class="form-label" for="global-model">Model</label><input id="global-model" class="form-control" x-model="settingsForm.model" required /></div>
+                <div class="col-md-6"><label class="form-label" for="global-model">Model</label><input id="global-model" class="form-control" maxlength="64" x-model="settingsForm.model" required /></div>
                 <div class="col-md-6"><label class="form-label" for="global-reasoning">Reasoning</label><select id="global-reasoning" class="form-select" x-model="settingsForm.reasoningEffort"><option value="">default</option><option>none</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select></div>
                 <div class="col-md-6"><label class="form-label" for="global-codex-timeout">Codex timeout (ms)</label><input id="global-codex-timeout" type="number" min="1" class="form-control" x-model.number="settingsForm.timeoutMs" required /></div>
                 <div class="col-md-6"><label class="form-label" for="global-openai-base-url">OpenAI HTTPS base URL</label><input id="global-openai-base-url" type="url" class="form-control" x-model="settingsForm.openaiBaseUrl" /></div>
@@ -1097,7 +1097,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
               <div class="row g-3">
                 <div class="col-md-6"><label class="form-label" for="repository-workspace">Workspace slug</label><input id="repository-workspace" class="form-control" x-model="repositoryForm.workspaceSlug" required /></div>
                 <div class="col-md-6"><label class="form-label" for="repository-slug">Repository slug</label><input id="repository-slug" class="form-control" x-model="repositoryForm.repositorySlug" required /></div>
-                <div class="col-md-6"><label class="form-label" for="repository-model">Model (empty = inherit)</label><input id="repository-model" class="form-control" x-model="repositoryForm.model" /></div>
+                <div class="col-md-6"><label class="form-label" for="repository-model">Model (empty = inherit)</label><input id="repository-model" class="form-control" maxlength="64" x-model="repositoryForm.model" /></div>
                 <div class="col-md-6"><label class="form-label" for="repository-reasoning">Reasoning (empty = inherit)</label><select id="repository-reasoning" class="form-select" x-model="repositoryForm.reasoningEffort"><option value="">inherit</option><option>none</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select></div>
                 <div class="col-md-6"><label class="form-label" for="repository-timeout">Timeout (empty = inherit)</label><input id="repository-timeout" type="number" min="1" class="form-control" x-model="repositoryForm.timeoutMs" /></div>
                 <div class="col-12"><label class="form-label" for="repository-custom-prompt">Custom prompt (empty = inherit)</label><textarea id="repository-custom-prompt" class="form-control" rows="4" x-model="repositoryForm.customPrompt"></textarea></div>

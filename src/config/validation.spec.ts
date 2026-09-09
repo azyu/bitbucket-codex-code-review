@@ -31,6 +31,15 @@ describe("validationSchema", () => {
     );
   });
 
+  it("rejects model names wider than review_runs.codexModel", () => {
+    const { error } = validationSchema.validate({
+      ...validEnv,
+      CODEX_MODEL: "m".repeat(65),
+    });
+
+    expect(error?.message).toContain("CODEX_MODEL");
+  });
+
   it("accepts repo token and webhook secret JSON objects", () => {
     const { error, value } = validationSchema.validate({
       ...validEnv,

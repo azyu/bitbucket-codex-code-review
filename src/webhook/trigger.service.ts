@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { ServiceLogger } from "@lib/logger";
 
 const CODEX_MENTION_REGEX = /(?:^|\s)@codex(?:\s+review)?(?:\s|$)/i;
@@ -28,7 +28,11 @@ export class TriggerService {
 
   /** 댓글에 지정된 리뷰 모델(`--model:<name>`)을 추출. 없으면 undefined */
   parseModelOverride(commentRaw: string): string | undefined {
-    return CODEX_MODEL_REGEX.exec(commentRaw)?.[1];
+    const model = CODEX_MODEL_REGEX.exec(commentRaw)?.[1];
+    if (model && model.length > 64) {
+      throw new BadRequestException("Invalid model");
+    }
+    return model;
   }
 
   /** PR 이벤트에서 자동 리뷰를 트리거해야 하는지 확인 */
