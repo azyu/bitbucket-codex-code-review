@@ -23,6 +23,7 @@ jest.mock("child_process", () => ({
 
 const RUNTIME_PARAMS = {
   workspaceSlug: "workspace",
+  reviewRunId: 99,
   cloneTimeoutMs: 900_000,
   credentials: { apiTokens: ["repo-token"] },
 };
@@ -94,7 +95,9 @@ describe("WorkspaceService", () => {
       worktreePath: join(
         basePath,
         "worktrees",
-        "workspace-repoa-abcdef12",
+        "workspace",
+        "repoa",
+        "99",
       ),
     });
     expect(execFileMock).toHaveBeenNthCalledWith(
@@ -139,7 +142,7 @@ describe("WorkspaceService", () => {
         "worktree",
         "add",
         "--detach",
-        join(basePath, "worktrees", "workspace-repoa-abcdef12"),
+        join(basePath, "worktrees", "workspace", "repoa", "99"),
         "abcdef1234567890",
       ],
       expect.objectContaining({
@@ -155,11 +158,10 @@ describe("WorkspaceService", () => {
     await expect(stat(askpassPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("uses different repo and worktree paths for the same slug in different workspaces", async () => {
+  it("keeps delimiter-colliding identities on different paths", async () => {
     const base = {
       ...RUNTIME_PARAMS,
       cloneUrl: "https://bitbucket.org/workspace/repo-a.git",
-      repositorySlug: "repo-a",
       headBranch: "feature",
       baseBranch: "main",
       headCommitHash: "abcdef1234567890",
@@ -167,11 +169,13 @@ describe("WorkspaceService", () => {
 
     const first = await service.prepareWorktree({
       ...base,
-      workspaceSlug: "workspace-a",
+      workspaceSlug: "a-b",
+      repositorySlug: "c",
     });
     const second = await service.prepareWorktree({
       ...base,
-      workspaceSlug: "workspace-b",
+      workspaceSlug: "a",
+      repositorySlug: "b-c",
     });
 
     expect(first.bareRepoPath).not.toBe(second.bareRepoPath);
@@ -261,6 +265,7 @@ describe("WorkspaceService", () => {
     const params = (slug: string, headCommitHash: string) => ({
       ...RUNTIME_PARAMS,
       cloneUrl: `https://bitbucket.org/workspace/${slug}.git`,
+      reviewRunId: headCommitHash.startsWith("a") ? 1 : 2,
       repositorySlug: slug,
       headBranch: "feature",
       baseBranch: "main",
@@ -296,22 +301,14 @@ describe("WorkspaceService", () => {
 
       pendingFetches[0]!();
       await expect(first).resolves.toMatchObject({
-        worktreePath: join(
-          basePath,
-          "worktrees",
-          "workspace-repo-a-aaaaaaaa",
-        ),
+        worktreePath: join(basePath, "worktrees", "workspace", "repo-a", "1"),
       });
       await settle();
 
       expect(pendingFetches).toHaveLength(2);
       pendingFetches[1]!();
       await expect(second).resolves.toMatchObject({
-        worktreePath: join(
-          basePath,
-          "worktrees",
-          "workspace-repo-a-bbbbbbbb",
-        ),
+        worktreePath: join(basePath, "worktrees", "workspace", "repo-a", "2"),
       });
     });
 
@@ -376,11 +373,7 @@ describe("WorkspaceService", () => {
       expect(pendingFetches).toHaveLength(2);
       pendingFetches[1]!();
       await expect(second).resolves.toMatchObject({
-        worktreePath: join(
-          basePath,
-          "worktrees",
-          "workspace-repo-a-bbbbbbbb",
-        ),
+        worktreePath: join(basePath, "worktrees", "workspace", "repo-a", "2"),
       });
     });
   });

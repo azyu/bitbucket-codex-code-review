@@ -1318,6 +1318,7 @@ document.addEventListener("alpine:init", function () {
         bitbucketApiTokenStatus: null,
         webhookSecretStatus: null,
       },
+      repositoryLoadedIdentity: "",
       repos: [],
       recentReviews: [],
       recentLoading: false,
@@ -1542,6 +1543,22 @@ document.addEventListener("alpine:init", function () {
         this.settingsDocument = null;
         this.expandedReviewId = null;
         this.expandedReviewOutput = null;
+        this.repositoryForm = {
+          workspaceSlug: "",
+          repositorySlug: "",
+          revision: 0,
+          model: "",
+          reasoningEffort: "",
+          timeoutMs: "",
+          customPrompt: "",
+          bitbucketApiToken: "",
+          webhookSecret: "",
+          bitbucketApiTokenClear: false,
+          webhookSecretClear: false,
+          bitbucketApiTokenStatus: null,
+          webhookSecretStatus: null,
+        };
+        this.repositoryLoadedIdentity = "";
         this.stopPolling();
       },
 
@@ -1653,12 +1670,25 @@ document.addEventListener("alpine:init", function () {
             document && document.secrets.bitbucketApiToken,
           webhookSecretStatus: document && document.secrets.webhookSecret,
         };
+        this.repositoryLoadedIdentity = JSON.stringify([
+          form.workspaceSlug,
+          form.repositorySlug,
+        ]);
       },
 
       async saveRepositorySettings() {
+        const form = this.repositoryForm;
+        const identity = JSON.stringify([
+          form.workspaceSlug,
+          form.repositorySlug,
+        ]);
+        if (this.repositoryLoadedIdentity !== identity) {
+          this.settingsError = true;
+          this.settingsStatus = "Repository identity 변경 후 불러오기를 먼저 실행하세요.";
+          return;
+        }
         this.settingsSaving = true;
         this.settingsError = false;
-        const form = this.repositoryForm;
         try {
           const values = {
             model: form.model || null,

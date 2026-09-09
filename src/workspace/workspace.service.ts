@@ -74,7 +74,6 @@ export class WorkspaceService {
         `Invalid repository identity: ${params.workspaceSlug}/${params.repositorySlug}`,
       );
     }
-    const repositoryKey = `${safeWorkspace}-${safeSlug}`;
     const bareRepoPath = join(
       this.basePath,
       "repos",
@@ -84,13 +83,15 @@ export class WorkspaceService {
     const worktreePath = join(
       this.basePath,
       "worktrees",
-      `${repositoryKey}-${params.headCommitHash.substring(0, 8)}`,
+      safeWorkspace,
+      safeSlug,
+      String(params.reviewRunId),
     );
 
     this.assertWithinBasePath(bareRepoPath);
     this.assertWithinBasePath(worktreePath);
 
-    return this.enqueueForSlug(repositoryKey, async () => {
+    return this.enqueueForSlug(bareRepoPath, async () => {
       const gitAuthEnv = await this.buildGitAuthEnv(
         params.repositorySlug,
         params.credentials,
@@ -303,7 +304,7 @@ export class WorkspaceService {
     worktreePath: string,
     commitHash: string,
   ): Promise<void> {
-    await mkdir(join(this.basePath, "worktrees"), { recursive: true });
+    await mkdir(dirname(worktreePath), { recursive: true });
 
     if (existsSync(worktreePath)) {
       await rm(worktreePath, { recursive: true, force: true });

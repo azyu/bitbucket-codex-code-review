@@ -22,6 +22,7 @@ export interface IPrepareWorktreeParams {
   readonly headBranch: string;
   readonly baseBranch: string;
   readonly headCommitHash: string;
+  readonly reviewRunId: number;
   readonly cloneTimeoutMs: number;
   readonly credentials: IBitbucketCredentialSnapshot;
 }

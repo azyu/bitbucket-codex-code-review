@@ -10,7 +10,7 @@ export class AddRuntimeSettings1788912000000 implements MigrationInterface {
         scope enum('global', 'repository') NOT NULL,
         workspaceSlug varchar(255) NOT NULL DEFAULT '',
         repositorySlug varchar(255) NOT NULL DEFAULT '',
-        values json NOT NULL,
+        \`values\` json NOT NULL,
         encryptedSecrets text NOT NULL,
         revision int NOT NULL DEFAULT 1,
         updatedAt timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),

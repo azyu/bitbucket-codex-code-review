@@ -14,6 +14,7 @@ describe("AddRuntimeSettings1788912000000", () => {
     );
     expect(statements[0]).toContain("CREATE TABLE runtime_settings");
     expect(statements[0]).toContain("encryptedSecrets text NOT NULL");
+    expect(statements[0]).toContain("`values` json NOT NULL");
     expect(statements[1]).toContain(
       "MODIFY COLUMN idempotencyKey varchar(600) NOT NULL",
     );

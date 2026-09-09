@@ -141,6 +141,7 @@ export class ReviewProcessor
         repositorySlug: data.repositorySlug,
         headBranch: data.headBranch,
         baseBranch: data.baseBranch,
+        reviewRunId: data.reviewRunId,
         headCommitHash: data.headCommitHash,
         cloneTimeoutMs: data.settings.cloneTimeoutMs,
         credentials: credentials.bitbucket,
