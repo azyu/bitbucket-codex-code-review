@@ -354,17 +354,24 @@ describe("RuntimeSettingsService", () => {
     const invalidGlobalPatches = [
       [{ expectedRevision: -1 }, "expectedRevision"],
       [{ expectedRevision: 1, unexpected: true }, "Unknown field"],
+      [{ expectedRevision: 1, constructor: 1 }, "Unknown field"],
       [{ expectedRevision: 1, values: { unknown: "value" } }, "Unknown setting"],
       [{ expectedRevision: 1, values: { model: "bad model" } }, "Invalid model"],
       [{ expectedRevision: 1, values: { model: "m".repeat(65) } }, "Invalid model"],
       [{ expectedRevision: 1, values: { customPrompt: "x".repeat(100_001) } }, "Invalid customPrompt"],
       [{ expectedRevision: 1, values: { reasoningEffort: "extreme" } }, "Invalid reasoningEffort"],
       [{ expectedRevision: 1, values: { triggerMode: "manual" } }, "Invalid triggerMode"],
+      [{ expectedRevision: 1, values: { reasoningEffort: "toString" } }, "Invalid reasoningEffort"],
+      [{ expectedRevision: 1, values: { triggerMode: "constructor" } }, "Invalid triggerMode"],
+      [{ expectedRevision: 1, values: { constructor: 5 } }, "Unknown setting"],
       [{ expectedRevision: 1, values: { openaiBaseUrl: 1 } }, "Invalid openaiBaseUrl"],
       [{ expectedRevision: 1, values: { timeoutMs: 0 } }, "Invalid timeoutMs"],
       [{ expectedRevision: 1, values: { retryDelay: -1 } }, "Invalid retryDelay"],
+      [{ expectedRevision: 1, values: { retryAttempts: 11 } }, "Invalid retryAttempts"],
+      [{ expectedRevision: 1, values: { workerConcurrency: 33 } }, "Invalid workerConcurrency"],
       [{ expectedRevision: 1, secrets: { unknown: { operation: "clear" } } }, "Unknown secret"],
       [{ expectedRevision: 1, secrets: { openaiApiKey: { operation: "replace", value: "" } } }, "Replacement secret"],
+      [{ expectedRevision: 1, secrets: { constructor: { operation: "replace", value: "x" } } }, "Unknown secret"],
       [{ expectedRevision: 1, secrets: { openaiApiKey: { operation: "clear", value: "extra" } } }, "Invalid clear"],
       [{ expectedRevision: 1, basicCredential: { operation: "invalid" } }, "Invalid basicCredential"],
       [{ expectedRevision: 1, basicCredential: { operation: "replace", username: 1, appPassword: "password" } }, "username and appPassword"],
@@ -376,6 +383,15 @@ describe("RuntimeSettingsService", () => {
     await expect(
       service.updateRepository(identity, null as never),
     ).rejects.toThrow("expectedRevision");
+    for (const patch of [
+      { expectedRevision: 0, values: 1 },
+      { expectedRevision: 0, values: [] },
+      { expectedRevision: 0, secrets: null },
+    ]) {
+      await expect(
+        service.updateRepository(identity, patch as never),
+      ).rejects.toThrow("Invalid");
+    }
     await expect(
       service.updateRepository(identity, {
         expectedRevision: 0,
@@ -424,6 +440,7 @@ describe("RuntimeSettingsService", () => {
   });
 
   it("rejects an oversized imported custom prompt before persistence", async () => {
+
     const readFileSpy = jest
       .spyOn(fsPromises, "readFile")
       .mockResolvedValue("x".repeat(100_001));
@@ -436,6 +453,19 @@ describe("RuntimeSettingsService", () => {
     );
     expect(rows.size).toBe(0);
     readFileSpy.mockRestore();
+  });
+  it("fails startup when the persisted settings use another encryption key", async () => {
+    const store = createRepository();
+    const first = createService({}, store).service;
+    await first.onApplicationBootstrap();
+
+    const second = createService(
+      {
+        "runtimeSettings.encryptionKey": "fedcba9876543210fedcba9876543210",
+      },
+      store,
+    ).service;
+    await expect(second.onApplicationBootstrap()).rejects.toThrow();
   });
 
   it("rejects invalid encryption keys and partial imported Basic credentials", async () => {

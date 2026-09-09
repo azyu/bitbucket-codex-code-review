@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, rm, stat } from "fs/promises";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
@@ -393,6 +393,42 @@ describe("WorkspaceService", () => {
     expect(execFileMock).not.toHaveBeenCalled();
   });
 
+  it("retries authentication with the next credential only", async () => {
+    const askpassPaths: string[] = [];
+    execFileMock.mockImplementation(
+      (
+        _command: string,
+        args: string[],
+        options: { env?: Record<string, string> },
+        callback: ExecFileCallback,
+      ) => {
+        const askpassPath = options.env?.["GIT_ASKPASS"];
+        if (args[0] === "clone" && askpassPath) {
+          askpassPaths.push(askpassPath);
+          const script = readFileSync(askpassPath, "utf8");
+          if (script.includes("stale-token")) {
+            callback(new Error("fatal: Authentication failed"));
+            return;
+          }
+        }
+        callback(null, { stdout: "", stderr: "" });
+      },
+    );
+
+    await service.prepareWorktree({
+      ...RUNTIME_PARAMS,
+      cloneUrl: "https://bitbucket.org/workspace/repo-a.git",
+      repositorySlug: "repo-a",
+      headBranch: "feature",
+      baseBranch: "main",
+      headCommitHash: "abcdef1234567890",
+      credentials: { apiTokens: ["stale-token", "global-token"] },
+    });
+
+    expect(askpassPaths).toHaveLength(2);
+    for (const path of askpassPaths) expect(existsSync(path)).toBe(false);
+  });
+
   it("redacts credentials from clone errors", async () => {
     execFileMock.mockImplementation(
       (
@@ -421,10 +457,12 @@ describe("WorkspaceService", () => {
         headBranch: "feature",
         baseBranch: "main",
         headCommitHash: "abcdef1234567890",
+        credentials: { apiTokens: ["repo-token", "global-token"] },
       }),
     ).rejects.toThrow(
       "Git clone failed: fatal: could not read https://***@bitbucket.org/ws/repo.git",
     );
+    expect(execFileMock).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to rm when git worktree cleanup fails", async () => {

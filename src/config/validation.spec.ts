@@ -79,7 +79,19 @@ describe("validationSchema", () => {
       expect(error?.message).toContain("WORKSPACE_MAX_CONCURRENT");
     },
   );
+  it.each([
+    ["QUEUE_RETRY_ATTEMPTS", 11],
+    ["WORKSPACE_MAX_CONCURRENT", 33],
+    ["QUEUE_RETRY_DELAY", 2_147_483_648],
+    ["CODEX_TIMEOUT_MS", 2_147_483_648],
+  ])("rejects %s above its operational ceiling", (key, value) => {
+    const { error } = validationSchema.validate({
+      ...validEnv,
+      [key]: value,
+    });
 
+    expect(error?.message).toContain(key);
+  });
   it("defaults GIT_CLONE_TIMEOUT_MS to 600000ms", () => {
     const { error, value } = validationSchema.validate(validEnv);
 

@@ -23,6 +23,10 @@ export const DEFAULTS = {
   TRIGGER_MODE: "mention",
   LOG_LEVEL: "info",
 } as const;
+export const MAX_QUEUE_RETRY_ATTEMPTS = 10;
+export const MAX_WORKER_CONCURRENCY = 32;
+export const MAX_TIMER_MS = 2_147_483_647;
+
 
 /** Parse a JSON env var into a Record<string, string>, logging warnings on failure */
 export function parseJsonRecord(raw: string | undefined, envName: string): Record<string, string> {

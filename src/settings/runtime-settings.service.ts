@@ -13,7 +13,12 @@ import {
 } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { In, Repository } from "typeorm";
-import { DEFAULTS } from "../config/configuration";
+import {
+  DEFAULTS,
+  MAX_QUEUE_RETRY_ATTEMPTS,
+  MAX_TIMER_MS,
+  MAX_WORKER_CONCURRENCY,
+} from "../config/configuration";
 import { RuntimeSettingEntity } from "../entities/runtime-setting.entity";
 import { ServiceLogger } from "@lib/logger";
 import {
@@ -72,7 +77,7 @@ const TRIGGER_VALUES: Record<string, true> = {
   auto: true,
   both: true,
 };
-const MAX_TIMER_MS = 2_147_483_647;
+
 const MAX_CUSTOM_PROMPT_CHARS = 100_000;
 
 type SecretValues = {
@@ -111,8 +116,10 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap(): Promise<void> {
     await this.importEnvironmentOnce();
+    for (const row of await this.repository.find()) {
+      this.decrypt(row);
+    }
   }
-
   async resolveReviewSettings(
     identity: IRepositoryIdentity,
     modelOverride?: string,
@@ -289,27 +296,51 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
       basicCredential: true,
     };
     for (const key of Object.keys(patch as object)) {
-      if (!allowedTopLevel[key]) {
+      if (!Object.hasOwn(allowedTopLevel, key)) {
         throw new BadRequestException(`Unknown field: ${key}`);
       }
     }
+    if (
+      patch.values !== undefined &&
+      (patch.values === null ||
+        typeof patch.values !== "object" ||
+        Array.isArray(patch.values))
+    ) {
+      throw new BadRequestException("Invalid values");
+    }
     const allowedValues = global ? GLOBAL_VALUE_KEYS : REPOSITORY_VALUE_KEYS;
     for (const [key, value] of Object.entries(patch.values ?? {})) {
-      if (!allowedValues[key]) {
+      if (!Object.hasOwn(allowedValues, key)) {
         throw new BadRequestException(`Unknown setting: ${key}`);
       }
       if (!global && value === null) continue;
       this.validateValue(key, value);
     }
+    if (
+      patch.secrets !== undefined &&
+      (patch.secrets === null ||
+        typeof patch.secrets !== "object" ||
+        Array.isArray(patch.secrets))
+    ) {
+      throw new BadRequestException("Invalid secrets");
+    }
     const allowedSecrets = global ? GLOBAL_SECRET_KEYS : REPOSITORY_SECRET_KEYS;
     for (const [key, mutation] of Object.entries(patch.secrets ?? {})) {
-      if (!allowedSecrets[key]) {
+      if (!Object.hasOwn(allowedSecrets, key)) {
         throw new BadRequestException(`Unknown secret: ${key}`);
       }
       this.validateSecretMutation(mutation);
     }
     if (!global && patch.basicCredential !== undefined) {
       throw new BadRequestException("basicCredential is global-only");
+    }
+    if (
+      patch.basicCredential !== undefined &&
+      (patch.basicCredential === null ||
+        typeof patch.basicCredential !== "object" ||
+        Array.isArray(patch.basicCredential))
+    ) {
+      throw new BadRequestException("Invalid basicCredential");
     }
     if (patch.basicCredential) {
       this.validateBasicCredential(patch.basicCredential);
@@ -337,13 +368,19 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
       return;
     }
     if (key === "reasoningEffort") {
-      if (typeof value !== "string" || !REASONING_VALUES[value]) {
+      if (
+        typeof value !== "string" ||
+        !Object.hasOwn(REASONING_VALUES, value)
+      ) {
         throw new BadRequestException("Invalid reasoningEffort");
       }
       return;
     }
     if (key === "triggerMode") {
-      if (typeof value !== "string" || !TRIGGER_VALUES[value]) {
+      if (
+        typeof value !== "string" ||
+        !Object.hasOwn(TRIGGER_VALUES, value)
+      ) {
         throw new BadRequestException("Invalid triggerMode");
       }
       return;
@@ -361,10 +398,16 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
       }
       return;
     }
+    const maximum =
+      key === "retryAttempts"
+        ? MAX_QUEUE_RETRY_ATTEMPTS
+        : key === "workerConcurrency"
+          ? MAX_WORKER_CONCURRENCY
+          : MAX_TIMER_MS;
     if (
       !Number.isInteger(value) ||
       (value as number) < (key === "retryDelay" ? 0 : 1) ||
-      (value as number) > MAX_TIMER_MS
+      (value as number) > maximum
     ) {
       throw new BadRequestException(`Invalid ${key}`);
     }

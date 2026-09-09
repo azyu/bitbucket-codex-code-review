@@ -114,7 +114,7 @@ DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path
 | `REDIS_QUEUE_PORT` | Redis 포트 | `6379` |
 | `REDIS_QUEUE_PASSWORD` | Redis 비밀번호 | - |
 | `REDIS_QUEUE_DB` | Redis DB 번호 | `0` |
-| `QUEUE_RETRY_ATTEMPTS` | 최초 이관할 잡 총 시도 횟수 | `3` |
+| `QUEUE_RETRY_ATTEMPTS` | 최초 이관할 잡 총 시도 횟수 (1–10) | `3` |
 | `QUEUE_RETRY_DELAY` | 최초 이관할 재시도 딜레이 (ms) | `5000` |
 
 ### Codex CLI
@@ -159,7 +159,7 @@ DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path
 | 환경변수 | 설명 | 기본값 |
 |---|---|---|
 | `WORKSPACE_BASE_PATH` | 워크스페이스 경로 | `/tmp/code-review-workspaces` |
-| `WORKSPACE_MAX_CONCURRENT` | 최초 이관할 worker concurrency | `3` |
+| `WORKSPACE_MAX_CONCURRENT` | 최초 이관할 worker concurrency (1–32) | `3` |
 | `GIT_CLONE_TIMEOUT_MS` | 최초 이관할 bare clone 타임아웃 (ms) | `600000` |
 
 > [!TIP]
