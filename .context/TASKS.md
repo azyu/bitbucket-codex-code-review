@@ -6,7 +6,7 @@
 ## 진행 중/최근 작업
 
 ### Task 44: 대시보드 runtime 설정 관리 구조 설계
-- **상태**: 설계 완료 / 구현 대기
+- **상태**: 설계 완료 / 구현 대기 — [PR #74](https://github.com/azyu/bitbucket-codex-code-review/pull/74)
 - **배경**: Secret Manager 설정 변경마다 Pod 재시작이 필요한 운영 흐름을 줄이고, 인트라넷 대시보드에서 새 작업에 즉시 적용되는 설정 관리가 필요하다. 대시보드는 단일 shared secret key로 인증한다.
 - **결정**: MySQL `runtime_settings`의 고정 `global` scope key + `(workspaceSlug, repositorySlug)` override, revision CAS, AES-256-GCM secret envelope, DB-read-per-operation `RuntimeSettingsService`를 사용한다. nullable unique에 의존하지 않고 DB가 global singleton을 보장한다. cookie/session/RBAC/cache/event bus/append-only history는 넣지 않는다.
 - **인증**: HTTPS를 필수로 하고 `DASHBOARD_SECRET_KEY` bearer header를 메모리에만 보관하며 모든 `/api/internal/*`를 guard한다. `SETTINGS_ENCRYPTION_KEY`와 DB/Redis/포트 등 bootstrap-static 값은 Secret Manager에 유지한다.
