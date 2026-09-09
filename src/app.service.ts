@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import {
+  MAX_OPENAI_BASE_URL_BYTES,
   MAX_QUEUE_RETRY_ATTEMPTS,
   MAX_TIMER_MS,
   MAX_WORKER_CONCURRENCY,
@@ -1079,7 +1080,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                 <div class="col-md-6"><label class="form-label" for="global-model">Model</label><input id="global-model" class="form-control" maxlength="64" x-model="settingsForm.model" required /></div>
                 <div class="col-md-6"><label class="form-label" for="global-reasoning">Reasoning</label><select id="global-reasoning" class="form-select" x-model="settingsForm.reasoningEffort"><option value="">default</option><option>none</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select></div>
                 <div class="col-md-6"><label class="form-label" for="global-codex-timeout">Codex timeout (ms)</label><input id="global-codex-timeout" type="number" min="1" max="${MAX_TIMER_MS}" class="form-control" x-model.number="settingsForm.timeoutMs" required /></div>
-                <div class="col-md-6"><label class="form-label" for="global-openai-base-url">OpenAI HTTPS base URL</label><input id="global-openai-base-url" type="url" class="form-control" x-model="settingsForm.openaiBaseUrl" /></div>
+                <div class="col-md-6"><label class="form-label" for="global-openai-base-url">OpenAI HTTPS base URL</label><input id="global-openai-base-url" type="url" maxlength="${MAX_OPENAI_BASE_URL_BYTES}" class="form-control" x-model="settingsForm.openaiBaseUrl" /></div>
                 <div class="col-md-4"><label class="form-label" for="global-trigger">Trigger</label><select id="global-trigger" class="form-select" x-model="settingsForm.triggerMode"><option>mention</option><option>auto</option><option>both</option></select></div>
                 <div class="col-md-4"><label class="form-label" for="global-retry-attempts">Retry attempts</label><input id="global-retry-attempts" type="number" min="1" max="${MAX_QUEUE_RETRY_ATTEMPTS}" class="form-control" x-model.number="settingsForm.retryAttempts" required /></div>
                 <div class="col-md-4"><label class="form-label" for="global-retry-delay">Retry delay (ms)</label><input id="global-retry-delay" type="number" min="0" max="${MAX_TIMER_MS}" class="form-control" x-model.number="settingsForm.retryDelay" required /></div>

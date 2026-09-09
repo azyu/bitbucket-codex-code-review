@@ -126,7 +126,7 @@ DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path
 | `CODEX_REASONING_EFFORT` | 최초 이관할 추론 노력도 | `medium` |
 | `CODEX_TIMEOUT_MS` | 최초 이관할 실행 타임아웃 (ms) | `600000` |
 | `OPENAI_API_KEY` | 최초 이관할 OpenAI API 키 | - |
-| `OPENAI_BASE_URL` | 최초 이관할 HTTPS API endpoint | - |
+| `OPENAI_BASE_URL` | 최초 이관할 HTTPS API endpoint (최대 2,048 UTF-8 bytes) | - |
 | `REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS` | 최초 이관할 repo slug별 프롬프트 파일 JSON 맵 | - |
 | `REVIEW_CUSTOM_PROMPT_FILEPATH` | 최초 이관할 전역 프롬프트 파일 | - |
 | `RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP` | repo별 이관에 필요한 repo slug → workspace slug JSON 맵 | - |

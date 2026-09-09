@@ -185,6 +185,15 @@ describe("validationSchema", () => {
     );
   });
 
+  it("rejects an OpenAI base URL above the argument-size boundary", () => {
+    const { error } = validationSchema.validate({
+      ...validEnv,
+      OPENAI_BASE_URL: `https://api.example/${"😀".repeat(600)}`,
+    });
+
+    expect(error?.message).toContain("OPENAI_BASE_URL");
+  });
+
   it("rejects unsupported trigger modes", () => {
     const { error } = validationSchema.validate({
       ...validEnv,

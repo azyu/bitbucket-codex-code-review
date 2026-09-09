@@ -15,6 +15,7 @@ import { readFile } from "node:fs/promises";
 import { In, Repository } from "typeorm";
 import {
   DEFAULTS,
+  MAX_OPENAI_BASE_URL_BYTES,
   MAX_QUEUE_RETRY_ATTEMPTS,
   MAX_TIMER_MS,
   MAX_WORKER_CONCURRENCY,
@@ -390,6 +391,9 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
     if (key === "openaiBaseUrl") {
       if (typeof value !== "string") {
         throw new BadRequestException("Invalid openaiBaseUrl");
+      }
+      if (Buffer.byteLength(value, "utf8") > MAX_OPENAI_BASE_URL_BYTES) {
+        throw new BadRequestException("openaiBaseUrl is too long");
       }
       if (value !== "") {
         try {

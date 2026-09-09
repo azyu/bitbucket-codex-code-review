@@ -2,6 +2,7 @@ import * as Joi from "joi";
 import { dbPoolValidationSchema } from "@lib/database";
 import {
   DEFAULTS,
+  MAX_OPENAI_BASE_URL_BYTES,
   MAX_QUEUE_RETRY_ATTEMPTS,
   MAX_TIMER_MS,
   MAX_WORKER_CONCURRENCY,
@@ -39,6 +40,15 @@ function minimumUtf8Bytes(bytes: number, label: string) {
     return value;
   };
 }
+function maximumUtf8Bytes(bytes: number, label: string) {
+  return (value: string) => {
+    if (Buffer.byteLength(value, "utf8") > bytes) {
+      throw new Error(`${label} must be at most ${bytes} bytes`);
+    }
+    return value;
+  };
+}
+
 
 export const validationSchema = Joi.object({
   NODE_ENV: Joi.string()
@@ -104,7 +114,11 @@ export const validationSchema = Joi.object({
     .default("")
     .custom(jsonObjectValidator("BITBUCKET_REPO_WEBHOOK_SECRETS")),
   OPENAI_API_KEY: Joi.string().allow("").default(""),
-  OPENAI_BASE_URL: Joi.string().uri({ scheme: ["https"] }).allow("").default(""),
+  OPENAI_BASE_URL: Joi.string()
+    .uri({ scheme: ["https"] })
+    .allow("")
+    .custom(maximumUtf8Bytes(MAX_OPENAI_BASE_URL_BYTES, "OPENAI_BASE_URL"))
+    .default(""),
   DASHBOARD_SECRET_KEY: Joi.string()
     .required()
     .custom(minimumUtf8Bytes(32, "DASHBOARD_SECRET_KEY")),

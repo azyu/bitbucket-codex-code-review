@@ -395,6 +395,7 @@ describe("RuntimeSettingsService", () => {
       [{ expectedRevision: 1, values: { triggerMode: "constructor" } }, "Invalid triggerMode"],
       [{ expectedRevision: 1, values: { constructor: 5 } }, "Unknown setting"],
       [{ expectedRevision: 1, values: { openaiBaseUrl: 1 } }, "Invalid openaiBaseUrl"],
+      [{ expectedRevision: 1, values: { openaiBaseUrl: `https://api.example/${"😀".repeat(600)}` } }, "openaiBaseUrl is too long"],
       [{ expectedRevision: 1, values: { timeoutMs: 0 } }, "Invalid timeoutMs"],
       [{ expectedRevision: 1, values: { retryDelay: -1 } }, "Invalid retryDelay"],
       [{ expectedRevision: 1, values: { retryAttempts: 11 } }, "Invalid retryAttempts"],

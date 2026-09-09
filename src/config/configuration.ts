@@ -26,6 +26,7 @@ export const DEFAULTS = {
 export const MAX_QUEUE_RETRY_ATTEMPTS = 10;
 export const MAX_WORKER_CONCURRENCY = 32;
 export const MAX_TIMER_MS = 2_147_483_647;
+export const MAX_OPENAI_BASE_URL_BYTES = 2_048;
 
 
 /** Parse a JSON env var into a Record<string, string>, logging warnings on failure */
