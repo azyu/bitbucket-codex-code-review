@@ -71,7 +71,7 @@ services:
       # - ~/.codex:/root/.codex:ro
 
   mysql:
-    image: mysql:26.7
+    image: mysql:8.4
     container_name: code-review-mysql
     restart: unless-stopped
     environment:
