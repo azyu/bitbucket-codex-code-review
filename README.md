@@ -62,8 +62,9 @@ pnpm start:dev
 
 ```bash
 # 필수 bootstrap key와 최초 이관용 자격증명
-export DASHBOARD_SECRET_KEY='32-bytes-or-longer-dashboard-key'
-export SETTINGS_ENCRYPTION_KEY='0123456789abcdef0123456789abcdef'
+# 아래 값은 최초 1회만 생성해 .env/secret manager에 저장합니다. 기존 MySQL volume에서 재생성하면 저장된 runtime secret을 복호화할 수 없습니다.
+export DASHBOARD_SECRET_KEY="$(openssl rand -base64 32)"
+export SETTINGS_ENCRYPTION_KEY="$(openssl rand -hex 16)"
 export BITBUCKET_API_TOKEN=your_token
 export BITBUCKET_WEBHOOK_SECRET=your_secret
 
