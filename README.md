@@ -152,6 +152,18 @@ docker compose up -d
 > [!TIP]
 > 전체 설정은 [`.env.example`](.env.example) 참조.
 
+### Planned Runtime Settings
+
+현재 구현은 위 설정을 환경변수에서 읽으므로 값을 바꾸면 프로세스를 다시 시작해야 합니다. 향후에는 운영 중 바꿔야 하는 설정만 MySQL-backed 대시보드 설정으로 옮깁니다.
+
+- **대시보드 관리**: Codex model/reasoning/timeout/custom prompt 본문, OpenAI API key/HTTPS base URL, trigger mode, queue retry, worker concurrency, clone timeout, Bitbucket global/repository token과 webhook secret
+- **Secret Manager 유지**: DB/Redis 연결, 서버/metrics port, telemetry, Codex executable/auth.json, workspace root, `DASHBOARD_SECRET_KEY`, `SETTINGS_ENCRYPTION_KEY`
+- **적용 시점**: 새 webhook/job부터 적용하며 실행 중인 작업은 시작 시점 snapshot을 유지
+- **인증**: HTTPS에서 단일 `DASHBOARD_SECRET_KEY`를 Bearer header로 사용하고 모든 `/api/internal/*` route를 보호
+- **secret 저장**: AES-256-GCM 암호화. 조회 API는 값 대신 configured/inherited 상태만 반환
+
+초기 migration/import와 기존 queue drain을 위한 rollout은 한 번 필요합니다. 전환 후 runtime 설정 변경에는 Pod 재시작이 필요하지 않습니다. 상세 설계와 수용 기준은 [`.context/PLAN.md`](.context/PLAN.md)를 참조하세요.
+
 ## Security
 
 > [!IMPORTANT]
@@ -175,7 +187,7 @@ pnpm lint           # ESLint
 
 ## Internal Stats API
 
-대시보드/운영 도구용 내부 전용 endpoint입니다. 공개 ingress로 노출하지 않는 것을 전제로 합니다.
+대시보드/운영 도구용 endpoint입니다. 현재 구현에는 app-layer 인증이 없으므로 ingress에서 반드시 차단해야 합니다. 위 runtime settings 전환에서는 단일 Bearer key guard로 모든 `/api/internal/*` route를 보호합니다.
 
 | Method | Path | 설명 |
 |---|---|---|
@@ -188,7 +200,7 @@ repo 통계 응답에는 리뷰 건수, Codex/전체 소요 시간, input/cached
 
 ## Local Dashboard
 
-간단한 내장 대시보드는 `GET /dashboard` 에서 확인할 수 있습니다. 같은 origin의 `/api/internal/stats/repos`를 직접 읽어 repo별 리뷰 건수, 시간, 토큰 요약을 렌더링합니다.
+내장 대시보드는 `GET /dashboard`에서 확인할 수 있습니다. 현재는 같은 origin의 `/api/internal/stats/repos`를 직접 읽어 repo별 리뷰 건수, 시간, 토큰 요약을 렌더링합니다. runtime settings 전환 후에는 reload마다 `DASHBOARD_SECRET_KEY`를 입력하며 key는 브라우저 메모리에만 유지됩니다.
 
 ## Codex CLI 인증
 

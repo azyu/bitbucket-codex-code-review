@@ -1,9 +1,24 @@
 # TASKS.md
 
-> 마지막 업데이트: 2026-09-08
+> 마지막 업데이트: 2026-09-09
 
 
 ## 진행 중/최근 작업
+
+### Task 44: 대시보드 runtime 설정 관리 구조 설계
+- **상태**: 설계 완료 / 구현 대기
+- **배경**: Secret Manager 설정 변경마다 Pod 재시작이 필요한 운영 흐름을 줄이고, 인트라넷 대시보드에서 새 작업에 즉시 적용되는 설정 관리가 필요하다. 대시보드는 단일 shared secret key로 인증한다.
+- **결정**: MySQL `runtime_settings`의 고정 `global` scope key + `(workspaceSlug, repositorySlug)` override, revision CAS, AES-256-GCM secret envelope, DB-read-per-operation `RuntimeSettingsService`를 사용한다. nullable unique에 의존하지 않고 DB가 global singleton을 보장한다. cookie/session/RBAC/cache/event bus/append-only history는 넣지 않는다.
+- **인증**: HTTPS를 필수로 하고 `DASHBOARD_SECRET_KEY` bearer header를 메모리에만 보관하며 모든 `/api/internal/*`를 guard한다. `SETTINGS_ENCRYPTION_KEY`와 DB/Redis/포트 등 bootstrap-static 값은 Secret Manager에 유지한다.
+- **적용 불변식**: webhook/job 시작 시 snapshot을 만들고 실행 중에는 바꾸지 않는다. queue retry는 enqueue 옵션, worker concurrency는 Pod별 polling, Codex/Workspace/Bitbucket은 명시적 snapshot 인자로 전환한다.
+- **중요 보안 수정**: 현재 Codex child가 denylist를 제외한 `process.env` 전체를 상속한다. runtime 전환 때 고정 allowlist + 명시적 OpenAI 설정 주입으로 바꿔 dashboard/encryption/Bitbucket/DB/Redis secret 전달을 차단해야 한다.
+- **일회성 import**: 현재 runtime env/default의 global 값 전체(OpenAI 연결, queue/Codex/worker/workspace/review 설정, Bitbucket API token·webhook secret·legacy username/app-password)와 repository prompt 본문·token·webhook secret을 빠짐없이 current-row 설정으로 이관한다. repository slug만 있는 기존 항목은 cutover 전에 명시적 workspace mapping을 확정해야 하며 추측으로 배정하지 않는다.
+- **전환 게이트**: 단일 배포 전략으로 ingress를 잠시 중단하고 기존 worker가 snapshot 없는 queued/active/delayed-retry/stalled-recoverable job을 모두 drain한 뒤 새 producer/worker를 배포하고 ingress를 재개한다. drain 완료까지 기존 `job.data.model` 처리를 유지하며 snapshot 없는 job을 새 worker에 넘기지 않는다.
+- **OpenAI 연결 불변식**: HTTPS base URL과 API key를 job 시작 시 하나의 원자적 connection snapshot으로 읽어 실행 중 고정한다. enqueue 시점의 옛 endpoint와 job 시작 시점의 새 key를 조합하지 않는다. key는 review-run 비밀 제외 snapshot이나 queue payload에 저장하지 않는다.
+- **구현 계획/수용 기준**: `.context/PLAN.md` 참조. 초기 rollout/seed 이후 runtime 설정은 Pod 재시작 없이 적용된다.
+- **문서**: `.context/PLAN.md`에 구현 단계와 수용 기준을 기록하고 README에 planned runtime settings, bootstrap-static 구분, 단일 key 인증 방식을 추가했다.
+- **검증**: `pnpm build`, `pnpm lint`, `pnpm test --runInBand` 성공(19 suites, 294 tests). `pnpm test:cov --runInBand` 성공(statement 91.17%, branch 82.58%, function 83.87%, line 91.26%).
+
 
 
 ### Task 43: 기본 모델 `gpt-5.6-sol` 환원 + 댓글 모델 오버라이드
