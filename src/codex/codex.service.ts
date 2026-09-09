@@ -75,7 +75,7 @@ export class CodexService {
     }
     if (connection.baseUrl) {
       args.push("-c", 'model_provider="openai"');
-      args.push("-c", `openai_base_url="${connection.baseUrl}"`);
+      args.push("-c", `openai_base_url=${JSON.stringify(connection.baseUrl)}`);
     }
     args.push("-");
     return args;

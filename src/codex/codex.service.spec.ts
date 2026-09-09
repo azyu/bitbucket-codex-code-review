@@ -266,6 +266,27 @@ describe("CodexService", () => {
       else process.env["ALL_PROXY"] = originalAllProxy;
     }
   });
+  it("escapes the OpenAI base URL before passing it as TOML", async () => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockResolvedValue("review output text");
+    const baseUrl = 'https://api.openai.example/v1"\nmodel="injected';
+
+    const promise = createService().executeCodex(
+      "/work",
+      "main",
+      "review",
+      DEFAULT_SETTINGS,
+      { baseUrl },
+    );
+    child.emit("close", 0, null);
+    await promise;
+
+    const args = spawnSpy.mock.calls[0][1] as string[];
+    expect(args).toContain(`openai_base_url=${JSON.stringify(baseUrl)}`);
+    expect(args).not.toContain(`openai_base_url="${baseUrl}"`);
+  });
+
 
   it("should handle large JSONL streams without crashing", async () => {
     const child = createMockChild();

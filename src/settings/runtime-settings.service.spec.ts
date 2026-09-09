@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { FindOperator, Repository } from "typeorm";
 import { RuntimeSettingEntity } from "../entities/runtime-setting.entity";
 import { RuntimeSettingsService } from "./runtime-settings.service";
+import * as fsPromises from "node:fs/promises";
 
 function createRepository() {
   const rows = new Map<string, RuntimeSettingEntity>();
@@ -356,6 +357,7 @@ describe("RuntimeSettingsService", () => {
       [{ expectedRevision: 1, values: { unknown: "value" } }, "Unknown setting"],
       [{ expectedRevision: 1, values: { model: "bad model" } }, "Invalid model"],
       [{ expectedRevision: 1, values: { model: "m".repeat(65) } }, "Invalid model"],
+      [{ expectedRevision: 1, values: { customPrompt: "x".repeat(100_001) } }, "Invalid customPrompt"],
       [{ expectedRevision: 1, values: { reasoningEffort: "extreme" } }, "Invalid reasoningEffort"],
       [{ expectedRevision: 1, values: { triggerMode: "manual" } }, "Invalid triggerMode"],
       [{ expectedRevision: 1, values: { openaiBaseUrl: 1 } }, "Invalid openaiBaseUrl"],
@@ -365,6 +367,7 @@ describe("RuntimeSettingsService", () => {
       [{ expectedRevision: 1, secrets: { openaiApiKey: { operation: "replace", value: "" } } }, "Replacement secret"],
       [{ expectedRevision: 1, secrets: { openaiApiKey: { operation: "clear", value: "extra" } } }, "Invalid clear"],
       [{ expectedRevision: 1, basicCredential: { operation: "invalid" } }, "Invalid basicCredential"],
+      [{ expectedRevision: 1, basicCredential: { operation: "replace", username: 1, appPassword: "password" } }, "username and appPassword"],
     ] as const;
 
     for (const [patch, message] of invalidGlobalPatches) {
@@ -376,6 +379,15 @@ describe("RuntimeSettingsService", () => {
         basicCredential: { operation: "clear" },
       }),
     ).rejects.toThrow("basicCredential is global-only");
+    await expect(
+      service.updateRepository(identity, {
+        expectedRevision: 0,
+        values: { model: "bad model" },
+      }),
+    ).rejects.toThrow("Invalid model");
+    await expect(service.getSettingsDocument()).resolves.toMatchObject({
+      repositories: [],
+    });
     await expect(
       service.updateRepository(
         { workspaceSlug: "../escape", repositorySlug: "repo" },
@@ -406,6 +418,21 @@ describe("RuntimeSettingsService", () => {
     await expect(service.resolveWebhookSecret(identity)).resolves.toBe(
       "repository-webhook",
     );
+  });
+
+  it("rejects an oversized imported custom prompt before persistence", async () => {
+    const readFileSpy = jest
+      .spyOn(fsPromises, "readFile")
+      .mockResolvedValue("x".repeat(100_001));
+    const { service, rows } = createService({
+      "codex.customPromptFilepath": "/tmp/custom-prompt.md",
+    });
+
+    await expect(service.onApplicationBootstrap()).rejects.toThrow(
+      "Invalid customPrompt",
+    );
+    expect(rows.size).toBe(0);
+    readFileSpy.mockRestore();
   });
 
   it("rejects invalid encryption keys and partial imported Basic credentials", async () => {

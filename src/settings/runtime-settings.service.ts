@@ -73,6 +73,7 @@ const TRIGGER_VALUES: Record<string, true> = {
   both: true,
 };
 const MAX_TIMER_MS = 2_147_483_647;
+const MAX_CUSTOM_PROMPT_CHARS = 100_000;
 
 type SecretValues = {
   openaiApiKey?: string;
@@ -206,6 +207,7 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
       if (patch.expectedRevision !== 0) {
         throw await this.conflict(key);
       }
+      this.validatePatch(patch, false);
       row = this.repository.create({
         scopeKey: key,
         scope: "repository",
@@ -315,13 +317,22 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
   }
 
   private validateValue(key: string, value: unknown): void {
-    if (key === "model" || key === "customPrompt") {
+    if (key === "model") {
       if (
         typeof value !== "string" ||
-        (key === "model" &&
-          (value.length > 64 || !/^[A-Za-z0-9][\w.-]*$/.test(value)))
+        value.length > 64 ||
+        !/^[A-Za-z0-9][\w.-]*$/.test(value)
       ) {
-        throw new BadRequestException(`Invalid ${key}`);
+        throw new BadRequestException("Invalid model");
+      }
+      return;
+    }
+    if (key === "customPrompt") {
+      if (
+        typeof value !== "string" ||
+        value.length > MAX_CUSTOM_PROMPT_CHARS
+      ) {
+        throw new BadRequestException("Invalid customPrompt");
       }
       return;
     }
@@ -376,10 +387,23 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
   private validateBasicCredential(mutation: BasicCredentialMutation): void {
     const keys = Object.keys(mutation);
     if (mutation.operation === "replace") {
-      if (keys.some((key) => !["operation", "username", "appPassword"].includes(key)) || !mutation.username || !mutation.appPassword) {
-        throw new BadRequestException("username and appPassword must be replaced together");
+      if (
+        keys.some(
+          (key) => !["operation", "username", "appPassword"].includes(key),
+        ) ||
+        typeof mutation.username !== "string" ||
+        mutation.username.length === 0 ||
+        typeof mutation.appPassword !== "string" ||
+        mutation.appPassword.length === 0
+      ) {
+        throw new BadRequestException(
+          "username and appPassword must be replaced together",
+        );
       }
-    } else if (mutation.operation !== "clear" || keys.some((key) => key !== "operation")) {
+    } else if (
+      mutation.operation !== "clear" ||
+      keys.some((key) => key !== "operation")
+    ) {
       throw new BadRequestException("Invalid basicCredential operation");
     }
   }
@@ -588,6 +612,7 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
     const globalPrompt = globalPromptPath
       ? await readFile(globalPromptPath, "utf8")
       : "";
+    this.validateValue("customPrompt", globalPrompt);
     const globalSecrets: SecretValues = {};
     const username = this.configService.get<string>("bitbucket.username", "");
     const appPassword = this.configService.get<string>(
@@ -654,7 +679,9 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
         const values: Record<string, string | number> = {};
         const promptPath = repoPromptPaths[repositorySlug];
         if (promptPath) {
-          values.customPrompt = await readFile(promptPath, "utf8");
+          const customPrompt = await readFile(promptPath, "utf8");
+          this.validateValue("customPrompt", customPrompt);
+          values.customPrompt = customPrompt;
         }
         const secrets: SecretValues = {};
         if (repoTokens[repositorySlug]) secrets.bitbucketApiToken = repoTokens[repositorySlug];
