@@ -30,18 +30,9 @@ export class AddRuntimeSettings1788912000000 implements MigrationInterface {
     `);
   }
 
-  public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`
-      UPDATE review_runs
-      SET idempotencyKey = SUBSTRING(idempotencyKey, CHAR_LENGTH(workspaceSlug) + 2)
-      WHERE workspaceSlug <> ''
-        AND idempotencyKey LIKE CONCAT(workspaceSlug, ':%')
-    `);
-    await queryRunner.query(`
-      ALTER TABLE review_runs
-        DROP COLUMN settingsSnapshot,
-        MODIFY COLUMN idempotencyKey varchar(255) NOT NULL
-    `);
-    await queryRunner.query("DROP TABLE runtime_settings");
+  public async down(_queryRunner: QueryRunner): Promise<void> {
+    throw new Error(
+      "AddRuntimeSettings1788912000000 is irreversible: keep the migration applied when rolling back the application image",
+    );
   }
 }

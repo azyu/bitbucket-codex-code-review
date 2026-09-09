@@ -172,6 +172,8 @@ DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path
 5. migration과 새 이미지를 rolling deploy하고 모든 Pod에서 import 및 worker concurrency 적용을 확인합니다.
 6. Webhook ingress를 재개합니다.
 
+이 migration의 workspace-qualified idempotency key 변환은 되돌릴 수 없습니다. 애플리케이션 이미지를 rollback하더라도 migration은 적용된 상태로 유지해야 하며, schema까지 되돌려야 한다면 배포 전 DB backup을 복원합니다.
+
 ## Security
 
 > [!IMPORTANT]

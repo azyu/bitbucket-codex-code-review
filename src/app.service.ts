@@ -1778,7 +1778,6 @@ document.addEventListener("alpine:init", function () {
           const results = await Promise.allSettled([
             this.loadStats(),
             this.loadRecent(),
-            this.loadSettings(),
           ]);
           const statsFailed = results[0].status === "rejected";
           this.lastUpdated = new Date();

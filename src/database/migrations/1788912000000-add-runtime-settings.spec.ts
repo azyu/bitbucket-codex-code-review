@@ -25,18 +25,10 @@ describe("AddRuntimeSettings1788912000000", () => {
     expect(statements[2]).not.toContain("idempotencyKey NOT LIKE");
   });
 
-  it("removes the workspace prefix before restoring the legacy column width", async () => {
-    await new AddRuntimeSettings1788912000000().down(queryRunner);
-
-    const statements = (queryRunner.query as jest.Mock).mock.calls.map(
-      ([sql]: [string]) => sql,
-    );
-    expect(statements[0]).toContain(
-      "SUBSTRING(idempotencyKey, CHAR_LENGTH(workspaceSlug) + 2)",
-    );
-    expect(statements[1]).toContain(
-      "MODIFY COLUMN idempotencyKey varchar(255) NOT NULL",
-    );
-    expect(statements[2]).toBe("DROP TABLE runtime_settings");
+  it("rejects rollback because workspace-qualified keys are irreversible", async () => {
+    await expect(
+      new AddRuntimeSettings1788912000000().down(queryRunner),
+    ).rejects.toThrow("is irreversible");
+    expect(queryRunner.query).not.toHaveBeenCalled();
   });
 });
