@@ -634,7 +634,21 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
       x-init="init()"
       x-cloak
     >
-      <div class="row g-3 g-xl-4 layout-shell">
+      <section :class="{ 'd-none': authenticated }" class="surface-panel mx-auto mt-5" style="max-width:32rem" aria-labelledby="dashboard-login-title">
+        <div class="surface-panel-header">
+          <div>
+            <h1 id="dashboard-login-title" class="surface-panel-title">대시보드 잠금 해제</h1>
+            <p class="surface-panel-copy">관리자 키는 이 탭의 메모리에만 유지되며 새로고침하면 삭제됩니다.</p>
+          </div>
+        </div>
+        <form @submit.prevent="unlock()" class="p-4 pt-0">
+          <label for="dashboard-secret-key" class="form-label">Dashboard secret key</label>
+          <input id="dashboard-secret-key" type="password" class="form-control" x-model="keyInput" autocomplete="off" required />
+          <div class="text-danger small mt-2" :class="{ 'd-none': !loginError }" x-text="loginError"></div>
+          <button type="submit" class="btn btn-primary mt-3" :disabled="loginLoading" x-text="loginLoading ? '확인 중…' : '잠금 해제'"></button>
+        </form>
+      </section>
+      <div class="row g-3 g-xl-4 layout-shell" :class="{ 'd-none': !authenticated }">
         <aside class="col-12 col-lg-3 col-xxl-2">
           <div class="d-flex d-lg-none justify-content-between align-items-center mb-3">
             <div class="fw-semibold">Code Review</div>
@@ -723,6 +737,17 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                   </span>
                 </a>
                 <a
+                  href="#settings-section"
+                  class="nav-entry"
+                  :class="{ 'is-active': activeAnchor === '#settings-section' }"
+                  @click="handleAnchorClick('#settings-section')"
+                >
+                  <span class="nav-entry-main">
+                    ${ICON_API}
+                    <span class="nav-entry-label">Runtime 설정</span>
+                  </span>
+                </a>
+                <a
                   href="#api-section"
                   class="nav-entry"
                   :class="{ 'is-active': activeAnchor === '#api-section' }"
@@ -779,6 +804,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                 ${ICON_REFRESH}
                 <span>새로고침</span>
               </button>
+              <button type="button" class="utility-button utility-button--ghost" @click="logout()">잠금</button>
             </div>
           </header>
 
@@ -990,7 +1016,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
                       </td>
                       <td>
                         <div x-text="review.codexModel || '-'"></div>
-                        <div class="repo-subcopy" x-show="review.codexReasoningEffort" x-text="review.codexReasoningEffort"></div>
+                        <div class="repo-subcopy" :class="{ 'd-none': !review.codexReasoningEffort }" x-text="review.codexReasoningEffort"></div>
                       </td>
                       <td>
                         <code x-text="shortCommit(review.headCommitHash)"></code>
@@ -1036,6 +1062,52 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
             </div>
           </section>
 
+          <section id="settings-section" class="surface-panel mb-4">
+            <div class="surface-panel-header">
+              <div>
+                <h2 class="surface-panel-title">Runtime 설정</h2>
+                <p class="surface-panel-copy">저장한 값은 새 webhook/job부터 적용됩니다. 비밀은 빈 칸이면 유지됩니다.</p>
+              </div>
+            </div>
+            <form class="p-4 pt-0" @submit.prevent="saveGlobalSettings()">
+              <div class="row g-3">
+                <div class="col-md-6"><label class="form-label" for="global-model">Model</label><input id="global-model" class="form-control" x-model="settingsForm.model" required /></div>
+                <div class="col-md-6"><label class="form-label" for="global-reasoning">Reasoning</label><select id="global-reasoning" class="form-select" x-model="settingsForm.reasoningEffort"><option value="">default</option><option>none</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select></div>
+                <div class="col-md-6"><label class="form-label" for="global-codex-timeout">Codex timeout (ms)</label><input id="global-codex-timeout" type="number" min="1" class="form-control" x-model.number="settingsForm.timeoutMs" required /></div>
+                <div class="col-md-6"><label class="form-label" for="global-openai-base-url">OpenAI HTTPS base URL</label><input id="global-openai-base-url" type="url" class="form-control" x-model="settingsForm.openaiBaseUrl" /></div>
+                <div class="col-md-4"><label class="form-label" for="global-trigger">Trigger</label><select id="global-trigger" class="form-select" x-model="settingsForm.triggerMode"><option>mention</option><option>auto</option><option>both</option></select></div>
+                <div class="col-md-4"><label class="form-label" for="global-retry-attempts">Retry attempts</label><input id="global-retry-attempts" type="number" min="1" class="form-control" x-model.number="settingsForm.retryAttempts" required /></div>
+                <div class="col-md-4"><label class="form-label" for="global-retry-delay">Retry delay (ms)</label><input id="global-retry-delay" type="number" min="0" class="form-control" x-model.number="settingsForm.retryDelay" required /></div>
+                <div class="col-md-6"><label class="form-label" for="global-worker-concurrency">Worker concurrency</label><input id="global-worker-concurrency" type="number" min="1" class="form-control" x-model.number="settingsForm.workerConcurrency" required /></div>
+                <div class="col-md-6"><label class="form-label" for="global-clone-timeout">Git clone timeout (ms)</label><input id="global-clone-timeout" type="number" min="1" class="form-control" x-model.number="settingsForm.cloneTimeoutMs" required /></div>
+                <div class="col-12"><label class="form-label" for="global-custom-prompt">Custom prompt</label><textarea id="global-custom-prompt" class="form-control" rows="5" x-model="settingsForm.customPrompt"></textarea></div>
+                <div class="col-md-4"><label class="form-label" for="global-openai-key">OpenAI API key</label><input id="global-openai-key" type="password" class="form-control" x-model="settingsSecrets.openaiApiKey" autocomplete="off" /><div class="small text-secondary" x-text="secretStatus(settingsDocument && settingsDocument.global.secrets.openaiApiKey)"></div><div class="form-check"><input class="form-check-input" type="checkbox" x-model="settingsClears.openaiApiKey" id="clear-openai" /><label class="form-check-label" for="clear-openai">삭제</label></div></div>
+                <div class="col-md-4"><label class="form-label" for="global-bitbucket-token">Bitbucket API token</label><input id="global-bitbucket-token" type="password" class="form-control" x-model="settingsSecrets.bitbucketApiToken" autocomplete="off" /><div class="small text-secondary" x-text="secretStatus(settingsDocument && settingsDocument.global.secrets.bitbucketApiToken)"></div><div class="form-check"><input class="form-check-input" type="checkbox" x-model="settingsClears.bitbucketApiToken" id="clear-bb-token" /><label class="form-check-label" for="clear-bb-token">삭제</label></div></div>
+                <div class="col-md-4"><label class="form-label" for="global-webhook-secret">Webhook secret</label><input id="global-webhook-secret" type="password" class="form-control" x-model="settingsSecrets.webhookSecret" autocomplete="off" /><div class="small text-secondary" x-text="secretStatus(settingsDocument && settingsDocument.global.secrets.webhookSecret)"></div><div class="form-check"><input class="form-check-input" type="checkbox" x-model="settingsClears.webhookSecret" id="clear-webhook" /><label class="form-check-label" for="clear-webhook">삭제</label></div></div>
+                <div class="col-md-6"><label class="form-label" for="global-legacy-username">Legacy username</label><input id="global-legacy-username" class="form-control" x-model="settingsSecrets.username" autocomplete="off" /><div class="small text-secondary" x-text="settingsDocument && settingsDocument.global.basicCredentialConfigured ? '설정됨' : '미설정'"></div></div>
+                <div class="col-md-6"><label class="form-label" for="global-legacy-password">Legacy app password</label><input id="global-legacy-password" type="password" class="form-control" x-model="settingsSecrets.appPassword" autocomplete="off" /><div class="form-check"><input class="form-check-input" type="checkbox" x-model="settingsClears.basicCredential" id="clear-basic" /><label class="form-check-label" for="clear-basic">둘 다 삭제</label></div></div>
+              </div>
+              <div class="small mt-3" :class="settingsError ? 'text-danger' : 'text-secondary'" x-text="settingsStatus"></div>
+              <button class="btn btn-primary mt-3" type="submit" :disabled="settingsSaving">Global 저장</button>
+            </form>
+
+            <hr />
+            <form class="p-4 pt-2" @submit.prevent="saveRepositorySettings()">
+              <h3 class="h6">Repository override</h3>
+              <div class="row g-3">
+                <div class="col-md-6"><label class="form-label" for="repository-workspace">Workspace slug</label><input id="repository-workspace" class="form-control" x-model="repositoryForm.workspaceSlug" required /></div>
+                <div class="col-md-6"><label class="form-label" for="repository-slug">Repository slug</label><input id="repository-slug" class="form-control" x-model="repositoryForm.repositorySlug" required /></div>
+                <div class="col-md-6"><label class="form-label" for="repository-model">Model (empty = inherit)</label><input id="repository-model" class="form-control" x-model="repositoryForm.model" /></div>
+                <div class="col-md-6"><label class="form-label" for="repository-reasoning">Reasoning (empty = inherit)</label><select id="repository-reasoning" class="form-select" x-model="repositoryForm.reasoningEffort"><option value="">inherit</option><option>none</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select></div>
+                <div class="col-md-6"><label class="form-label" for="repository-timeout">Timeout (empty = inherit)</label><input id="repository-timeout" type="number" min="1" class="form-control" x-model="repositoryForm.timeoutMs" /></div>
+                <div class="col-12"><label class="form-label" for="repository-custom-prompt">Custom prompt (empty = inherit)</label><textarea id="repository-custom-prompt" class="form-control" rows="4" x-model="repositoryForm.customPrompt"></textarea></div>
+                <div class="col-md-6"><label class="form-label" for="repository-api-token">Repository API token</label><input id="repository-api-token" type="password" class="form-control" x-model="repositoryForm.bitbucketApiToken" autocomplete="off" /><div class="small text-secondary" x-text="secretStatus(repositoryForm.bitbucketApiTokenStatus)"></div><div class="form-check"><input class="form-check-input" type="checkbox" x-model="repositoryForm.bitbucketApiTokenClear" id="clear-repo-token" /><label class="form-check-label" for="clear-repo-token">삭제하고 global 상속</label></div></div>
+                <div class="col-md-6"><label class="form-label" for="repository-webhook-secret">Repository webhook secret</label><input id="repository-webhook-secret" type="password" class="form-control" x-model="repositoryForm.webhookSecret" autocomplete="off" /><div class="small text-secondary" x-text="secretStatus(repositoryForm.webhookSecretStatus)"></div><div class="form-check"><input class="form-check-input" type="checkbox" x-model="repositoryForm.webhookSecretClear" id="clear-repo-webhook" /><label class="form-check-label" for="clear-repo-webhook">삭제하고 global 상속</label></div></div>
+              </div>
+              <button type="button" class="btn btn-outline-secondary mt-3 me-2" @click="loadRepositorySettings()">불러오기</button>
+              <button class="btn btn-primary mt-3" type="submit" :disabled="settingsSaving">Repository 저장</button>
+            </form>
+          </section>
           <section id="api-section" class="surface-panel">
             <div class="surface-panel-header">
               <div>
@@ -1057,8 +1129,11 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   </body>
 </html>`;
 
-const DASHBOARD_SCRIPT = `const endpoint = "/api/internal/stats/repos";
+const DASHBOARD_SCRIPT = `(function () {
+let dashboardSecretKey = "";
+const endpoint = "/api/internal/stats/repos";
 const recentEndpoint = "/api/internal/reviews/recent?limit=10";
+const settingsEndpoint = "/api/internal/settings";
 function reviewDetailEndpoint(id) {
   return "/api/internal/reviews/" + encodeURIComponent(String(id));
 }
@@ -1194,6 +1269,55 @@ function renderHighlights(repos) {
 document.addEventListener("alpine:init", function () {
   Alpine.data("dashboardApp", function () {
     return {
+      authenticated: false,
+      keyInput: "",
+      loginError: "",
+      loginLoading: false,
+      settingsDocument: null,
+      settingsRevision: 0,
+      settingsSaving: false,
+      settingsStatus: "",
+      settingsError: false,
+      settingsForm: {
+        model: "",
+        reasoningEffort: "",
+        timeoutMs: 600000,
+        customPrompt: "",
+        openaiBaseUrl: "",
+        triggerMode: "mention",
+        retryAttempts: 3,
+        retryDelay: 5000,
+        workerConcurrency: 3,
+        cloneTimeoutMs: 600000,
+      },
+      settingsSecrets: {
+        openaiApiKey: "",
+        bitbucketApiToken: "",
+        webhookSecret: "",
+        username: "",
+        appPassword: "",
+      },
+      settingsClears: {
+        openaiApiKey: false,
+        bitbucketApiToken: false,
+        webhookSecret: false,
+        basicCredential: false,
+      },
+      repositoryForm: {
+        workspaceSlug: "",
+        repositorySlug: "",
+        revision: 0,
+        model: "",
+        reasoningEffort: "",
+        timeoutMs: "",
+        customPrompt: "",
+        bitbucketApiToken: "",
+        webhookSecret: "",
+        bitbucketApiTokenClear: false,
+        webhookSecretClear: false,
+        bitbucketApiTokenStatus: null,
+        webhookSecretStatus: null,
+      },
       repos: [],
       recentReviews: [],
       recentLoading: false,
@@ -1213,8 +1337,7 @@ document.addEventListener("alpine:init", function () {
       init() {
         this.applyTheme(this.themePreference);
         this.bindSystemTheme();
-        this.loadDashboard();
-        this.startPolling();
+        this.logout();
 
         this._hashHandler = () => {
           this.activeAnchor = window.location.hash || "#overview-section";
@@ -1224,7 +1347,7 @@ document.addEventListener("alpine:init", function () {
         this._visibilityHandler = () => {
           if (document.hidden) {
             this.stopPolling();
-          } else {
+          } else if (this.authenticated) {
             this.loadDashboard();
             this.startPolling();
           }
@@ -1246,6 +1369,7 @@ document.addEventListener("alpine:init", function () {
       },
 
       startPolling() {
+        if (!this.authenticated) return;
         this.stopPolling();
         this.pollTimer = setInterval(() => this.loadDashboard(), 30000);
       },
@@ -1371,10 +1495,222 @@ document.addEventListener("alpine:init", function () {
         this.statusError = isError;
       },
 
-      async loadStats() {
-        const response = await fetch(endpoint, {
-          headers: { Accept: "application/json" },
+      async authorizedFetch(url, options) {
+        const request = options || {};
+        const response = await fetch(url, {
+          ...request,
+          headers: {
+            ...(request.headers || {}),
+            Accept: "application/json",
+            Authorization: "Bearer " + dashboardSecretKey,
+          },
         });
+        if (response.status === 401) {
+          this.logout();
+          throw new Error("Unauthorized");
+        }
+        return response;
+      },
+
+      async unlock() {
+        this.loginLoading = true;
+        this.loginError = "";
+        dashboardSecretKey = this.keyInput;
+        this.keyInput = "";
+        try {
+          const response = await this.authorizedFetch(settingsEndpoint);
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          this.applySettingsDocument(await response.json());
+          this.authenticated = true;
+          await this.loadDashboard();
+          this.startPolling();
+        } catch (error) {
+          dashboardSecretKey = "";
+          this.authenticated = false;
+          this.loginError = "인증에 실패했습니다.";
+        } finally {
+          this.loginLoading = false;
+        }
+      },
+
+      logout() {
+        dashboardSecretKey = "";
+        this.keyInput = "";
+        this.authenticated = false;
+        this.repos = [];
+        this.recentReviews = [];
+        this.settingsDocument = null;
+        this.expandedReviewId = null;
+        this.expandedReviewOutput = null;
+        this.stopPolling();
+      },
+
+      applySettingsDocument(document) {
+        this.settingsDocument = document;
+        const global = document && document.global;
+        if (!global) return;
+        this.settingsRevision = global.revision;
+        this.settingsForm = { ...this.settingsForm, ...global.values };
+        this.settingsSecrets = {
+          openaiApiKey: "",
+          bitbucketApiToken: "",
+          webhookSecret: "",
+          username: "",
+          appPassword: "",
+        };
+        this.settingsClears = {
+          openaiApiKey: false,
+          bitbucketApiToken: false,
+          webhookSecret: false,
+          basicCredential: false,
+        };
+      },
+
+      async loadSettings() {
+        const response = await this.authorizedFetch(settingsEndpoint);
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        this.applySettingsDocument(await response.json());
+      },
+
+      secretMutations(values, clears, keys) {
+        const mutations = {};
+        keys.forEach(function (key) {
+          if (clears[key]) mutations[key] = { operation: "clear" };
+          else if (values[key]) mutations[key] = { operation: "replace", value: values[key] };
+        });
+        return mutations;
+      },
+
+      secretStatus(status) {
+        if (!status || !status.configured) return "미설정";
+        return status.source === "repository" ? "Repository 설정됨" : "Global 설정됨";
+      },
+
+      async saveGlobalSettings() {
+        this.settingsSaving = true;
+        this.settingsError = false;
+        try {
+          const patch = {
+            expectedRevision: this.settingsRevision,
+            values: { ...this.settingsForm },
+            secrets: this.secretMutations(
+              this.settingsSecrets,
+              this.settingsClears,
+              ["openaiApiKey", "bitbucketApiToken", "webhookSecret"],
+            ),
+          };
+          if (this.settingsClears.basicCredential) {
+            patch.basicCredential = { operation: "clear" };
+          } else if (this.settingsSecrets.username || this.settingsSecrets.appPassword) {
+            patch.basicCredential = {
+              operation: "replace",
+              username: this.settingsSecrets.username,
+              appPassword: this.settingsSecrets.appPassword,
+            };
+          }
+          const response = await this.authorizedFetch(settingsEndpoint + "/global", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(patch),
+          });
+          if (!response.ok) {
+            if (response.status === 409) await this.loadSettings();
+            throw new Error("HTTP " + response.status);
+          }
+          await this.loadSettings();
+          this.settingsStatus = "Global 설정을 저장했습니다.";
+        } catch (error) {
+          this.settingsError = true;
+          this.settingsStatus = error.message === "Unauthorized"
+            ? "인증이 만료되었습니다."
+            : "Global 설정 저장에 실패했습니다: " + error.message;
+        } finally {
+          this.settingsSaving = false;
+        }
+      },
+
+      loadRepositorySettings() {
+        const form = this.repositoryForm;
+        const repositories =
+          (this.settingsDocument && this.settingsDocument.repositories) || [];
+        const document = repositories.find(function (item) {
+          return item.workspaceSlug === form.workspaceSlug &&
+            item.repositorySlug === form.repositorySlug;
+        });
+        const values = (document && document.values) || {};
+        this.repositoryForm = {
+          ...form,
+          revision: document ? document.revision : 0,
+          model: values.model || "",
+          reasoningEffort: values.reasoningEffort || "",
+          timeoutMs: values.timeoutMs || "",
+          customPrompt: values.customPrompt || "",
+          bitbucketApiToken: "",
+          webhookSecret: "",
+          bitbucketApiTokenClear: false,
+          webhookSecretClear: false,
+          bitbucketApiTokenStatus:
+            document && document.secrets.bitbucketApiToken,
+          webhookSecretStatus: document && document.secrets.webhookSecret,
+        };
+      },
+
+      async saveRepositorySettings() {
+        this.settingsSaving = true;
+        this.settingsError = false;
+        const form = this.repositoryForm;
+        try {
+          const values = {
+            model: form.model || null,
+            reasoningEffort: form.reasoningEffort || null,
+            timeoutMs: form.timeoutMs === "" ? null : Number(form.timeoutMs),
+            customPrompt: form.customPrompt || null,
+          };
+          const secrets = this.secretMutations(
+            {
+              bitbucketApiToken: form.bitbucketApiToken,
+              webhookSecret: form.webhookSecret,
+            },
+            {
+              bitbucketApiToken: form.bitbucketApiTokenClear,
+              webhookSecret: form.webhookSecretClear,
+            },
+            ["bitbucketApiToken", "webhookSecret"],
+          );
+          const path = settingsEndpoint + "/repositories/" +
+            encodeURIComponent(form.workspaceSlug) + "/" +
+            encodeURIComponent(form.repositorySlug);
+          const response = await this.authorizedFetch(path, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              expectedRevision: Number(form.revision),
+              values,
+              secrets,
+            }),
+          });
+          if (!response.ok) {
+            if (response.status === 409) {
+              await this.loadSettings();
+              this.loadRepositorySettings();
+            }
+            throw new Error("HTTP " + response.status);
+          }
+          await this.loadSettings();
+          this.loadRepositorySettings();
+          this.settingsStatus = "Repository 설정을 저장했습니다.";
+        } catch (error) {
+          this.settingsError = true;
+          this.settingsStatus = error.message === "Unauthorized"
+            ? "인증이 만료되었습니다."
+            : "Repository 설정 저장에 실패했습니다: " + error.message;
+        } finally {
+          this.settingsSaving = false;
+        }
+      },
+
+      async loadStats() {
+        const response = await this.authorizedFetch(endpoint);
         if (!response.ok) {
           throw new Error("HTTP " + response.status);
         }
@@ -1385,9 +1721,7 @@ document.addEventListener("alpine:init", function () {
       async loadRecent() {
         this.recentLoading = true;
         try {
-          const response = await fetch(recentEndpoint, {
-            headers: { Accept: "application/json" },
-          });
+          const response = await this.authorizedFetch(recentEndpoint);
           if (!response.ok) {
             throw new Error("HTTP " + response.status);
           }
@@ -1415,9 +1749,7 @@ document.addEventListener("alpine:init", function () {
         this.expandedLoading = true;
 
         try {
-          const response = await fetch(reviewDetailEndpoint(id), {
-            headers: { Accept: "application/json" },
-          });
+          const response = await this.authorizedFetch(reviewDetailEndpoint(id));
           if (!response.ok) {
             throw new Error("HTTP " + response.status);
           }
@@ -1446,6 +1778,7 @@ document.addEventListener("alpine:init", function () {
           const results = await Promise.allSettled([
             this.loadStats(),
             this.loadRecent(),
+            this.loadSettings(),
           ]);
           const statsFailed = results[0].status === "rejected";
           this.lastUpdated = new Date();
@@ -1467,7 +1800,8 @@ document.addEventListener("alpine:init", function () {
       },
     };
   });
-});`;
+});
+})();`;
 
 @Injectable()
 export class AppService {

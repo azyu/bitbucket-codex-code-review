@@ -1,4 +1,5 @@
 /** Workspace 관리에 필요한 인터페이스 */
+import { IBitbucketCredentialSnapshot } from "../../settings/runtime-settings.types";
 export interface IWorktreeInfo {
   readonly worktreePath: string;
   readonly bareRepoPath: string;
@@ -17,7 +18,10 @@ export interface IReviewDiff {
 export interface IPrepareWorktreeParams {
   readonly cloneUrl: string;
   readonly repositorySlug: string;
+  readonly workspaceSlug: string;
   readonly headBranch: string;
   readonly baseBranch: string;
   readonly headCommitHash: string;
+  readonly cloneTimeoutMs: number;
+  readonly credentials: IBitbucketCredentialSnapshot;
 }

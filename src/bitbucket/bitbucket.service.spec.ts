@@ -2,6 +2,8 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
 import { BitbucketService } from "./bitbucket.service";
 
+const DEFAULT_CREDENTIALS = { apiTokens: ["token"] };
+
 describe("BitbucketService", () => {
   const createService = async (
     configOverrides: Record<string, unknown> = {},
@@ -72,7 +74,9 @@ describe("BitbucketService", () => {
       const captured: string[] = [];
       mockFetch(captured);
 
-      await service.createComment(commentParams);
+      await service.createComment(commentParams, {
+        apiTokens: ["repo-token-123", "global-token"],
+      });
 
       expect(captured[0]).toBe("Bearer repo-token-123");
     });
@@ -85,7 +89,9 @@ describe("BitbucketService", () => {
       const captured: string[] = [];
       mockFetch(captured);
 
-      await service.createComment(commentParams);
+      await service.createComment(commentParams, {
+        apiTokens: ["global-token"],
+      });
 
       expect(captured[0]).toBe("Bearer global-token");
     });
@@ -98,7 +104,11 @@ describe("BitbucketService", () => {
       const captured: string[] = [];
       mockFetch(captured);
 
-      await service.createComment(commentParams);
+      await service.createComment(commentParams, {
+        apiTokens: [],
+        username: "myuser",
+        appPassword: "mypass",
+      });
 
       const expected = `Basic ${Buffer.from("myuser:mypass").toString("base64")}`;
       expect(captured[0]).toBe(expected);
@@ -109,7 +119,7 @@ describe("BitbucketService", () => {
       const captured: string[] = [];
       mockFetch(captured);
 
-      await service.createComment(commentParams);
+      await service.createComment(commentParams, { apiTokens: [] });
 
       const expected = `Basic ${Buffer.from(":").toString("base64")}`;
       expect(captured[0]).toBe(expected);
@@ -125,7 +135,11 @@ describe("BitbucketService", () => {
       const captured: string[] = [];
       mockFetch(captured);
 
-      await service.createComment(commentParams);
+      await service.createComment(commentParams, {
+        apiTokens: ["repo-specific", "global-api-token"],
+        username: "user",
+        appPassword: "pass",
+      });
 
       expect(captured[0]).toBe("Bearer repo-specific");
     });
@@ -149,9 +163,11 @@ describe("BitbucketService", () => {
           );
         });
 
-      await expect(service.createComment(commentParams)).resolves.toEqual({
-        id: 1,
-      });
+      await expect(
+        service.createComment(commentParams, {
+          apiTokens: ["expired-repo-token", "global-token"],
+        }),
+      ).resolves.toEqual({ id: 1 });
       expect(captured).toEqual([
         "Bearer expired-repo-token",
         "Bearer global-token",
@@ -168,9 +184,11 @@ describe("BitbucketService", () => {
         text: async () => "expired",
       });
 
-      await expect(service.createComment(commentParams)).rejects.toThrow(
-        "Bitbucket API error 401: expired",
-      );
+      await expect(
+        service.createComment(commentParams, {
+          apiTokens: ["expired-repo-token"],
+        }),
+      ).rejects.toThrow("Bitbucket API error 401: expired");
       expect(global.fetch).toHaveBeenCalledTimes(1);
     });
   });
@@ -198,7 +216,7 @@ describe("BitbucketService", () => {
       });
 
       await expect(
-        service.replyToComment({ ...baseParams, parentCommentId: 99 }),
+        service.replyToComment({ ...baseParams, parentCommentId: 99 }, DEFAULT_CREDENTIALS),
       ).resolves.toEqual({ id: 11 });
 
       expect(global.fetch).toHaveBeenCalledWith(
@@ -232,7 +250,7 @@ describe("BitbucketService", () => {
           ...baseParams,
           filePath: "src/app.ts",
           line: 42,
-        }),
+        }, DEFAULT_CREDENTIALS),
       ).resolves.toEqual({ id: 12 });
 
       expect(global.fetch).toHaveBeenCalledWith(
@@ -259,7 +277,7 @@ describe("BitbucketService", () => {
         text: async () => "unauthorized",
       });
 
-      await expect(service.createComment(baseParams)).rejects.toThrow(
+      await expect(service.createComment(baseParams, DEFAULT_CREDENTIALS)).rejects.toThrow(
         "Bitbucket API error 401: unauthorized",
       );
     });
@@ -275,7 +293,7 @@ describe("BitbucketService", () => {
       });
 
       await expect(
-        service.replyToComment({ ...baseParams, parentCommentId: 99 }),
+        service.replyToComment({ ...baseParams, parentCommentId: 99 }, DEFAULT_CREDENTIALS),
       ).rejects.toThrow("Bitbucket API error 404: missing parent");
     });
 
@@ -294,7 +312,7 @@ describe("BitbucketService", () => {
           ...baseParams,
           filePath: "src/app.ts",
           line: 42,
-        }),
+        }, DEFAULT_CREDENTIALS),
       ).rejects.toThrow(
         "Bitbucket inline comment API error 400: invalid line",
       );

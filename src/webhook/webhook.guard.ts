@@ -1,36 +1,34 @@
 import { Injectable, CanActivate, ExecutionContext } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { ServiceLogger } from "@lib/logger";
 import { createHmac, timingSafeEqual } from "crypto";
+import { RuntimeSettingsService } from "../settings/runtime-settings.service";
 
 @Injectable()
 export class WebhookGuard implements CanActivate {
   private readonly logger = new ServiceLogger(WebhookGuard.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly runtimeSettings: RuntimeSettingsService) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
 
-    // Extract repo slug from parsed body for per-repo secret lookup.
-    // Bitbucket Cloud's URL slug lives in full_name ("workspace/slug");
-    // repository.name is a display name that can diverge after renames.
-    const repoSlug: string | undefined =
-      request.body?.repository?.full_name?.split("/")[1] ??
-      request.body?.repository?.name;
-
-    const repoSecrets =
-      this.configService.get<Record<string, string>>(
-        "bitbucket.repoWebhookSecrets",
-      ) ?? {};
-    const globalSecret = this.configService.get<string>(
-      "bitbucket.webhookSecret",
-      "",
-    );
-    const secret =
-      (repoSlug && Object.hasOwn(repoSecrets, repoSlug)
-        ? repoSecrets[repoSlug]
-        : undefined) || globalSecret;
+    const repository = request.body?.repository;
+    const fullName: unknown = repository?.full_name;
+    const parts = typeof fullName === "string" ? fullName.split("/") : [];
+    const [workspaceSlug, repoSlug] = parts;
+    if (
+      parts.length !== 2 ||
+      !workspaceSlug ||
+      !repoSlug ||
+      repository?.workspace?.slug !== workspaceSlug
+    ) {
+      this.logger.error("Repository identity invalid — rejecting request");
+      return false;
+    }
+    const secret = await this.runtimeSettings.resolveWebhookSecret({
+      workspaceSlug,
+      repositorySlug: repoSlug,
+    });
 
     if (!secret) {
       this.logger.error(
@@ -64,9 +62,9 @@ export class WebhookGuard implements CanActivate {
         Buffer.from(signature, "utf8"),
         Buffer.from(expectedSignature, "utf8"),
       );
-      if (valid && repoSlug) {
-        // Store verified slug so controller can enforce identity consistency
+      if (valid) {
         request.verifiedRepoSlug = repoSlug;
+        request.verifiedWorkspaceSlug = workspaceSlug;
       }
       return valid;
     } catch {

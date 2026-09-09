@@ -4,7 +4,7 @@ import { ServiceLogger } from "@lib/logger";
 import { execFile } from "child_process";
 import { randomUUID } from "crypto";
 import { promisify } from "util";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { mkdir, rm, writeFile, unlink } from "fs/promises";
 import { existsSync } from "fs";
 import {
@@ -12,6 +12,7 @@ import {
   IPrepareWorktreeParams,
   IReviewDiff,
 } from "./interfaces/workspace.interfaces";
+import { IBitbucketCredentialSnapshot } from "../settings/runtime-settings.types";
 
 const execFileAsync = promisify(execFile);
 const REVIEW_DIFF_EXCLUDED_PATHS = [
@@ -31,7 +32,6 @@ const includePathspecs = REVIEW_DIFF_EXCLUDED_PATHS.map(
 export class WorkspaceService {
   private readonly logger = new ServiceLogger(WorkspaceService.name);
   private readonly basePath: string;
-  private readonly cloneTimeoutMs: number;
   /**
    * slug별 prepareWorktree 직렬화 큐. bare repo는 slug당 공유이므로 같은 repo의 두 job이
    * 동시에 `git fetch`를 돌리면 같은 ref lock을 다퉈 "cannot lock ref ... File exists"로
@@ -44,10 +44,6 @@ export class WorkspaceService {
     this.basePath = this.configService.get<string>(
       "workspace.basePath",
       "/tmp/code-review-workspaces",
-    );
-    this.cloneTimeoutMs = this.configService.get<number>(
-      "workspace.cloneTimeoutMs",
-      600_000,
     );
   }
 
@@ -71,25 +67,41 @@ export class WorkspaceService {
   async prepareWorktree(
     params: IPrepareWorktreeParams,
   ): Promise<IWorktreeInfo> {
+    const safeWorkspace = this.sanitizeSlug(params.workspaceSlug);
     const safeSlug = this.sanitizeSlug(params.repositorySlug);
-    if (!safeSlug) {
-      throw new Error(`Invalid repository slug: ${params.repositorySlug}`);
+    if (!safeWorkspace || !safeSlug) {
+      throw new Error(
+        `Invalid repository identity: ${params.workspaceSlug}/${params.repositorySlug}`,
+      );
     }
-
-    const bareRepoPath = join(this.basePath, "repos", `${safeSlug}.git`);
+    const repositoryKey = `${safeWorkspace}-${safeSlug}`;
+    const bareRepoPath = join(
+      this.basePath,
+      "repos",
+      safeWorkspace,
+      `${safeSlug}.git`,
+    );
     const worktreePath = join(
       this.basePath,
       "worktrees",
-      `${safeSlug}-${params.headCommitHash.substring(0, 8)}`,
+      `${repositoryKey}-${params.headCommitHash.substring(0, 8)}`,
     );
 
     this.assertWithinBasePath(bareRepoPath);
     this.assertWithinBasePath(worktreePath);
 
-    return this.enqueueForSlug(safeSlug, async () => {
-      const gitAuthEnv = await this.buildGitAuthEnv(params.repositorySlug);
+    return this.enqueueForSlug(repositoryKey, async () => {
+      const gitAuthEnv = await this.buildGitAuthEnv(
+        params.repositorySlug,
+        params.credentials,
+      );
       try {
-        await this.ensureBareRepo(bareRepoPath, params.cloneUrl, gitAuthEnv);
+        await this.ensureBareRepo(
+          bareRepoPath,
+          params.cloneUrl,
+          gitAuthEnv,
+          params.cloneTimeoutMs,
+        );
         await this.fetchLatest(bareRepoPath, gitAuthEnv);
       } finally {
         if (gitAuthEnv["GIT_ASKPASS"]) {
@@ -242,12 +254,12 @@ export class WorkspaceService {
     bareRepoPath: string,
     cloneUrl: string,
     gitAuthEnv: Record<string, string>,
+    cloneTimeoutMs: number,
   ): Promise<void> {
     if (existsSync(bareRepoPath)) {
       return;
     }
-
-    await mkdir(join(this.basePath, "repos"), { recursive: true });
+    await mkdir(dirname(bareRepoPath), { recursive: true });
     this.logger.log(`Cloning bare repo: ${cloneUrl}`);
 
     try {
@@ -257,7 +269,7 @@ export class WorkspaceService {
         "git",
         ["clone", "--bare", cloneUrl, bareRepoPath],
         {
-          timeout: this.cloneTimeoutMs,
+          timeout: cloneTimeoutMs,
           env: { ...process.env, ...gitAuthEnv },
         },
       );
@@ -324,25 +336,13 @@ export class WorkspaceService {
    */
   private async buildGitAuthEnv(
     repoSlug: string,
+    credentials: IBitbucketCredentialSnapshot,
   ): Promise<Record<string, string>> {
-    const repoTokens =
-      this.configService.get<Record<string, string>>("bitbucket.repoTokens") ??
-      {};
-    const repoToken = repoTokens[repoSlug];
-    if (repoToken) {
-      return this.createAskpassEnv("x-token-auth", repoToken);
-    }
-
-    const apiToken = this.configService.get<string>("bitbucket.apiToken", "");
+    const apiToken = credentials.apiTokens[0];
     if (apiToken) {
       return this.createAskpassEnv("x-token-auth", apiToken);
     }
-
-    const username = this.configService.get<string>("bitbucket.username", "");
-    const appPassword = this.configService.get<string>(
-      "bitbucket.appPassword",
-      "",
-    );
+    const { username, appPassword } = credentials;
     if (!username || !appPassword) {
       this.logger.warn(
         `No Bitbucket auth configured for repo "${repoSlug}" — git clone may fail`,

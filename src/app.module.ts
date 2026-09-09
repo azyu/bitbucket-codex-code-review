@@ -14,6 +14,8 @@ import { BitbucketModule } from "./bitbucket/bitbucket.module";
 import { InternalController } from "./internal/internal.controller";
 import configuration, { DEFAULTS } from "./config/configuration";
 import { validationSchema } from "./config/validation";
+import { RuntimeSettingsModule } from "./settings/runtime-settings.module";
+import { DashboardAuthGuard } from "./internal/dashboard-auth.guard";
 
 @Module({
   imports: [
@@ -39,6 +41,7 @@ import { validationSchema } from "./config/validation";
       inject: [ConfigService],
     }),
     DatabaseModule,
+    RuntimeSettingsModule,
     OpenTelemetryModule.forRoot({
       serviceName: "code-review",
       serviceVersion: process.env["SERVICE_VERSION"] || "1.0.0",
@@ -55,6 +58,6 @@ import { validationSchema } from "./config/validation";
     BitbucketModule,
   ],
   controllers: [AppController, InternalController],
-  providers: [AppService],
+  providers: [AppService, DashboardAuthGuard],
 })
 export class AppModule {}

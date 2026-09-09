@@ -191,6 +191,7 @@ export class ReviewService {
       idempotencyKey: params.idempotencyKey,
       triggerType: params.triggerType,
       triggerCommentId: params.triggerCommentId,
+      settingsSnapshot: params.settingsSnapshot,
       reviewStatus: ReviewRunStatus.QUEUED,
     });
 
@@ -244,11 +245,12 @@ export class ReviewService {
 
   /** 특정 PR의 최근 리뷰 결과 조회 */
   async findLatestByPr(
+    workspaceSlug: string,
     repositorySlug: string,
     pullRequestId: number,
   ): Promise<ReviewRunEntity | null> {
     return this.reviewRunRepository.findOne({
-      where: { repositorySlug, pullRequestId },
+      where: { workspaceSlug, repositorySlug, pullRequestId },
       order: { createdAt: "DESC" },
     });
   }
@@ -359,6 +361,7 @@ export class ReviewService {
 
   /** 같은 PR의 진행 중인 리뷰를 SUPERSEDED로 전환 */
   async supersedeActivePrReviews(
+    workspaceSlug: string,
     repositorySlug: string,
     pullRequestId: number,
     excludeId: number,
@@ -375,6 +378,7 @@ export class ReviewService {
 
     const result = await this.reviewRunRepository.update(
       {
+        workspaceSlug,
         repositorySlug,
         pullRequestId,
         reviewStatus: In(activeStatuses),
@@ -388,7 +392,7 @@ export class ReviewService {
     const affected = result.affected ?? 0;
     if (affected > 0) {
       this.logger.log(
-        `Superseded ${affected} active review(s) for ${repositorySlug}:PR#${pullRequestId}`,
+        `Superseded ${affected} active review(s) for ${workspaceSlug}/${repositorySlug}:PR#${pullRequestId}`,
       );
     }
     return affected;

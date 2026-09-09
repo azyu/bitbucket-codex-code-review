@@ -450,6 +450,7 @@ describe("ReviewService conditional status transitions", () => {
     readonly id?: FindOperator<number>;
     readonly reviewStatus?: FindOperator<ReviewRunStatus>;
     readonly repositorySlug?: string;
+    readonly workspaceSlug?: string;
     readonly pullRequestId?: number;
   };
 
@@ -536,10 +537,11 @@ describe("ReviewService conditional status transitions", () => {
     mockRepository.update.mockResolvedValueOnce({ affected: 2 });
 
     await expect(
-      service.supersedeActivePrReviews("repo-a", 42, 11),
+      service.supersedeActivePrReviews("workspace", "repo-a", 42, 11),
     ).resolves.toBe(2);
 
     const criteria = criteriaOfCall(0);
+    expect(criteria.workspaceSlug).toBe("workspace");
     // Not(excludeId)이면 서로 다른 커밋의 두 웹훅이 상호 supersede해 아무도 게시하지 못한다.
     expect(criteria.id?.type).toBe("lessThan");
     expect(criteria.id?.value).toBe(11);

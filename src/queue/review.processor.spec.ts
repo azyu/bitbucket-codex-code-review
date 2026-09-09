@@ -14,12 +14,10 @@ import { ReviewProcessor } from "./review.processor";
 import type { ICodexReviewResult } from "../codex/interfaces/codex.interfaces";
 import { TriggerType } from "../entities/review-run.entity";
 import { IReviewJobData } from "./interfaces/queue.interfaces";
-import { rm, writeFile } from "node:fs/promises";
 import { UnrecoverableError } from "bullmq";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { initOpenTelemetry } from "../lib/opentelemetry";
-import { DEFAULTS } from "../config/configuration";
 
 jest.mock("@lib/logger", () => ({
   ServiceLogger: jest.fn().mockImplementation(() => ({
@@ -43,6 +41,22 @@ async function reservePort(): Promise<number> {
   });
   return port;
 }
+
+const TEST_SETTINGS = {
+  revision: "1:0",
+  model: "gpt-5.6-sol",
+  reasoningEffort: "high",
+  timeoutMs: 300_000,
+  triggerMode: "mention" as const,
+  customPrompt: "",
+  retryAttempts: 3,
+  retryDelay: 5000,
+  cloneTimeoutMs: 600_000,
+};
+const TEST_CREDENTIALS = {
+  bitbucket: { apiTokens: [] },
+  openai: {},
+};
 
 describe("review.prompt", () => {
   it.each([
@@ -163,27 +177,17 @@ describe("review.prompt", () => {
     });
 
     it("should append custom prompt after default prompt", async () => {
-      const fs = await import("fs/promises");
-      const tmpFile = `/tmp/test-prompt-${Date.now()}.txt`;
-      await fs.writeFile(tmpFile, "React hooks 규칙을 엄격히 적용해줘.");
+      const result = await resolveReviewPrompt(
+        "develop",
+        "React hooks 규칙을 엄격히 적용해줘.",
+      );
 
-      try {
-        const result = await resolveReviewPrompt("develop", tmpFile);
-
-        expect(result).toContain("'develop'");
-        expect(result).toContain("버그 판정 기준");
-        expect(result).toContain("## 추가 리뷰 지시사항");
-        expect(result).toContain("React hooks 규칙을 엄격히 적용해줘.");
-      } finally {
-        await fs.rm(tmpFile, { force: true });
-      }
+      expect(result).toContain("'develop'");
+      expect(result).toContain("버그 판정 기준");
+      expect(result).toContain("## 추가 리뷰 지시사항");
+      expect(result).toContain("React hooks 규칙을 엄격히 적용해줘.");
     });
 
-    it("should throw when file does not exist", async () => {
-      await expect(
-        resolveReviewPrompt("main", "/nonexistent/path/prompt.txt"),
-      ).rejects.toThrow('Failed to read custom prompt file "/nonexistent/path/prompt.txt"');
-    });
   });
 });
 
@@ -788,9 +792,9 @@ describe("ReviewProcessor publish results", () => {
     replyToComment: jest.fn().mockResolvedValue({ id: 101 }),
     createInlineComment: jest.fn().mockResolvedValue({ id: 102 }),
   };
-  const mockConfigService = {
-    get: jest.fn().mockReturnValue(""),
-    getOrThrow: jest.fn(),
+  const mockRuntimeSettings = {
+    getJobCredentials: jest.fn(),
+    resolveJobCredentials: jest.fn(),
   };
 
   let processor: ReviewProcessor;
@@ -799,9 +803,9 @@ describe("ReviewProcessor publish results", () => {
       worktreePath: string,
       baseBranch: string,
       reviewDiff: string,
-      repositorySlug: string,
       excludedChangedFiles: readonly string[] | null,
-      model?: string,
+      settings: typeof TEST_SETTINGS,
+      connection: Record<string, never>,
     ): Promise<ICodexReviewResult>;
   };
 
@@ -819,12 +823,13 @@ describe("ReviewProcessor publish results", () => {
     idempotencyKey: "my-repo:42:abc1234",
     triggerType: TriggerType.MENTION,
     triggerCommentId: 999,
+    settings: TEST_SETTINGS,
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockConfigService.get.mockReturnValue("");
-    // 조건부 전이는 기본적으로 성공한다 — 거부/장애는 각 테스트가 명시적으로 만든다.
+    mockRuntimeSettings.getJobCredentials.mockResolvedValue(TEST_CREDENTIALS);
+    mockRuntimeSettings.resolveJobCredentials.mockResolvedValue(TEST_CREDENTIALS);
     // clearAllMocks는 구현을 지우지 않으므로 beforeEach에서 매번 기본값을 되돌린다.
     mockReviewService.claimStatus.mockResolvedValue(true);
     mockReviewService.claimFailure.mockResolvedValue(true);
@@ -837,7 +842,7 @@ describe("ReviewProcessor publish results", () => {
       mockWorkspaceService as never,
       mockCodexService as never,
       mockBitbucketService as never,
-      mockConfigService as never,
+      mockRuntimeSettings as never,
     );
   });
 
@@ -873,12 +878,15 @@ describe("ReviewProcessor publish results", () => {
         outputTokens: null,
       });
 
-      await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
+      await (
+        processor as unknown as ReviewProcessorWithExecuteReview
+      ).executeReview(
         "/worktree",
         "main",
         reviewDiff,
-        "my-repo",
         [],
+        TEST_SETTINGS,
+        {},
       );
 
       const prompt = mockCodexService.executeCodex.mock.calls[0][2];
@@ -917,166 +925,57 @@ describe("ReviewProcessor publish results", () => {
         outputTokens: null,
       });
 
-      await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
+      await (
+        processor as unknown as ReviewProcessorWithExecuteReview
+      ).executeReview(
         "/worktree",
         "main",
         "+change",
-        "my-repo",
         [],
+        { ...TEST_SETTINGS, model: "gpt-6-astra" },
+        {},
+      );
+
+      expect(mockCodexService.executeCodex.mock.calls[0][3].model).toBe(
         "gpt-6-astra",
       );
-
-      expect(mockCodexService.executeCodex.mock.calls[0][3]).toBe(
-        "gpt-6-astra",
-      );
     });
 
-    it("should switch to branch diff when the custom prompt makes the final inline prompt too large", async () => {
-      const tmpFile = `/tmp/test-custom-prompt-${Date.now()}.txt`;
-      const customPrompt = `추가 리뷰 지시사항:\n${"A".repeat(950_000)}`;
-      await writeFile(tmpFile, customPrompt);
+    it("should switch to branch diff when custom instructions make the prompt too large", async () => {
+      mockCodexService.executeCodex.mockResolvedValueOnce({
+        rawOutput:
+          '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+        exitCode: 0,
+        durationMs: 1,
+        inputTokens: null,
+        cachedInputTokens: null,
+        outputTokens: null,
+      });
+      const reviewDiff = [
+        "diff --git a/src/app.ts b/src/app.ts",
+        "@@ -1 +1 @@",
+        "+INLINE_DIFF_MARKER",
+        `${"x".repeat(119_950)}`,
+      ].join("\n");
 
-      try {
-        mockConfigService.get.mockImplementation(
-          (key: string, defaultValue?: string) =>
-            key === "codex.customPromptFilepath"
-              ? tmpFile
-              : defaultValue ?? "",
-        );
-        mockCodexService.executeCodex.mockResolvedValueOnce({
-          rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
-          exitCode: 0,
-          durationMs: 1,
-          inputTokens: null,
-          cachedInputTokens: null,
-          outputTokens: null,
-        });
-
-        const reviewDiff = [
-          "diff --git a/src/app.ts b/src/app.ts",
-          "index 1111111..2222222 100644",
-          "--- a/src/app.ts",
-          "+++ b/src/app.ts",
-          "@@ -1 +1 @@",
-          "+INLINE_DIFF_MARKER",
-          `${"x".repeat(119_950)}`,
-        ].join("\n");
-
-        await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
-          "/worktree",
-          "main",
-          reviewDiff,
-          "my-repo",
-          [],
-        );
-
-        const prompt = mockCodexService.executeCodex.mock.calls[0][2];
-
-        expect(prompt).toContain("프롬프트에 diff를 첨부하지 않는다.");
-        expect(prompt).not.toContain("```diff");
-        expect(prompt).not.toContain("INLINE_DIFF_MARKER");
-      } finally {
-        await rm(tmpFile, { force: true });
-      }
-    });
-
-    it("should append per-repo custom prompt when repository slug is mapped", async () => {
-      const tmpFile = `/tmp/test-repo-prompt-${Date.now()}.md`;
-      await writeFile(tmpFile, "REPO_SPECIFIC_GUIDELINE_MARKER");
-
-      try {
-        mockConfigService.get.mockImplementation(
-          (key: string, defaultValue?: string) =>
-            key === "codex.repoCustomPromptFilepaths"
-              ? { "my-repo": tmpFile }
-              : defaultValue ?? "",
-        );
-        mockCodexService.executeCodex.mockResolvedValueOnce({
-          rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
-          exitCode: 0,
-          durationMs: 1,
-          inputTokens: null,
-          cachedInputTokens: null,
-          outputTokens: null,
-        });
-
-        await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
-          "/worktree",
-          "main",
-          "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n+ok",
-          "my-repo",
-          [],
-        );
-
-        const prompt = mockCodexService.executeCodex.mock.calls[0][2];
-        expect(prompt).toContain("## 추가 리뷰 지시사항");
-        expect(prompt).toContain("REPO_SPECIFIC_GUIDELINE_MARKER");
-      } finally {
-        await rm(tmpFile, { force: true });
-      }
-    });
-
-    it("should fall back to global custom prompt when repository slug is not mapped", async () => {
-      const repoFile = `/tmp/test-repo-prompt-other-${Date.now()}.md`;
-      const globalFile = `/tmp/test-global-prompt-${Date.now()}.md`;
-      await writeFile(repoFile, "OTHER_REPO_MARKER");
-      await writeFile(globalFile, "GLOBAL_GUIDELINE_MARKER");
-
-      try {
-        mockConfigService.get.mockImplementation(
-          (key: string, defaultValue?: string) => {
-            if (key === "codex.repoCustomPromptFilepaths") {
-              return { "other-repo": repoFile };
-            }
-            if (key === "codex.customPromptFilepath") {
-              return globalFile;
-            }
-            return defaultValue ?? "";
-          },
-        );
-        mockCodexService.executeCodex.mockResolvedValueOnce({
-          rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
-          exitCode: 0,
-          durationMs: 1,
-          inputTokens: null,
-          cachedInputTokens: null,
-          outputTokens: null,
-        });
-
-        await (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
-          "/worktree",
-          "main",
-          "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n+ok",
-          "my-repo",
-          [],
-        );
-
-        const prompt = mockCodexService.executeCodex.mock.calls[0][2];
-        expect(prompt).toContain("GLOBAL_GUIDELINE_MARKER");
-        expect(prompt).not.toContain("OTHER_REPO_MARKER");
-      } finally {
-        await rm(repoFile, { force: true });
-        await rm(globalFile, { force: true });
-      }
-    });
-
-    it("should reject when the mapped per-repo prompt file is missing", async () => {
-      mockConfigService.get.mockImplementation(
-        (key: string, defaultValue?: string) =>
-          key === "codex.repoCustomPromptFilepaths"
-            ? { "my-repo": "/nonexistent/repo-prompt.md" }
-            : defaultValue ?? "",
+      await (
+        processor as unknown as ReviewProcessorWithExecuteReview
+      ).executeReview(
+        "/worktree",
+        "main",
+        reviewDiff,
+        [],
+        {
+          ...TEST_SETTINGS,
+          customPrompt: `REPOSITORY_GUIDELINE\n${"A".repeat(950_000)}`,
+        },
+        {},
       );
 
-      await expect(
-        (processor as unknown as ReviewProcessorWithExecuteReview).executeReview(
-          "/worktree",
-          "main",
-          "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n+ok",
-          "my-repo",
-          [],
-        ),
-      ).rejects.toThrow(/Failed to read custom prompt file/);
+      const prompt = mockCodexService.executeCodex.mock.calls[0][2];
+      expect(prompt).toContain("REPOSITORY_GUIDELINE");
+      expect(prompt).toContain("프롬프트에 diff를 첨부하지 않는다.");
+      expect(prompt).not.toContain("INLINE_DIFF_MARKER");
     });
   });
 
@@ -1093,6 +992,7 @@ describe("ReviewProcessor publish results", () => {
           },
           reviewDiff: string,
           onResultCommentPublished: (commentId: number) => Promise<void>,
+          credentials: typeof TEST_CREDENTIALS.bitbucket,
         ) => Promise<number | undefined>;
       }
     ).publishUnifiedResults(
@@ -1109,28 +1009,21 @@ describe("ReviewProcessor publish results", () => {
       },
       "",
       async () => undefined,
+      TEST_CREDENTIALS.bitbucket,
     );
 
-    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.stringContaining("### 변경 개요"),
-      }),
-    );
-    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.stringContaining("- learning-trace와 bff-rtc에서 사용하지 않거나 불필요해진 데이터베이스 설정 코드를 정리했습니다."),
-      }),
-    );
-    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.stringContaining("### 주요 변경사항"),
-      }),
-    );
-    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.not.stringContaining("1) 변경 개요"),
-      }),
-    );
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringContaining("### 변경 개요"),
+    }), expect.anything());
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringContaining("- learning-trace와 bff-rtc에서 사용하지 않거나 불필요해진 데이터베이스 설정 코드를 정리했습니다."),
+    }), expect.anything());
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringContaining("### 주요 변경사항"),
+    }), expect.anything());
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.not.stringContaining("1) 변경 개요"),
+    }), expect.anything());
   });
 
   it("should forward excluded changed files from the review diff into the Codex prompt", async () => {
@@ -1216,6 +1109,7 @@ describe("ReviewProcessor publish results", () => {
           },
           reviewDiff: string,
           onResultCommentPublished: (commentId: number) => Promise<void>,
+          credentials: typeof TEST_CREDENTIALS.bitbucket,
         ) => Promise<number | undefined>;
       }
     ).publishUnifiedResults(
@@ -1250,30 +1144,25 @@ describe("ReviewProcessor publish results", () => {
         "+  { url: '/specs/sso-agent', name: 'SSO AGENT API' },",
       ].join("\n"),
       async () => undefined,
+      TEST_CREDENTIALS.bitbucket,
     );
 
     expect(mockBitbucketService.createInlineComment).toHaveBeenCalledTimes(1);
-    expect(mockBitbucketService.createInlineComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filePath: "tools/swagger-hub/src/main.ts",
-        line: 12,
-      }),
-    );
+    expect(mockBitbucketService.createInlineComment).toHaveBeenCalledWith(expect.objectContaining({
+      filePath: "tools/swagger-hub/src/main.ts",
+      line: 12,
+    }), expect.anything());
     expect(mockBitbucketService.createInlineComment).not.toHaveBeenCalledWith(
       expect.objectContaining({
         filePath: "libs/base/src/constants/timezone.ts",
       }),
     );
-    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.stringContaining("Recommended | 1건"),
-      }),
-    );
-    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.not.stringContaining("Blocking | 1건"),
-      }),
-    );
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringContaining("Recommended | 1건"),
+    }), expect.anything());
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.not.stringContaining("Blocking | 1건"),
+    }), expect.anything());
   });
 
   it("persists the JSON summary comment ID before posting inline comments", async () => {
@@ -1470,30 +1359,20 @@ describe("ReviewProcessor publish results", () => {
 
       expect(mockBitbucketService.replyToComment).toHaveBeenCalledTimes(1);
       // 답글이어야 한다 — 재실행으로 요약이 여럿 쌓여도 어느 런의 누락분인지 모호해지지 않는다.
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          parentCommentId: 100,
-          body: expect.stringContaining("src/lost.ts"),
-        }),
-      );
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({ body: expect.stringContaining("L31") }),
-      );
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.stringContaining("인라인 게시가 거부된 지적"),
-        }),
-      );
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.not.stringContaining("src/keep.ts"),
-        }),
-      );
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.not.stringContaining("인라인으로 잘 올라간 지적"),
-        }),
-      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+        parentCommentId: 100,
+        body: expect.stringContaining("src/lost.ts"),
+      }), expect.anything());
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("L31") }), expect.anything());
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+        body: expect.stringContaining("인라인 게시가 거부된 지적"),
+      }), expect.anything());
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+        body: expect.not.stringContaining("src/keep.ts"),
+      }), expect.anything());
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+        body: expect.not.stringContaining("인라인으로 잘 올라간 지적"),
+      }), expect.anything());
       expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
         1,
         "completed",
@@ -1510,15 +1389,9 @@ describe("ReviewProcessor publish results", () => {
       await processor.process({ data: baseJobData } as never);
 
       expect(mockBitbucketService.createInlineComment).toHaveBeenCalledTimes(2);
-      expect(mockBitbucketService.createInlineComment).toHaveBeenCalledWith(
-        expect.objectContaining({ filePath: "src/keep.ts", line: 1 }),
-      );
-      expect(mockBitbucketService.createInlineComment).toHaveBeenCalledWith(
-        expect.objectContaining({ filePath: "src/lost.ts", line: 31 }),
-      );
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({ parentCommentId: 100 }),
-      );
+      expect(mockBitbucketService.createInlineComment).toHaveBeenCalledWith(expect.objectContaining({ filePath: "src/keep.ts", line: 1 }), expect.anything());
+      expect(mockBitbucketService.createInlineComment).toHaveBeenCalledWith(expect.objectContaining({ filePath: "src/lost.ts", line: 31 }), expect.anything());
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({ parentCommentId: 100 }), expect.anything());
     });
 
     it("keeps the summary comment as the sole publish evidence when a recovery reply is posted", async () => {
@@ -1529,9 +1402,7 @@ describe("ReviewProcessor publish results", () => {
 
       await processor.process({ data: baseJobData } as never);
 
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({ parentCommentId: 100 }),
-      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({ parentCommentId: 100 }), expect.anything());
       // 복구 답글(id 101)이 게시 증거를 덮어쓰면 행이 요약 코멘트를 가리키지 않게 된다.
       expect(mockReviewService.updateResultCommentId).toHaveBeenCalledTimes(1);
       expect(mockReviewService.updateResultCommentId).toHaveBeenCalledWith(
@@ -1558,9 +1429,7 @@ describe("ReviewProcessor publish results", () => {
         "Bitbucket API error 500: recovery reply rejected",
       );
 
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({ parentCommentId: 100 }),
-      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({ parentCommentId: 100 }), expect.anything());
       expect(mockReviewService.updateStatus).not.toHaveBeenCalledWith(
         1,
         "completed",
@@ -1573,12 +1442,10 @@ describe("ReviewProcessor publish results", () => {
         expect.objectContaining({ resultCommentId: 100 }),
       );
       // 균일 throw의 사용자 관점 귀결 — 런이 조용히 끝나지 않고 실패가 트리거 코멘트에 통보된다.
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          parentCommentId: 999,
-          body: expect.stringContaining("❌ Code Review 실패"),
-        }),
-      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+        parentCommentId: 999,
+        body: expect.stringContaining("❌ Code Review 실패"),
+      }), expect.anything());
     });
 
     it("does not post a recovery reply when every inline comment succeeds", async () => {
@@ -1604,27 +1471,19 @@ describe("ReviewProcessor publish results", () => {
       await processor.process({ data: baseJobData } as never);
 
       expect(mockBitbucketService.replyToComment).toHaveBeenCalledTimes(1);
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          parentCommentId: 100,
-          body: expect.stringContaining("src/keep.ts"),
-        }),
-      );
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.stringContaining("인라인으로 잘 올라간 지적"),
-        }),
-      );
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.stringContaining("src/lost.ts"),
-        }),
-      );
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.stringContaining("인라인 게시가 거부된 지적"),
-        }),
-      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+        parentCommentId: 100,
+        body: expect.stringContaining("src/keep.ts"),
+      }), expect.anything());
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+        body: expect.stringContaining("인라인으로 잘 올라간 지적"),
+      }), expect.anything());
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+        body: expect.stringContaining("src/lost.ts"),
+      }), expect.anything());
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+        body: expect.stringContaining("인라인 게시가 거부된 지적"),
+      }), expect.anything());
       // 요약 코멘트만 독립 코멘트로 남는다 — 복구분은 답글이므로 createComment가 늘지 않는다.
       expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
       expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
@@ -1657,12 +1516,10 @@ describe("ReviewProcessor publish results", () => {
         "completed",
         expect.anything(),
       );
-      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          parentCommentId: 999,
-          body: expect.stringContaining("❌ Code Review 실패"),
-        }),
-      );
+      expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+        parentCommentId: 999,
+        body: expect.stringContaining("❌ Code Review 실패"),
+      }), expect.anything());
     });
   });
 });
@@ -1691,9 +1548,9 @@ describe("ReviewProcessor error handling", () => {
     replyToComment: jest.fn().mockResolvedValue({ id: 101 }),
     createInlineComment: jest.fn().mockResolvedValue({ id: 102 }),
   };
-  const mockConfigService = {
-    get: jest.fn().mockReturnValue(""),
-    getOrThrow: jest.fn(),
+  const mockRuntimeSettings = {
+    resolveJobCredentials: jest.fn(),
+    getWorkerSettings: jest.fn(),
   };
 
   let processor: ReviewProcessor;
@@ -1711,12 +1568,12 @@ describe("ReviewProcessor error handling", () => {
     idempotencyKey: "my-repo:42:abc1234",
     triggerType: TriggerType.MENTION,
     triggerCommentId: 999,
+    settings: TEST_SETTINGS,
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockConfigService.get.mockReturnValue("");
-    // 조건부 전이는 기본적으로 성공한다 — 거부/장애는 각 테스트가 명시적으로 만든다.
+    mockRuntimeSettings.resolveJobCredentials.mockResolvedValue(TEST_CREDENTIALS);
     // clearAllMocks는 구현을 지우지 않으므로 beforeEach에서 매번 기본값을 되돌린다.
     mockReviewService.claimStatus.mockResolvedValue(true);
     mockReviewService.claimFailure.mockResolvedValue(true);
@@ -1736,7 +1593,7 @@ describe("ReviewProcessor error handling", () => {
       mockWorkspaceService as never,
       mockCodexService as never,
       mockBitbucketService as never,
-      mockConfigService as never,
+      mockRuntimeSettings as never,
     );
   });
 
@@ -1750,12 +1607,10 @@ describe("ReviewProcessor error handling", () => {
 
     await expect(processor.process(job)).rejects.toThrow("workspace error");
 
-    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        parentCommentId: 999,
-        body: expect.stringContaining("Code Review 실패"),
-      }),
-    );
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+      parentCommentId: 999,
+      body: expect.stringContaining("Code Review 실패"),
+    }), expect.anything());
     expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
   });
 
@@ -1775,14 +1630,12 @@ describe("ReviewProcessor error handling", () => {
 
     await expect(processor.process(job)).rejects.toThrow("workspace error");
 
-    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspace: "my-workspace",
-        repoSlug: "my-repo",
-        pullRequestId: 42,
-        body: expect.stringContaining("Code Review 실패"),
-      }),
-    );
+    expect(mockBitbucketService.createComment).toHaveBeenCalledWith(expect.objectContaining({
+      workspace: "my-workspace",
+      repoSlug: "my-repo",
+      pullRequestId: 42,
+      body: expect.stringContaining("Code Review 실패"),
+    }), expect.anything());
     expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
   });
 
@@ -1817,13 +1670,11 @@ describe("ReviewProcessor error handling", () => {
         errorMessage: expect.stringContaining("Codex run failed"),
       }),
     );
-    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.stringContaining(
-          "Selected model is at capacity. Please try a different model.",
-        ),
-      }),
-    );
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringContaining(
+        "Selected model is at capacity. Please try a different model.",
+      ),
+    }), expect.anything());
   });
 
   it("should defer failure reporting while retries remain", async () => {
@@ -1857,7 +1708,7 @@ describe("ReviewProcessor error handling", () => {
       mockWorkspaceService as never,
       mockCodexService as never,
       mockBitbucketService as never,
-      mockConfigService as never,
+      mockRuntimeSettings as never,
     );
 
     try {
@@ -1920,11 +1771,9 @@ describe("ReviewProcessor error handling", () => {
         errorMessage: expect.stringContaining("Git clone failed"),
       }),
     );
-    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.stringContaining("Code Review 실패"),
-      }),
-    );
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringContaining("Code Review 실패"),
+    }), expect.anything());
   });
 
   it("preserves the comment ID in FAILED metadata when markCompleted fails", async () => {
@@ -2014,11 +1863,9 @@ describe("ReviewProcessor error handling", () => {
         errorMessage: expect.stringContaining("db unavailable"),
       }),
     );
-    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.stringContaining("Code Review 실패"),
-      }),
-    );
+    expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringContaining("Code Review 실패"),
+    }), expect.anything());
   });
 
   it("should stay retriable when the publishing status update fails", async () => {
@@ -2414,43 +2261,55 @@ describe("ReviewProcessor error handling", () => {
 });
 
 describe("ReviewProcessor worker concurrency", () => {
-  const buildProcessor = (configValues: Record<string, unknown>) => {
-    const configService = {
-      get: jest.fn((key: string, defaultValue?: unknown) =>
-        key in configValues ? configValues[key] : defaultValue,
-      ),
-      getOrThrow: jest.fn(),
+  it("applies the persisted global concurrency at bootstrap", async () => {
+    const runtimeSettings = {
+      getWorkerSettings: jest
+        .fn()
+        .mockResolvedValue({ revision: 7, concurrency: 4 }),
     };
     const processor = new ReviewProcessor(
       {} as never,
       {} as never,
       {} as never,
       {} as never,
-      configService as never,
+      runtimeSettings as never,
     );
-    // WorkerHost는 BullExplorer가 채워주는 _worker를 노출한다 — 부트스트랩 시점을 흉내낸다
     const worker = { concurrency: 1 };
     Object.assign(processor, { _worker: worker });
-    return { processor, worker };
-  };
 
-  it("applies WORKSPACE_MAX_CONCURRENT to the worker", () => {
-    // 기본 concurrency 1이면 리뷰 1건이 도는 동안 큐가 밀린다 — 죽은 설정을 실제로 태운다
-    const { processor, worker } = buildProcessor({
-      "workspace.maxConcurrent": 4,
-    });
-
-    processor.onApplicationBootstrap();
+    await processor.onApplicationBootstrap();
+    processor.onApplicationShutdown();
 
     expect(worker.concurrency).toBe(4);
+    expect(runtimeSettings.getWorkerSettings).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to the configured default", () => {
-    const { processor, worker } = buildProcessor({});
+  it("applies a newer concurrency revision on the polling interval", async () => {
+    jest.useFakeTimers();
+    const runtimeSettings = {
+      getWorkerSettings: jest
+        .fn()
+        .mockResolvedValueOnce({ revision: 7, concurrency: 4 })
+        .mockResolvedValue({ revision: 8, concurrency: 2 }),
+    };
+    const processor = new ReviewProcessor(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      runtimeSettings as never,
+    );
+    const worker = { concurrency: 1 };
+    Object.assign(processor, { _worker: worker });
 
-    processor.onApplicationBootstrap();
-
-    expect(worker.concurrency).toBe(DEFAULTS.WORKSPACE_MAX_CONCURRENT);
-    expect(worker.concurrency).toBeGreaterThan(1);
+    try {
+      await processor.onApplicationBootstrap();
+      expect(worker.concurrency).toBe(4);
+      await jest.advanceTimersByTimeAsync(5000);
+      expect(worker.concurrency).toBe(2);
+    } finally {
+      processor.onApplicationShutdown();
+      jest.useRealTimers();
+    }
   });
 });

@@ -17,6 +17,24 @@ function jsonObjectValidator(label: string) {
   };
 }
 
+function exactUtf8Bytes(bytes: number, label: string) {
+  return (value: string) => {
+    if (Buffer.byteLength(value, "utf8") !== bytes) {
+      throw new Error(`${label} must be exactly ${bytes} bytes`);
+    }
+    return value;
+  };
+}
+
+function minimumUtf8Bytes(bytes: number, label: string) {
+  return (value: string) => {
+    if (Buffer.byteLength(value, "utf8") < bytes) {
+      throw new Error(`${label} must be at least ${bytes} bytes`);
+    }
+    return value;
+  };
+}
+
 export const validationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid("development", "production", "test", "staging", "local")
@@ -71,6 +89,18 @@ export const validationSchema = Joi.object({
     .allow("")
     .default("")
     .custom(jsonObjectValidator("BITBUCKET_REPO_WEBHOOK_SECRETS")),
+  OPENAI_API_KEY: Joi.string().allow("").default(""),
+  OPENAI_BASE_URL: Joi.string().uri({ scheme: ["https"] }).allow("").default(""),
+  DASHBOARD_SECRET_KEY: Joi.string()
+    .required()
+    .custom(minimumUtf8Bytes(32, "DASHBOARD_SECRET_KEY")),
+  SETTINGS_ENCRYPTION_KEY: Joi.string()
+    .required()
+    .custom(exactUtf8Bytes(32, "SETTINGS_ENCRYPTION_KEY")),
+  RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP: Joi.string()
+    .allow("")
+    .default("")
+    .custom(jsonObjectValidator("RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP")),
   WORKSPACE_BASE_PATH: Joi.string().default(DEFAULTS.WORKSPACE_BASE_PATH),
   // 워커 concurrency로 그대로 들어간다 — BullMQ 세터가 1 미만/비정수를 거부한다.
   WORKSPACE_MAX_CONCURRENT: Joi.number()

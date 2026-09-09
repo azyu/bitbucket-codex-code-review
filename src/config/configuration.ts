@@ -94,6 +94,18 @@ export default (): Record<string, unknown> => ({
     webhookSecret: process.env["BITBUCKET_WEBHOOK_SECRET"] || "",
     repoWebhookSecrets: parseJsonRecord(process.env["BITBUCKET_REPO_WEBHOOK_SECRETS"], "BITBUCKET_REPO_WEBHOOK_SECRETS"),
   },
+  openai: {
+    apiKey: process.env["OPENAI_API_KEY"] || "",
+    baseUrl: process.env["OPENAI_BASE_URL"] || "",
+  },
+  runtimeSettings: {
+    dashboardSecretKey: process.env["DASHBOARD_SECRET_KEY"] || "",
+    encryptionKey: process.env["SETTINGS_ENCRYPTION_KEY"] || "",
+    repositoryWorkspaceMap: parseJsonRecord(
+      process.env["RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP"],
+      "RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP",
+    ),
+  },
   workspace: {
     basePath: process.env["WORKSPACE_BASE_PATH"] || DEFAULTS.WORKSPACE_BASE_PATH,
     maxConcurrent: parseInt(process.env["WORKSPACE_MAX_CONCURRENT"] || String(DEFAULTS.WORKSPACE_MAX_CONCURRENT), 10),
