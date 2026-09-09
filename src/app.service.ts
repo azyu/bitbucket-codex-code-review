@@ -1583,10 +1583,12 @@ document.addEventListener("alpine:init", function () {
         };
       },
 
-      async loadSettings() {
+      async loadSettings(preserveGlobalDraft) {
         const response = await this.authorizedFetch(settingsEndpoint);
         if (!response.ok) throw new Error("HTTP " + response.status);
-        this.applySettingsDocument(await response.json());
+        const document = await response.json();
+        if (preserveGlobalDraft) this.settingsDocument = document;
+        else this.applySettingsDocument(document);
       },
 
       secretMutations(values, clears, keys) {
@@ -1721,12 +1723,12 @@ document.addEventListener("alpine:init", function () {
           });
           if (!response.ok) {
             if (response.status === 409) {
-              await this.loadSettings();
+              await this.loadSettings(true);
               this.loadRepositorySettings();
             }
             throw new Error("HTTP " + response.status);
           }
-          await this.loadSettings();
+          await this.loadSettings(true);
           this.loadRepositorySettings();
           this.settingsStatus = "Repository 설정을 저장했습니다.";
         } catch (error) {
