@@ -35,6 +35,12 @@ PR 본문에는 `Closes #<번호>`를 넣는다. 후속 작업은 별도 이슈�
 - [ ] GitHub Issue에 검증 결과와 상태 업데이트 완료
 - [ ] 커밋 승인 요청 → 승인 후 커밋 완료 (conventional commit 형식)
 
+## 의존성 업데이트 (Renovate)
+
+Renovate PR의 CI green은 타입 호환성만 증명한다. 테스트가 실제 Redis/MySQL을 띄우지 않으므로 런타임 동작 변경은 통과한다. major 범프는 릴리스 노트의 BREAKING 항목을 코드에 직접 대조할 것.
+
+peer dependency가 optional로 강등되는 변경은 lockfile이 이전 트리의 잔재를 유지해 정상으로 보인다. `package.json`만 빈 디렉터리에 복사해 `pnpm install --lockfile-only`로 재해석하고 패키지가 살아남는지 확인할 것 (bullmq v6 → ioredis 유실, PR #90).
+
 ## 프로젝트 개요
 
 Bitbucket PR webhook → Codex CLI 코드 리뷰 → PR 코멘트 게시하는 NestJS 워커 서비스.
