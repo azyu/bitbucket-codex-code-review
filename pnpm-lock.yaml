@@ -25,7 +25,7 @@ importers:
         version: 11.2.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)
       '@nestjs/typeorm':
         specifier: ^11.0.3
-        version: 11.0.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.31(ioredis@5.11.1)(mysql2@3.24.3(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)))
+        version: 11.0.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.31(ioredis@5.11.1)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)))
       '@opentelemetry/api':
         specifier: ^1.9.1
         version: 1.9.1
@@ -97,7 +97,7 @@ importers:
         version: 17.13.7
       mysql2:
         specifier: ^3.24.3
-        version: 3.24.3(@types/node@24.13.3)
+        version: 3.24.4(@types/node@24.13.3)
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -106,7 +106,7 @@ importers:
         version: 7.8.2
       typeorm:
         specifier: ^0.3.31
-        version: 0.3.31(ioredis@5.11.1)(mysql2@3.24.3(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))
+        version: 0.3.31(ioredis@5.11.1)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))
       winston:
         specifier: ^3.19.0
         version: 3.19.0
@@ -2813,8 +2813,8 @@ packages:
     resolution: {integrity: sha512-WWdIxpyjEn+FhQJQQv9aQAYlHoNVdzIzUySNV1gHUPDSdZJ3yZn7pAAbQcV7B56Mvu881q9FZV+0Vx2xC44VWA==}
     engines: {node: ^18.17.0 || >=20.5.0}
 
-  mysql2@3.24.3:
-    resolution: {integrity: sha512-OKfWHkMAg9v06neq8FmSyhbxPQKABN9PAW5G9/bDTXzJBO5xXtkKL0V27vju7HQWk9UD4Od5BZsvCtBTB1CPEw==}
+  mysql2@3.24.4:
+    resolution: {integrity: sha512-A2olluVlj0mvgyIRRISMEzXc51m+21mRtcMVjJyIpt2GG98+XrC9m9HzsqcMsX2LcnfccJvY5NB22g8fENBnOA==}
     engines: {node: '>= 8.0'}
     peerDependencies:
       '@types/node': '>= 8'
@@ -4531,13 +4531,13 @@ snapshots:
     optionalDependencies:
       '@nestjs/platform-express': 11.2.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)
 
-  '@nestjs/typeorm@11.0.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.31(ioredis@5.11.1)(mysql2@3.24.3(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)))':
+  '@nestjs/typeorm@11.0.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.31(ioredis@5.11.1)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)))':
     dependencies:
       '@nestjs/common': 11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core': 11.2.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       reflect-metadata: 0.2.2
       rxjs: 7.8.2
-      typeorm: 0.3.31(ioredis@5.11.1)(mysql2@3.24.3(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))
+      typeorm: 0.3.31(ioredis@5.11.1)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))
 
   '@opentelemetry/api-logs@0.222.0':
     dependencies:
@@ -6727,7 +6727,7 @@ snapshots:
 
   mute-stream@2.0.0: {}
 
-  mysql2@3.24.3(@types/node@24.13.3):
+  mysql2@3.24.4(@types/node@24.13.3):
     dependencies:
       '@types/node': 24.13.3
       aws-ssl-profiles: 1.1.2
@@ -7316,7 +7316,7 @@ snapshots:
 
   typedarray@0.0.6: {}
 
-  typeorm@0.3.31(ioredis@5.11.1)(mysql2@3.24.3(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)):
+  typeorm@0.3.31(ioredis@5.11.1)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)):
     dependencies:
       '@sqltools/formatter': 1.2.5
       ansis: 4.3.1
@@ -7335,7 +7335,7 @@ snapshots:
       yargs: 17.7.3
     optionalDependencies:
       ioredis: 5.11.1
-      mysql2: 3.24.3(@types/node@24.13.3)
+      mysql2: 3.24.4(@types/node@24.13.3)
       ts-node: 10.9.2(@types/node@24.13.3)(typescript@5.9.3)
     transitivePeerDependencies:
       - babel-plugin-macros
