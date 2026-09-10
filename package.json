@@ -28,7 +28,7 @@
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.2.3",
     "@nestjs/platform-express": "^11.2.3",
-    "@nestjs/typeorm": "^11.0.3",
+    "@nestjs/typeorm": "^12.0.0",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/core": "^2.11.0",
     "@opentelemetry/exporter-logs-otlp-grpc": "^0.222.0",
