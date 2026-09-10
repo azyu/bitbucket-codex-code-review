@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@nestjs/bullmq':
         specifier: ^11.0.5
-        version: 11.0.5(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(bullmq@6.3.4(ioredis@5.11.1))
+        version: 11.0.5(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(bullmq@6.3.4(ioredis@6.0.0))
       '@nestjs/common':
         specifier: ^11.2.3
         version: 11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -25,7 +25,7 @@ importers:
         version: 11.2.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)
       '@nestjs/typeorm':
         specifier: ^11.0.3
-        version: 11.0.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.31(ioredis@5.11.1)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)))
+        version: 11.0.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.31(ioredis@6.0.0)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)))
       '@opentelemetry/api':
         specifier: ^1.9.1
         version: 1.9.1
@@ -88,13 +88,13 @@ importers:
         version: 3.17.2
       bullmq:
         specifier: ^6.0.0
-        version: 6.3.4(ioredis@5.11.1)
+        version: 6.3.4(ioredis@6.0.0)
       helmet:
         specifier: ^8.3.0
         version: 8.3.0
       ioredis:
-        specifier: ^5.11.1
-        version: 5.11.1
+        specifier: ^6.0.0
+        version: 6.0.0
       joi:
         specifier: ^18.0.0
         version: 18.2.8
@@ -109,7 +109,7 @@ importers:
         version: 7.8.2
       typeorm:
         specifier: ^0.3.31
-        version: 0.3.31(ioredis@5.11.1)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))
+        version: 0.3.31(ioredis@6.0.0)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))
       winston:
         specifier: ^3.19.0
         version: 3.19.0
@@ -607,8 +607,8 @@ packages:
       '@types/node':
         optional: true
 
-  '@ioredis/commands@1.10.0':
-    resolution: {integrity: sha512-UmeW7z4LfctwoQ5wkhVzgq8tXkreED2xZGpX+Bg+zA+WJFZCT6c062AfCK/Dfk81xZnnwdhJCUMkitihRaoC2Q==}
+  '@ioredis/commands@2.0.0':
+    resolution: {integrity: sha512-vrx0AE/T0h7cRZwfo1M39Cr+ZhZrkf0V8mQN75wucKCxCLD9l/VX6no3gFvrLqD1IlG/1LtzWovqEw3t0Vr9zg==}
 
   '@isaacs/cliui@8.0.2':
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
@@ -2418,9 +2418,9 @@ packages:
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
 
-  ioredis@5.11.1:
-    resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
-    engines: {node: '>=12.22.0'}
+  ioredis@6.0.0:
+    resolution: {integrity: sha512-f+Dtubxfpf6KYFq7WVXJoOLn0bk4TJrMrN9SzeE+jrWrCWj7XX3fA6vkryafhADX+GMymRxgDJDOI33COkJc0w==}
+    engines: {node: '>=20.0.0'}
 
   ipaddr.js@1.9.1:
     resolution: {integrity: sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==}
@@ -3060,10 +3060,6 @@ packages:
 
   redis-errors@1.2.0:
     resolution: {integrity: sha512-1qny3OExCf0UvUV/5wpYKf2YwPcOqXzkwKKSmKHiE6ZMQs5heeE/c8eXK+PNllPvmjgAbfnsbpkGZWy8cBpn9w==}
-    engines: {node: '>=4'}
-
-  redis-parser@3.0.0:
-    resolution: {integrity: sha512-DJnGAeenTdpMEH6uAJRK/uiyEIH9WVsUmoLwzudwGJUwZPp80PDBWPHXSAGNPwNvIXAbe7MSUB1zQFugFml66A==}
     engines: {node: '>=4'}
 
   reflect-metadata@0.2.2:
@@ -4181,7 +4177,7 @@ snapshots:
     optionalDependencies:
       '@types/node': 24.13.3
 
-  '@ioredis/commands@1.10.0': {}
+  '@ioredis/commands@2.0.0': {}
 
   '@isaacs/cliui@8.0.2':
     dependencies:
@@ -4453,12 +4449,12 @@ snapshots:
       '@nestjs/core': 11.2.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       tslib: 2.8.1
 
-  '@nestjs/bullmq@11.0.5(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(bullmq@6.3.4(ioredis@5.11.1))':
+  '@nestjs/bullmq@11.0.5(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(bullmq@6.3.4(ioredis@6.0.0))':
     dependencies:
       '@nestjs/bull-shared': 11.0.5(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)
       '@nestjs/common': 11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core': 11.2.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
-      bullmq: 6.3.4(ioredis@5.11.1)
+      bullmq: 6.3.4(ioredis@6.0.0)
       tslib: 2.8.1
 
   '@nestjs/cli@11.0.24(@types/node@24.13.3)':
@@ -4561,13 +4557,13 @@ snapshots:
     optionalDependencies:
       '@nestjs/platform-express': 11.2.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)
 
-  '@nestjs/typeorm@11.0.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.31(ioredis@5.11.1)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)))':
+  '@nestjs/typeorm@11.0.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@0.3.31(ioredis@6.0.0)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)))':
     dependencies:
       '@nestjs/common': 11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core': 11.2.3(@nestjs/common@11.2.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.2.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       reflect-metadata: 0.2.2
       rxjs: 7.8.2
-      typeorm: 0.3.31(ioredis@5.11.1)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))
+      typeorm: 0.3.31(ioredis@6.0.0)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))
 
   '@opentelemetry/api-logs@0.222.0':
     dependencies:
@@ -5533,7 +5529,7 @@ snapshots:
       base64-js: 1.5.1
       ieee754: 1.2.1
 
-  bullmq@6.3.4(ioredis@5.11.1):
+  bullmq@6.3.4(ioredis@6.0.0):
     dependencies:
       cron-parser: 5.10.0
       msgpackr: 2.1.0
@@ -5541,7 +5537,7 @@ snapshots:
       semver: 7.8.5
       tslib: 2.8.1
     optionalDependencies:
-      ioredis: 5.11.1
+      ioredis: 6.0.0
 
   busboy@1.6.0:
     dependencies:
@@ -6168,14 +6164,13 @@ snapshots:
 
   inherits@2.0.4: {}
 
-  ioredis@5.11.1:
+  ioredis@6.0.0:
     dependencies:
-      '@ioredis/commands': 1.10.0
+      '@ioredis/commands': 2.0.0
       cluster-key-slot: 1.1.1
       debug: 4.4.3
       denque: 2.1.0
       redis-errors: 1.2.0
-      redis-parser: 3.0.0
       standard-as-callback: 2.1.0
     transitivePeerDependencies:
       - supports-color
@@ -6974,10 +6969,6 @@ snapshots:
 
   redis-errors@1.2.0: {}
 
-  redis-parser@3.0.0:
-    dependencies:
-      redis-errors: 1.2.0
-
   reflect-metadata@0.2.2: {}
 
   require-directory@2.1.1: {}
@@ -7341,7 +7332,7 @@ snapshots:
 
   typedarray@0.0.6: {}
 
-  typeorm@0.3.31(ioredis@5.11.1)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)):
+  typeorm@0.3.31(ioredis@6.0.0)(mysql2@3.24.4(@types/node@24.13.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)):
     dependencies:
       '@sqltools/formatter': 1.2.5
       ansis: 4.3.1
@@ -7359,7 +7350,7 @@ snapshots:
       uuid: 11.1.1
       yargs: 17.7.3
     optionalDependencies:
-      ioredis: 5.11.1
+      ioredis: 6.0.0
       mysql2: 3.24.4(@types/node@24.13.3)
       ts-node: 10.9.2(@types/node@24.13.3)(typescript@5.9.3)
     transitivePeerDependencies:
