@@ -51,6 +51,7 @@
     "alpinejs": "^3.17.1",
     "bullmq": "^6.0.0",
     "helmet": "^8.3.0",
+    "ioredis": "^5.11.1",
     "joi": "^18.0.0",
     "mysql2": "^3.24.3",
     "reflect-metadata": "^0.2.2",
