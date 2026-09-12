@@ -1137,6 +1137,11 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
 
 const DASHBOARD_SCRIPT = `(function () {
 let dashboardSecretKey = "";
+let dashboardSession = 0;
+const staleDashboardSession = new Error("Stale dashboard session");
+function assertDashboardSession(session) {
+  if (session !== dashboardSession) throw staleDashboardSession;
+}
 const endpoint = "/api/internal/stats/repos";
 const recentEndpoint = "/api/internal/reviews/recent?limit=10";
 const settingsEndpoint = "/api/internal/settings";
@@ -1503,52 +1508,98 @@ document.addEventListener("alpine:init", function () {
       },
 
       async authorizedFetch(url, options) {
+        const session = dashboardSession;
+        const secretKey = dashboardSecretKey;
         const request = options || {};
         const response = await fetch(url, {
           ...request,
           headers: {
             ...(request.headers || {}),
             Accept: "application/json",
-            Authorization: "Bearer " + dashboardSecretKey,
+            Authorization: "Bearer " + secretKey,
           },
         });
+        assertDashboardSession(session);
         if (response.status === 401) {
           this.logout();
-          throw new Error("Unauthorized");
+          this.loginError = "인증에 실패했습니다.";
+          throw staleDashboardSession;
         }
         return response;
       },
 
       async unlock() {
+        const secretKey = this.keyInput;
+        this.logout();
+        const session = dashboardSession;
         this.loginLoading = true;
-        this.loginError = "";
-        dashboardSecretKey = this.keyInput;
-        this.keyInput = "";
+        dashboardSecretKey = secretKey;
         try {
           const response = await this.authorizedFetch(settingsEndpoint);
           if (!response.ok) throw new Error("HTTP " + response.status);
-          this.applySettingsDocument(await response.json());
+          const document = await response.json();
+          assertDashboardSession(session);
+          this.applySettingsDocument(document);
           this.authenticated = true;
           await this.loadDashboard();
+          assertDashboardSession(session);
           this.startPolling();
         } catch (error) {
-          dashboardSecretKey = "";
-          this.authenticated = false;
+          if (error === staleDashboardSession || session !== dashboardSession) return;
+          this.logout();
           this.loginError = "인증에 실패했습니다.";
         } finally {
-          this.loginLoading = false;
+          if (session === dashboardSession) this.loginLoading = false;
         }
       },
 
       logout() {
+        dashboardSession += 1;
         dashboardSecretKey = "";
         this.keyInput = "";
+        this.loginError = "";
+        this.loginLoading = false;
         this.authenticated = false;
         this.repos = [];
         this.recentReviews = [];
+        this.recentLoading = false;
         this.settingsDocument = null;
+        this.settingsRevision = 0;
+        this.settingsSaving = false;
+        this.settingsStatus = "";
+        this.settingsError = false;
+        this.settingsForm = {
+          model: "",
+          reasoningEffort: "",
+          timeoutMs: 600000,
+          customPrompt: "",
+          openaiBaseUrl: "",
+          triggerMode: "mention",
+          retryAttempts: 3,
+          retryDelay: 5000,
+          workerConcurrency: 3,
+          cloneTimeoutMs: 600000,
+        };
+        this.settingsSecrets = {
+          openaiApiKey: "",
+          bitbucketApiToken: "",
+          webhookSecret: "",
+          username: "",
+          appPassword: "",
+        };
+        this.settingsClears = {
+          openaiApiKey: false,
+          bitbucketApiToken: false,
+          webhookSecret: false,
+          basicCredential: false,
+        };
         this.expandedReviewId = null;
         this.expandedReviewOutput = null;
+        this.expandedReviewError = null;
+        this.expandedLoading = false;
+        this.statusMessage = "";
+        this.statusError = false;
+        this.lastUpdated = null;
         this.repositoryForm = {
           workspaceSlug: "",
           repositorySlug: "",
@@ -1590,9 +1641,11 @@ document.addEventListener("alpine:init", function () {
       },
 
       async loadSettings(preserveGlobalDraft) {
+        const session = dashboardSession;
         const response = await this.authorizedFetch(settingsEndpoint);
         if (!response.ok) throw new Error("HTTP " + response.status);
         const document = await response.json();
+        assertDashboardSession(session);
         if (preserveGlobalDraft) this.settingsDocument = document;
         else this.applySettingsDocument(document);
       },
@@ -1612,6 +1665,7 @@ document.addEventListener("alpine:init", function () {
       },
 
       async saveGlobalSettings() {
+        const session = dashboardSession;
         this.settingsSaving = true;
         this.settingsError = false;
         try {
@@ -1638,19 +1692,23 @@ document.addEventListener("alpine:init", function () {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(patch),
           });
+          assertDashboardSession(session);
           if (!response.ok) {
-            if (response.status === 409) await this.loadSettings();
+            if (response.status === 409) {
+              await this.loadSettings();
+              assertDashboardSession(session);
+            }
             throw new Error("HTTP " + response.status);
           }
           await this.loadSettings();
+          assertDashboardSession(session);
           this.settingsStatus = "Global 설정을 저장했습니다.";
         } catch (error) {
+          if (error === staleDashboardSession || session !== dashboardSession) return;
           this.settingsError = true;
-          this.settingsStatus = error.message === "Unauthorized"
-            ? "인증이 만료되었습니다."
-            : "Global 설정 저장에 실패했습니다: " + error.message;
+          this.settingsStatus = "Global 설정 저장에 실패했습니다: " + error.message;
         } finally {
-          this.settingsSaving = false;
+          if (session === dashboardSession) this.settingsSaving = false;
         }
       },
 
@@ -1695,6 +1753,7 @@ document.addEventListener("alpine:init", function () {
           this.settingsStatus = "Repository identity 변경 후 불러오기를 먼저 실행하세요.";
           return;
         }
+        const session = dashboardSession;
         this.settingsSaving = true;
         this.settingsError = false;
         try {
@@ -1727,36 +1786,41 @@ document.addEventListener("alpine:init", function () {
               secrets,
             }),
           });
+          assertDashboardSession(session);
           if (!response.ok) {
             if (response.status === 409) {
               await this.loadSettings(true);
+              assertDashboardSession(session);
               this.loadRepositorySettings();
             }
             throw new Error("HTTP " + response.status);
           }
           await this.loadSettings(true);
+          assertDashboardSession(session);
           this.loadRepositorySettings();
           this.settingsStatus = "Repository 설정을 저장했습니다.";
         } catch (error) {
+          if (error === staleDashboardSession || session !== dashboardSession) return;
           this.settingsError = true;
-          this.settingsStatus = error.message === "Unauthorized"
-            ? "인증이 만료되었습니다."
-            : "Repository 설정 저장에 실패했습니다: " + error.message;
+          this.settingsStatus = "Repository 설정 저장에 실패했습니다: " + error.message;
         } finally {
-          this.settingsSaving = false;
+          if (session === dashboardSession) this.settingsSaving = false;
         }
       },
 
       async loadStats() {
+        const session = dashboardSession;
         const response = await this.authorizedFetch(endpoint);
         if (!response.ok) {
           throw new Error("HTTP " + response.status);
         }
         const repos = await response.json();
+        assertDashboardSession(session);
         this.repos = Array.isArray(repos) ? repos : [];
       },
 
       async loadRecent() {
+        const session = dashboardSession;
         this.recentLoading = true;
         try {
           const response = await this.authorizedFetch(recentEndpoint);
@@ -1764,11 +1828,13 @@ document.addEventListener("alpine:init", function () {
             throw new Error("HTTP " + response.status);
           }
           const reviews = await response.json();
+          assertDashboardSession(session);
           this.recentReviews = Array.isArray(reviews) ? reviews : [];
         } catch (error) {
+          if (error === staleDashboardSession || session !== dashboardSession) return;
           this.recentReviews = [];
         } finally {
-          this.recentLoading = false;
+          if (session === dashboardSession) this.recentLoading = false;
         }
       },
 
@@ -1781,6 +1847,7 @@ document.addEventListener("alpine:init", function () {
           return;
         }
 
+        const session = dashboardSession;
         this.expandedReviewId = id;
         this.expandedReviewOutput = null;
         this.expandedReviewError = null;
@@ -1792,6 +1859,7 @@ document.addEventListener("alpine:init", function () {
             throw new Error("HTTP " + response.status);
           }
           const detail = await response.json();
+          assertDashboardSession(session);
           if (this.expandedReviewId !== id) {
             return;
           }
@@ -1800,23 +1868,26 @@ document.addEventListener("alpine:init", function () {
             : "";
           this.expandedReviewOutput = output;
         } catch (error) {
+          if (error === staleDashboardSession || session !== dashboardSession) return;
           if (this.expandedReviewId === id) {
             this.expandedReviewError = "본문을 불러오지 못했습니다.";
           }
         } finally {
-          if (this.expandedReviewId === id) {
+          if (session === dashboardSession && this.expandedReviewId === id) {
             this.expandedLoading = false;
           }
         }
       },
 
       async loadDashboard() {
+        const session = dashboardSession;
         try {
           this.setStatus("저장소 통계를 불러오는 중…", false);
           const results = await Promise.allSettled([
             this.loadStats(),
             this.loadRecent(),
           ]);
+          assertDashboardSession(session);
           const statsFailed = results[0].status === "rejected";
           this.lastUpdated = new Date();
           if (statsFailed) {
@@ -1829,6 +1900,7 @@ document.addEventListener("alpine:init", function () {
             false,
           );
         } catch (error) {
+          if (error === staleDashboardSession || session !== dashboardSession) return;
           const staleHint = this.lastUpdated
             ? " (마지막 갱신: " + formatDate(this.lastUpdated) + ")"
             : "";

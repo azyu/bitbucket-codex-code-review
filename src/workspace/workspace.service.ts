@@ -46,9 +46,19 @@ export class WorkspaceService {
     );
   }
 
-  /** Sanitize repository slug to prevent path traversal */
-  private sanitizeSlug(slug: string): string {
-    return slug.replace(/[^a-zA-Z0-9_-]/g, "");
+  /** Validate and preserve repository identities without case-folding collisions. */
+  private identityPathComponent(component: string): string {
+    if (
+      component === "." ||
+      component === ".." ||
+      !/^[a-zA-Z0-9._-]+$/.test(component)
+    ) {
+      throw new Error("Invalid repository identity");
+    }
+
+    return component.replace(/[A-Z]/g, (value) =>
+      `~${value.charCodeAt(0).toString(16)}`,
+    );
   }
 
   /** Validate that resolved path stays within workspace root */
@@ -66,13 +76,8 @@ export class WorkspaceService {
   async prepareWorktree(
     params: IPrepareWorktreeParams,
   ): Promise<IWorktreeInfo> {
-    const safeWorkspace = this.sanitizeSlug(params.workspaceSlug);
-    const safeSlug = this.sanitizeSlug(params.repositorySlug);
-    if (!safeWorkspace || !safeSlug) {
-      throw new Error(
-        `Invalid repository identity: ${params.workspaceSlug}/${params.repositorySlug}`,
-      );
-    }
+    const safeWorkspace = this.identityPathComponent(params.workspaceSlug);
+    const safeSlug = this.identityPathComponent(params.repositorySlug);
     const bareRepoPath = join(
       this.basePath,
       "repos",
@@ -279,6 +284,24 @@ export class WorkspaceService {
     cloneTimeoutMs: number,
   ): Promise<void> {
     if (existsSync(bareRepoPath)) {
+      let origin: string;
+      try {
+        ({ stdout: origin } = await execFileAsync(
+          "git",
+          ["config", "--local", "--get", "remote.origin.url"],
+          {
+            cwd: bareRepoPath,
+            timeout: 30_000,
+          },
+        ));
+      } catch {
+        throw new Error("Cached repository origin could not be verified");
+      }
+      if (origin.trim() !== cloneUrl) {
+        throw new Error(
+          "Cached repository origin does not match requested repository",
+        );
+      }
       return;
     }
     await mkdir(dirname(bareRepoPath), { recursive: true });

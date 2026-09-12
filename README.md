@@ -73,6 +73,8 @@ docker compose up -d
 
 Compose는 `database:prepare`에서 `review_runs`가 없는 clean volume만 현재 schema로 초기화한 뒤 migration을 적용하고 worker를 시작합니다. 기존 volume은 schema 동기화를 건너뛰고 migration만 실행하며, 실패 시 애플리케이션을 시작하지 않습니다. 애플리케이션의 `DB_SYNCHRONIZE`는 비활성화되어 부팅 뒤 schema 변경은 없습니다.
 
+개발용 Redis의 호스트 포트는 `127.0.0.1:6381`에만 게시됩니다. Compose 내부 worker는 기존처럼 `redis:6379`로 연결합니다. 이 설정은 외부 인프라 저장소의 운영 배포에는 적용되지 않습니다.
+
 > [!IMPORTANT]
 > Codex의 대형 PR branch-diff 모드는 worktree에서 `git`을 실행하는 sandbox를 사용합니다. 이 sandbox의 bubblewrap이 비특권 user namespace를 만들 수 있도록 `code-review-worker`는 `seccomp:unconfined`로 실행해야 합니다. `CAP_SYS_ADMIN`이나 `privileged`는 필요하지 않습니다. 배포 후 파드/컨테이너에서 `unshare --user --map-root-user true`가 성공하는지 확인하세요.
 
@@ -162,6 +164,8 @@ DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path
 | `WORKSPACE_MAX_CONCURRENT` | 최초 이관할 worker concurrency (1–32) | `3` |
 | `GIT_CLONE_TIMEOUT_MS` | 최초 이관할 bare clone 타임아웃 (ms) | `600000` |
 
+Workspace/repository 식별자는 점을 보존하고 대소문자 구분이 없는 파일시스템에서도 충돌하지 않도록 경로로 인코딩합니다. 기존 bare cache의 `origin`이 요청 저장소와 다르면 fetch 전에 실패하며 캐시를 자동 삭제하지 않습니다. 이전 버전이 `foo.bar`를 `foobar.git`에 저장한 경우, 관련 job을 drain한 뒤 해당 캐시의 `origin`을 확인하고 운영자가 이동·정리해야 합니다.
+
 > [!TIP]
 > 전체 설정은 [`.env.example`](.env.example) 참조.
 
@@ -184,10 +188,11 @@ DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path
 > Webhook secret이 설정되지 않으면 **모든 요청이 거부**됩니다 (fail-closed).
 
 - **HMAC 검증** — Raw body 기반 SHA-256 서명 검증
+- **Webhook 요청 제한** — 서명 형식·raw body·저장소 식별자를 먼저 검사하며, secret 조회 시도는 프로세스 전체에서 60초 고정 구간당 120회로 제한합니다. 형식이 맞는 오서명도 횟수를 소비하고, 초과 시 DB 조회 없이 `429`와 남은 초 단위 `Retry-After`를 반환합니다. 정상 요청도 같은 한도를 공유하므로 대규모 트래픽·다중 인스턴스에서는 별도 ingress/distributed 제한이 필요합니다.
 - **Runtime secret 저장** — MySQL에는 scope별 AES-256-GCM ciphertext만 저장하며 API는 `configured`/`source`만 반환
 - **Dashboard 인증** — 모든 `/api/internal/*` 요청에 `Authorization: Bearer <DASHBOARD_SECRET_KEY>` 필요
 - **Git 인증** — `GIT_ASKPASS` 방식 (URL에 토큰 미포함)
-- **Path traversal 방지** — Repository slug sanitize + workspace root 검증
+- **Path traversal / 저장소 격리** — Workspace·repository 식별자 검증, 충돌 없는 경로 인코딩, workspace root 및 cached origin 검증
 - **Payload 검증** — Webhook payload 필수 필드 타입 검증
 
 ## Scripts
@@ -223,6 +228,8 @@ repo 통계 응답에는 리뷰 건수, Codex/전체 소요 시간, input/cached
 ## Local Dashboard
 
 내장 대시보드는 `GET /dashboard`에서 확인합니다. 잠금 화면에 `DASHBOARD_SECRET_KEY`를 입력하면 모든 `/api/internal/*` 조회/수정 요청에 Bearer header로 사용합니다. Key는 브라우저 메모리에만 남으므로 새로고침·로그아웃·401 뒤에는 다시 입력해야 합니다. Runtime secret은 값 대신 configured/inherited 상태만 표시됩니다.
+
+잠금·401 시 입력 중인 전역/저장소 비밀값과 custom prompt도 비웁니다. 이전 세션에서 시작한 비동기 응답은 재로그인한 세션의 상태를 변경하지 않습니다. 운영 `/api/internal/*` 네트워크 노출 정책은 외부 인프라에서 확인해야 하며, 현재 확인에 필요한 정보는 [#83](https://github.com/azyu/bitbucket-codex-code-review/issues/83)에 기록되어 있습니다.
 
 ## Codex CLI 인증
 

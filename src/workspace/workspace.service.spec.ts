@@ -1,10 +1,13 @@
-import { mkdir, mkdtemp, rm, stat } from "fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "fs/promises";
 import { existsSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
 import { ConfigService } from "@nestjs/config";
-import { execFile } from "child_process";
+import {
+  execFile,
+  type ExecFileOptionsWithStringEncoding,
+} from "child_process";
 import { WorkspaceService } from "./workspace.service";
 
 jest.mock("@lib/logger", () => ({
@@ -57,6 +60,23 @@ describe("WorkspaceService", () => {
     );
   };
 
+  const useRealExecFile = () => {
+    const realExecFile = jest.requireActual("child_process")
+      .execFile as typeof execFile;
+    execFileMock.mockImplementation(
+      (
+        command: string,
+        args: string[],
+        options: ExecFileOptionsWithStringEncoding,
+        callback: ExecFileCallback,
+      ) =>
+        realExecFile(command, args, options, (error, stdout, stderr) =>
+          callback(error, { stdout, stderr }),
+        ),
+    );
+    return promisify(realExecFile);
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     basePath = await mkdtemp(join(tmpdir(), "workspace-service-spec-"));
@@ -76,27 +96,23 @@ describe("WorkspaceService", () => {
     await rm(basePath, { recursive: true, force: true });
   });
 
-  it("prepares a sanitized worktree with repo token auth and removes askpass script", async () => {
-    configValues["bitbucket.repoTokens"] = {
-      "repo/a..": "repo-token",
-    };
-
+  it("prepares a worktree with repo token auth and removes askpass script", async () => {
     const result = await service.prepareWorktree({
       ...RUNTIME_PARAMS,
       cloneUrl: "https://bitbucket.org/workspace/repo-a.git",
-      repositorySlug: "repo/a..",
+      repositorySlug: "repo-a",
       headBranch: "feature",
       baseBranch: "main",
       headCommitHash: "abcdef1234567890",
     });
 
     expect(result).toEqual({
-      bareRepoPath: join(basePath, "repos", "workspace", "repoa.git"),
+      bareRepoPath: join(basePath, "repos", "workspace", "repo-a.git"),
       worktreePath: join(
         basePath,
         "worktrees",
         "workspace",
-        "repoa",
+        "repo-a",
         "99",
       ),
     });
@@ -107,7 +123,7 @@ describe("WorkspaceService", () => {
         "clone",
         "--bare",
         "https://bitbucket.org/workspace/repo-a.git",
-        join(basePath, "repos", "workspace", "repoa.git"),
+        join(basePath, "repos", "workspace", "repo-a.git"),
       ],
       expect.objectContaining({
         timeout: 900_000,
@@ -122,7 +138,7 @@ describe("WorkspaceService", () => {
       "git",
       ["fetch", "origin", "+refs/heads/*:refs/heads/*", "--prune"],
       expect.objectContaining({
-        cwd: join(basePath, "repos", "workspace", "repoa.git"),
+        cwd: join(basePath, "repos", "workspace", "repo-a.git"),
       }),
       expect.any(Function),
     );
@@ -131,7 +147,7 @@ describe("WorkspaceService", () => {
       "git",
       ["worktree", "prune"],
       expect.objectContaining({
-        cwd: join(basePath, "repos", "workspace", "repoa.git"),
+        cwd: join(basePath, "repos", "workspace", "repo-a.git"),
       }),
       expect.any(Function),
     );
@@ -142,11 +158,11 @@ describe("WorkspaceService", () => {
         "worktree",
         "add",
         "--detach",
-        join(basePath, "worktrees", "workspace", "repoa", "99"),
+        join(basePath, "worktrees", "workspace", "repo-a", "99"),
         "abcdef1234567890",
       ],
       expect.objectContaining({
-        cwd: join(basePath, "repos", "workspace", "repoa.git"),
+        cwd: join(basePath, "repos", "workspace", "repo-a.git"),
       }),
       expect.any(Function),
     );
@@ -158,10 +174,10 @@ describe("WorkspaceService", () => {
     await expect(stat(askpassPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("keeps delimiter-colliding identities on different paths", async () => {
+  it("keeps case-distinct identities on different paths", async () => {
     const base = {
       ...RUNTIME_PARAMS,
-      cloneUrl: "https://bitbucket.org/workspace/repo-a.git",
+      cloneUrl: "https://bitbucket.org/workspace/repo.git",
       headBranch: "feature",
       baseBranch: "main",
       headCommitHash: "abcdef1234567890",
@@ -169,29 +185,27 @@ describe("WorkspaceService", () => {
 
     const first = await service.prepareWorktree({
       ...base,
-      workspaceSlug: "a-b",
-      repositorySlug: "c",
+      repositorySlug: "Repo",
     });
     const second = await service.prepareWorktree({
       ...base,
-      workspaceSlug: "a",
-      repositorySlug: "b-c",
+      repositorySlug: "repo",
     });
 
-    expect(first.bareRepoPath).not.toBe(second.bareRepoPath);
-    expect(first.worktreePath).not.toBe(second.worktreePath);
+    expect(first.bareRepoPath.toLowerCase()).not.toBe(
+      second.bareRepoPath.toLowerCase(),
+    );
+    expect(first.worktreePath.toLowerCase()).not.toBe(
+      second.worktreePath.toLowerCase(),
+    );
   });
+
   it("recovers when the worktree directory is gone but its git registration survived", async () => {
     // 리뷰 도중 컨테이너가 재시작되면(배포·설정 반영) 정리 경로를 못 탄다. 다음 시도는
     // 남은 디렉터리만 지우고 add하므로 "missing but already registered"로 죽고, 재시도도
     // 같은 이유로 죽어 그 커밋은 사람이 손으로 prune하기 전까지 영구히 리뷰 불가가 된다.
     // 실제 git으로 돌려야 잡히는 회귀라 이 케이스만 mock을 걷어낸다.
-    const realExecFile = jest.requireActual<typeof import("child_process")>(
-      "child_process",
-    ).execFile;
-    execFileMock.mockImplementation(realExecFile);
-    const git = promisify(realExecFile);
-
+    const git = useRealExecFile();
 
     const sourcePath = join(basePath, "source");
     await mkdir(sourcePath, { recursive: true });
@@ -231,6 +245,61 @@ describe("WorkspaceService", () => {
       bareRepoPath: join(basePath, "repos", "workspace", "repo-a.git"),
     });
     expect(existsSync(worktreePath)).toBe(true);
+  }, 30_000);
+
+  it("prepares dotted and undotted identities at their own commits", async () => {
+    const git = useRealExecFile();
+    const fixtures: Array<{
+      slug: string;
+      sourcePath: string;
+      commit: string;
+    }> = [];
+
+    for (const slug of ["foo.bar", "foobar"]) {
+      const sourcePath = join(basePath, `source-${slug}`);
+      await mkdir(sourcePath, { recursive: true });
+      await git("git", ["init", "-q", "--initial-branch=main", sourcePath]);
+      await git(
+        "git",
+        [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.com",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          slug,
+        ],
+        { cwd: sourcePath },
+      );
+      const { stdout } = await git("git", ["rev-parse", "HEAD"], {
+        cwd: sourcePath,
+      });
+      fixtures.push({ slug, sourcePath, commit: stdout.trim() });
+    }
+
+    expect(fixtures[0]!.commit).not.toBe(fixtures[1]!.commit);
+    for (const [index, fixture] of fixtures.entries()) {
+      const prepared = await service.prepareWorktree({
+        ...RUNTIME_PARAMS,
+        cloneUrl: fixture.sourcePath,
+        repositorySlug: fixture.slug,
+        reviewRunId: index + 1,
+        headBranch: "main",
+        baseBranch: "main",
+        headCommitHash: fixture.commit,
+      });
+      const { stdout } = await git("git", ["rev-parse", "HEAD"], {
+        cwd: prepared.worktreePath,
+      });
+
+      expect(stdout.trim()).toBe(fixture.commit);
+      expect(prepared.bareRepoPath).toBe(
+        join(basePath, "repos", "workspace", `${fixture.slug}.git`),
+      );
+    }
   }, 30_000);
 
   describe("per-slug serialization", () => {
@@ -378,19 +447,77 @@ describe("WorkspaceService", () => {
     });
   });
 
-  it("rejects repository slugs that sanitize to an empty value", async () => {
+  it("rejects dot, traversal, separator, and control identities", async () => {
+    const hostileIdentities = [
+      ["workspace", "."],
+      ["workspace", ".."],
+      ["..", "repo-a"],
+      ["workspace", "../repo-a"],
+      ["workspace", "repo/a"],
+      ["workspace", "repo\u0000a"],
+    ] as const;
+
+    for (const [workspaceSlug, repositorySlug] of hostileIdentities) {
+      await expect(
+        service.prepareWorktree({
+          ...RUNTIME_PARAMS,
+          cloneUrl: "https://bitbucket.org/workspace/repo-a.git",
+          workspaceSlug,
+          repositorySlug,
+          headBranch: "feature",
+          baseBranch: "main",
+          headCommitHash: "abcdef1234567890",
+        }),
+      ).rejects.toThrow("Invalid repository identity");
+    }
+
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mismatched cached origin without fetching or deleting it", async () => {
+    const bareRepoPath = join(basePath, "repos", "workspace", "repo-a.git");
+    const markerPath = join(bareRepoPath, "owned-by-another-repository");
+    await mkdir(bareRepoPath, { recursive: true });
+    await writeFile(markerPath, "keep");
+    execFileMock.mockImplementation(
+      (
+        _command: string,
+        args: string[],
+        _options: Record<string, unknown>,
+        callback: ExecFileCallback,
+      ) => {
+        if (args[0] === "config") {
+          callback(null, {
+            stdout: "https://bitbucket.org/other/repository.git\n",
+            stderr: "",
+          });
+          return;
+        }
+        callback(null, { stdout: "", stderr: "" });
+      },
+    );
+
     await expect(
       service.prepareWorktree({
         ...RUNTIME_PARAMS,
         cloneUrl: "https://bitbucket.org/workspace/repo-a.git",
-        repositorySlug: "../",
+        repositorySlug: "repo-a",
         headBranch: "feature",
         baseBranch: "main",
         headCommitHash: "abcdef1234567890",
       }),
-    ).rejects.toThrow("Invalid repository identity: workspace/../");
+    ).rejects.toThrow(
+      "Cached repository origin does not match requested repository",
+    );
 
-    expect(execFileMock).not.toHaveBeenCalled();
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock).toHaveBeenCalledWith(
+      "git",
+      ["config", "--local", "--get", "remote.origin.url"],
+      { cwd: bareRepoPath, timeout: 30_000 },
+      expect.any(Function),
+    );
+    expect(readFileSync(markerPath, "utf8")).toBe("keep");
   });
 
   it("retries authentication with the next credential only", async () => {
