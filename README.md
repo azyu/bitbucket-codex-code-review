@@ -47,6 +47,8 @@ flowchart LR
 # 1. 환경 변수 설정
 cp .env.example .env
 # .env 파일 편집: DASHBOARD_SECRET_KEY, SETTINGS_ENCRYPTION_KEY와 최초 이관 값을 설정
+#   DASHBOARD_SECRET_KEY="$(openssl rand -base64 32)"   # 최소 32 bytes
+#   SETTINGS_ENCRYPTION_KEY="$(openssl rand -hex 16)"   # 정확히 32 bytes
 
 # 2. 의존성 설치
 pnpm install
@@ -54,8 +56,26 @@ pnpm install
 # 3. 인프라 (MySQL + Redis) 기동
 docker compose up -d mysql redis
 
-# 4. 개발 서버 시작
+# 4. 스키마 초기화 (최초 1회) — dist를 실행하므로 build가 선행되어야 합니다
+pnpm build
+pnpm database:prepare
+
+# 5. 개발 서버 시작
 pnpm start:dev
+```
+
+`database:prepare`와 `migration:*`는 Nest `ConfigModule`을 거치지 않는 standalone TypeORM DataSource이므로
+`process.env`만 읽습니다. 그래서 package.json에서 Node의 `--env-file-if-exists=.env`로 `.env`를 직접 읽습니다.
+쉘/컨테이너에 이미 설정된 환경변수가 `.env` 값보다 우선하므로 Compose 배포 동작은 달라지지 않습니다.
+
+`.env.example`의 `REDIS_QUEUE_PORT`는 Compose가 호스트에 게시하는 `6381`입니다. 워커를 호스트에서 직접
+띄울 때 이 값을 쓰고, Compose 내부 워커는 `redis:6379`를 그대로 사용합니다.
+
+대시보드는 `http://localhost:3000/dashboard`에서 열고, 잠금 화면에 `DASHBOARD_SECRET_KEY`를 입력합니다.
+리뷰 이력 없이 화면만 확인하려면 데모 데이터를 넣습니다.
+
+```bash
+mysql -h127.0.0.1 -P3309 -uroot -p"$DB_PASSWORD" lxp_code_review < scripts/seed-review-stats.sql
 ```
 
 ### Docker Compose

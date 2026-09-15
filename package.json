@@ -17,10 +17,10 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "database:prepare": "node dist/database/prepare.js",
-    "migration:generate": "typeorm migration:generate",
-    "migration:run": "typeorm migration:run -d dist/database/data-source.js",
-    "migration:revert": "typeorm migration:revert -d dist/database/data-source.js"
+    "database:prepare": "node --env-file-if-exists=.env dist/database/prepare.js",
+    "migration:generate": "node --env-file-if-exists=.env node_modules/typeorm/cli.js migration:generate",
+    "migration:run": "node --env-file-if-exists=.env node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js",
+    "migration:revert": "node --env-file-if-exists=.env node_modules/typeorm/cli.js migration:revert -d dist/database/data-source.js"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.5",
