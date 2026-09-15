@@ -23,10 +23,15 @@ export const DEFAULTS = {
   TRIGGER_MODE: "mention",
   LOG_LEVEL: "info",
 } as const;
-export const MAX_QUEUE_RETRY_ATTEMPTS = 10;
-export const MAX_WORKER_CONCURRENCY = 32;
-export const MAX_TIMER_MS = 2_147_483_647;
-export const MAX_OPENAI_BASE_URL_BYTES = 2_048;
+// Defined in ./limits.ts so the dashboard bundle can import them without
+// pulling this module's @lib/index dependency into the browser. Re-exported
+// here because every existing importer reads them from this path.
+export {
+  MAX_OPENAI_BASE_URL_BYTES,
+  MAX_QUEUE_RETRY_ATTEMPTS,
+  MAX_TIMER_MS,
+  MAX_WORKER_CONCURRENCY,
+} from "./limits";
 
 
 /** Parse a JSON env var into a Record<string, string>, logging warnings on failure */

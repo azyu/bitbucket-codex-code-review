@@ -1,7 +1,13 @@
+import { join } from "node:path";
 import { NestFactory } from "@nestjs/core";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
+import {
+  DASHBOARD_BASE_PATH,
+  DASHBOARD_CSP_DIRECTIVES,
+  isDashboardPath,
+} from "./dashboard-csp";
 import { ServiceLogger } from "@lib/logger";
 import { configureBodyParser } from "@lib/body-parser";
 import { initOpenTelemetry } from "@lib/opentelemetry";
@@ -20,32 +26,14 @@ async function bootstrap(): Promise<string> {
 
   // Configure HTTP server
   const globalPrefix = "api";
-  app.setGlobalPrefix(globalPrefix, {
-    exclude: ["/health", "/dashboard", "/dashboard.js", "/dashboard-alpine.js"],
-  });
-
-  const dashboardPaths = new Set([
-    "/dashboard",
-    "/dashboard.js",
-    "/dashboard-alpine.js",
-  ]);
+  // The dashboard is served by static middleware, which sits outside Nest's
+  // router and so needs no exclude entry — /health is the only excluded route.
+  app.setGlobalPrefix(globalPrefix, { exclude: ["/health"] });
 
   const defaultHelmet = helmet();
   const dashboardHelmet = helmet({
     contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-        styleSrc: [
-          "'self'",
-          "'unsafe-inline'",
-          "https://cdn.jsdelivr.net",
-          "https://fonts.googleapis.com",
-        ],
-        fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        connectSrc: ["'self'"],
-        imgSrc: ["'self'", "data:"],
-      },
+      directives: { ...DASHBOARD_CSP_DIRECTIVES },
     },
   });
 
@@ -55,11 +43,18 @@ async function bootstrap(): Promise<string> {
     ) => {
       const [req] = args;
       const { pathname } = new URL(req.url ?? "", "http://localhost");
-      return dashboardPaths.has(pathname)
+      return isDashboardPath(pathname)
         ? dashboardHelmet(...args)
         : defaultHelmet(...args);
     },
   );
+
+  // After the helmet selector so the document and its assets carry the
+  // dashboard CSP. `dist/dashboard` is where the dashboard package's Vite
+  // build writes, which is inside the tree the Dockerfile already copies.
+  app.useStaticAssets(join(__dirname, "dashboard"), {
+    prefix: DASHBOARD_BASE_PATH,
+  });
 
   // After helmet so a 413 response still carries the security headers, and
   // before listen() so Nest skips registering its default-limit json parser.

@@ -25,6 +25,12 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # The dashboard's `vite build` strips types without checking them, so
+      # without this step a type error in dashboard/ would pass CI. `pnpm lint`
+      # runs eslint over src/ and svelte-check over the dashboard package.
+      - name: Lint and typecheck
+        run: pnpm lint
+
       - name: Test
         run: pnpm test
 

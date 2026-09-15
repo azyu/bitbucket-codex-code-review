@@ -1,28 +1,24 @@
 import { Column, Entity, Index } from "typeorm";
 import { BaseTableEntity, SCHEMA_NAME_CODE_REVIEW } from "@lib/index";
 import { IReviewSettingsSnapshot } from "../settings/runtime-settings.types";
+import {
+  type IReviewRunDetail,
+  ReviewRunStatus,
+  TriggerType,
+} from "../review/review.types";
 
-/** 리뷰 실행 상태 */
-export enum ReviewRunStatus {
-  QUEUED = "queued",
-  PREPARING = "preparing",
-  REVIEWING = "reviewing",
-  PUBLISHING = "publishing",
-  COMPLETED = "completed",
-  FAILED = "failed",
-  SUPERSEDED = "superseded",
-}
-
-/** 트리거 유형 */
-export enum TriggerType {
-  MENTION = "mention",
-  AUTO = "auto",
-}
+// Declared in review/review.types.ts so the dashboard can import them without
+// pulling TypeORM into the browser bundle. Re-exported because every existing
+// importer reads them from this path.
+export { ReviewRunStatus, TriggerType };
 
 @Entity("review_runs", { database: SCHEMA_NAME_CODE_REVIEW })
 @Index(["repositorySlug", "pullRequestId", "createdAt"])
 @Index(["idempotencyKey"], { unique: true })
-export class ReviewRunEntity extends BaseTableEntity {
+export class ReviewRunEntity
+  extends BaseTableEntity
+  implements IReviewRunDetail
+{
   @Column({ type: "varchar", length: 255 })
   repositorySlug: string;
 

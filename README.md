@@ -62,7 +62,18 @@ pnpm database:prepare
 
 # 5. 개발 서버 시작
 pnpm start:dev
+
+# 6. 대시보드를 수정할 때만 — 별도 터미널에서 Vite dev server
+pnpm --filter dashboard dev
 ```
+
+`pnpm build`는 `nest build` 다음에 대시보드의 `vite build`를 실행합니다. 순서가 고정인 이유는
+`nest-cli.json`의 `deleteOutDir`가 `dist/`를 먼저 비우기 때문입니다 — 대시보드 산출물은
+`dist/dashboard/`에 쓰이므로 `nest build`를 나중에 돌리면 지워집니다.
+
+같은 이유로 `pnpm start:dev`(`nest start --watch`)는 재컴파일마다 `dist/dashboard/`를 날립니다.
+그래서 대시보드 작업은 5173의 Vite dev server(`/api`는 `localhost:3000`으로 프록시)에서 하고,
+통합 확인은 `pnpm build && pnpm start`로 합니다.
 
 `database:prepare`와 `migration:*`는 Nest `ConfigModule`을 거치지 않는 standalone TypeORM DataSource이므로
 `process.env`만 읽습니다. 그래서 package.json에서 Node의 `--env-file-if-exists=.env`로 `.env`를 직접 읽습니다.
@@ -238,6 +249,7 @@ pnpm lint           # ESLint
 | `GET` | `/api/internal/settings` | redacted runtime settings 조회 |
 | `PATCH` | `/api/internal/settings/global` | global 설정 CAS 갱신 |
 | `PATCH` | `/api/internal/settings/repositories/:workspaceSlug/:repoSlug` | repository override CAS 갱신 |
+| `GET` | `/api/internal/reviews/recent?limit=` | 최근 리뷰 목록 (limit 1..50, 기본 10) |
 | `GET` | `/api/internal/reviews/:id` | 리뷰 실행 1건 상세 조회 |
 | `GET` | `/api/internal/reviews/:workspaceSlug/:repoSlug/:prId/latest` | 특정 PR의 최신 리뷰 조회 |
 | `GET` | `/api/internal/stats/repos` | workspace/repo별 요약 통계 목록 |
@@ -250,6 +262,24 @@ repo 통계 응답에는 리뷰 건수, Codex/전체 소요 시간, input/cached
 내장 대시보드는 `GET /dashboard`에서 확인합니다. 잠금 화면에 `DASHBOARD_SECRET_KEY`를 입력하면 모든 `/api/internal/*` 조회/수정 요청에 Bearer header로 사용합니다. Key는 브라우저 메모리에만 남으므로 새로고침·로그아웃·401 뒤에는 다시 입력해야 합니다. Runtime secret은 값 대신 configured/inherited 상태만 표시됩니다.
 
 잠금·401 시 입력 중인 전역/저장소 비밀값과 custom prompt도 비웁니다. 이전 세션에서 시작한 비동기 응답은 재로그인한 세션의 상태를 변경하지 않습니다. 운영 `/api/internal/*` 네트워크 노출 정책은 외부 인프라에서 확인해야 하며, 현재 확인에 필요한 정보는 [#83](https://github.com/azyu/bitbucket-codex-code-review/issues/83)에 기록되어 있습니다.
+
+### 구성
+
+`dashboard/`는 Vite + Svelte 5 + TypeScript 패키지입니다 (pnpm workspace 멤버). 산출물은 정적 파일이며
+`dist/dashboard/`에 빌드되어 `main.ts`의 static mount 하나가 `/dashboard` prefix로 서빙합니다.
+런타임 의존성은 없습니다 — 패키지의 모든 의존성이 devDependency이므로 `pnpm install --prod`는 아무것도
+설치하지 않습니다.
+
+`/dashboard` 하위 경로 전체가 완화된 CSP를 받습니다. Vite가 content hash가 붙은 파일명을 내보내므로
+`src/dashboard-csp.ts`의 `isDashboardPath()` prefix 판정 하나로 문서와 모든 asset을 함께 처리합니다
+(정확 일치 목록을 두 곳에 중복하던 구조를 대체). 현재 정책은 `script-src 'self'` / `style-src 'self'`로,
+helmet 기본값보다 모든 directive에서 더 엄격합니다.
+
+| 검증 항목 | 위치 |
+|---|---|
+| Bearer key 메모리 전용, 401 전체 잠금, stale-session, secret 비노출, CAS | `dashboard/src/lib/store.spec.ts` |
+| 미인증 문서에 보호 콘텐츠 없음 | `dashboard/src/lib/shell.spec.ts` |
+| CSP 완화 금지, `/dashboard` prefix 판정 | `src/dashboard-csp.spec.ts` |
 
 ## Codex CLI 인증
 
