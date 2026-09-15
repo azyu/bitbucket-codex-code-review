@@ -188,17 +188,32 @@ export class DashboardStore {
     }
 
     // Reading the body is a second await: headers can arrive before a lock and
-    // the body after it. Without this re-check a resolved payload reaches the
-    // caller, which assigns it and repopulates a store lock() has cleared, or
-    // pours the previous session's data into the new one. (Invariant 4.)
+    // the body after it. #freshBody re-checks the session on both settlement
+    // paths, so neither a resolved payload nor a malformed body's decode error
+    // reaches a caller that would write it into the replacement session.
+    // (Invariant 4.)
     if (!response.ok) {
-      const message = await readError(response);
-      if (issued !== this.#session) throw new StaleSessionError();
+      const message = await this.#freshBody(issued, () => readError(response));
       throw new ApiError(response.status, message);
     }
-    const payload = (await response.json()) as T;
-    if (issued !== this.#session) throw new StaleSessionError();
-    return payload;
+    return await this.#freshBody(issued, () => response.json() as Promise<T>);
+  }
+
+  /**
+   * Awaits one body read, rejecting with StaleSessionError if the session was
+   * replaced while it was in flight. Both settlement paths are checked: a
+   * truncated or malformed body rejects with a SyntaxError that must not
+   * surface as the current session's error either.
+   */
+  async #freshBody<R>(issued: number, read: () => Promise<R>): Promise<R> {
+    try {
+      const value = await read();
+      if (issued !== this.#session) throw new StaleSessionError();
+      return value;
+    } catch (error) {
+      if (issued !== this.#session) throw new StaleSessionError();
+      throw error;
+    }
   }
 
   /**
@@ -478,7 +493,12 @@ export class DashboardStore {
         // now. (Invariant 6.) The notice is reported after the reload because
         // reloading a repository scope resets its notice, which would leave
         // the fields silently reverted with nothing on screen to explain it.
+        const issued = this.#session;
         await this.loadSettings();
+        // loadSettings() swallows a StaleSessionError, so without this guard a
+        // lock and re-unlock during the reload would land this notice — and
+        // the reverted fields it describes — in the replacement session.
+        if (issued !== this.#session) return;
         report({
           kind: "conflict",
           text: "Not saved — changed elsewhere since load. Reloaded; re-apply your edits.",

@@ -630,3 +630,51 @@ describe("review detail ordering within one session", () => {
     expect(store.detail?.id).toBe(2);
   });
 });
+
+describe("invariant 4 — the residual body-read edges", () => {
+  // Both of these report through #save's callback, which writes a notice with
+  // no session guard of its own — the one place a stale value still survived.
+  it("does not surface a decode failure that resolves after the session was replaced", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "",
+      json: async () => {
+        store.lock();
+        throw new SyntaxError("Unexpected end of JSON input");
+      },
+    } as unknown as Response);
+
+    await store.saveGlobal();
+
+    expect(store.locked).toBe(true);
+    expect(store.globalNotice).toBeNull();
+  });
+
+  it("does not report a conflict into the session that replaced the one that lost the CAS", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockImplementation((_input: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return json({ message: "conflict" }, 409);
+      // The reload that follows the 409: the session is replaced while its
+      // body streams, so loadSettings() swallows a StaleSessionError and the
+      // save would otherwise still write its notice.
+      return {
+        ok: true,
+        status: 200,
+        statusText: "",
+        json: async () => {
+          store.lock();
+          return settings();
+        },
+      } as unknown as Response;
+    });
+
+    await store.saveGlobal();
+
+    expect(store.locked).toBe(true);
+    expect(store.globalNotice).toBeNull();
+  });
+});
