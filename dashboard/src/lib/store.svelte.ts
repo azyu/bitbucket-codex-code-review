@@ -112,6 +112,12 @@ export class DashboardStore {
    */
   #session = 0;
 
+  /**
+   * Generation of the newest review-detail request. Ordering within a single
+   * session, which #session cannot express.
+   */
+  #detailRequest = 0;
+
   locked = $state(true);
   unlocking = $state(false);
   authError = $state<string | null>(null);
@@ -180,10 +186,19 @@ export class DashboardStore {
       this.lock("Key rejected. Enter it again.");
       throw new StaleSessionError();
     }
+
+    // Reading the body is a second await: headers can arrive before a lock and
+    // the body after it. Without this re-check a resolved payload reaches the
+    // caller, which assigns it and repopulates a store lock() has cleared, or
+    // pours the previous session's data into the new one. (Invariant 4.)
     if (!response.ok) {
-      throw new ApiError(response.status, await readError(response));
+      const message = await readError(response);
+      if (issued !== this.#session) throw new StaleSessionError();
+      throw new ApiError(response.status, message);
     }
-    return (await response.json()) as T;
+    const payload = (await response.json()) as T;
+    if (issued !== this.#session) throw new StaleSessionError();
+    return payload;
   }
 
   /**
@@ -277,20 +292,31 @@ export class DashboardStore {
     this.detailError = null;
     this.detailLoading = true;
     const issued = this.#session;
+    // Closing the drawer or picking another row happens inside one session, so
+    // the session counter cannot order these: without its own generation an
+    // in-flight response reopens a closed drawer or replaces a newer pick.
+    const generation = ++this.#detailRequest;
     try {
-      this.detail = await this.#request<ReviewDetail | null>(`/reviews/${id}`);
-      if (this.detail === null) this.detailError = "Review run not found.";
+      const detail = await this.#request<ReviewDetail | null>(`/reviews/${id}`);
+      if (generation !== this.#detailRequest) return;
+      this.detail = detail;
+      if (detail === null) this.detailError = "Review run not found.";
     } catch (error) {
       if (error instanceof StaleSessionError) return;
+      if (generation !== this.#detailRequest) return;
       this.detailError = describe(error);
     } finally {
-      if (issued === this.#session) this.detailLoading = false;
+      if (issued === this.#session && generation === this.#detailRequest) {
+        this.detailLoading = false;
+      }
     }
   }
 
   closeReview(): void {
+    this.#detailRequest += 1;
     this.detail = null;
     this.detailError = null;
+    this.detailLoading = false;
   }
 
   async loadSettings(): Promise<void> {
@@ -449,12 +475,14 @@ export class DashboardStore {
       if (error instanceof ApiError && error.status === 409) {
         // CAS lost. Never retried silently: reload the document and say the
         // write did not apply, so the user re-applies against what is there
-        // now. (Invariant 6.)
+        // now. (Invariant 6.) The notice is reported after the reload because
+        // reloading a repository scope resets its notice, which would leave
+        // the fields silently reverted with nothing on screen to explain it.
+        await this.loadSettings();
         report({
           kind: "conflict",
           text: "Not saved — changed elsewhere since load. Reloaded; re-apply your edits.",
         });
-        await this.loadSettings();
         return;
       }
       report({ kind: "error", text: describe(error) });

@@ -12,6 +12,7 @@
       failed: 0,
       superseded: 0,
       reviewTotalMs: 0,
+      reviewSampleCount: 0,
       totalTokens: 0,
     };
     for (const repo of store.repoStats) {
@@ -20,6 +21,7 @@
       seed.failed += repo.counts.failed;
       seed.superseded += repo.counts.superseded;
       seed.reviewTotalMs += repo.durations.reviewTotalMs;
+      seed.reviewSampleCount += repo.durations.reviewSampleCount;
       seed.totalTokens += repo.tokens.totalTokens;
     }
     return seed;
@@ -50,13 +52,20 @@
     <span class="dim">Review time</span>
     <strong>{duration(totals.reviewTotalMs)}</strong>
     <span class="dim">
-      {duration(totals.total > 0 ? totals.reviewTotalMs / totals.total : 0)} avg
+      <!-- Divided by the runs that actually reported a duration, which is
+           what the backend's AVG(totalDurationMs) counts. Using counts.total
+           would understate the average while runs are queued or running. -->
+      {duration(
+        totals.reviewSampleCount > 0
+          ? totals.reviewTotalMs / totals.reviewSampleCount
+          : 0,
+      )} avg
     </span>
   </div>
   <div class="card tile">
     <span class="dim">Tokens</span>
     <strong>{tokens(totals.totalTokens)}</strong>
-    <span class="dim">input + cached + output</span>
+    <span class="dim">input + output</span>
   </div>
 </section>
 
@@ -164,12 +173,11 @@
               </td>
               <td>{duration(review.durationMs)}</td>
               <td>{duration(review.totalDurationMs)}</td>
-              <td>
-                {tokens(
-                  (review.inputTokens ?? 0) +
-                    (review.cachedInputTokens ?? 0) +
-                    (review.outputTokens ?? 0),
-                )}
+              <!-- input + output, the definition review.service.ts uses for
+                   totalTokens. cachedInputTokens is the cached share of
+                   inputTokens, so adding it counts those tokens twice. -->
+              <td title="input + output">
+                {tokens((review.inputTokens ?? 0) + (review.outputTokens ?? 0))}
               </td>
               <td class="dim" title={review.createdAt}>
                 {relativeTime(review.createdAt)}

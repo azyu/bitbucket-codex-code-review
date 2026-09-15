@@ -77,6 +77,12 @@ export interface IRepoStatsOverview {
     readonly codexAvgMs: number;
     readonly reviewTotalMs: number;
     readonly reviewAvgMs: number;
+    /**
+     * Runs that contributed a totalDurationMs — the denominator reviewAvgMs
+     * was computed over. Lower than counts.total whenever a run is still in
+     * flight, so an average across repositories must divide by this.
+     */
+    readonly reviewSampleCount: number;
   };
   readonly tokens: {
     readonly inputTokens: number;

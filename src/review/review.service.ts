@@ -91,6 +91,7 @@ interface IRepoAggregateRow {
   readonly codexAvgMs: string | number | null;
   readonly reviewTotalMs: string | number | null;
   readonly reviewAvgMs: string | number | null;
+  readonly reviewSampleCount: string | number | null;
   readonly inputTokens: string | number | null;
   readonly cachedInputTokens: string | number | null;
   readonly outputTokens: string | number | null;
@@ -389,6 +390,10 @@ export class ReviewService {
         COALESCE(AVG(durationMs), 0) AS codexAvgMs,
         COALESCE(SUM(totalDurationMs), 0) AS reviewTotalMs,
         COALESCE(AVG(totalDurationMs), 0) AS reviewAvgMs,
+        -- COUNT of a column skips NULLs, so this is the denominator AVG used:
+        -- runs still in flight carry no totalDurationMs and must not dilute a
+        -- caller's own average of reviewTotalMs.
+        COUNT(totalDurationMs) AS reviewSampleCount,
         COALESCE(SUM(inputTokens), 0) AS inputTokens,
         COALESCE(SUM(cachedInputTokens), 0) AS cachedInputTokens,
         COALESCE(SUM(outputTokens), 0) AS outputTokens
@@ -485,6 +490,7 @@ export class ReviewService {
         codexAvgMs: toNumber(aggregate?.codexAvgMs),
         reviewTotalMs: toNumber(aggregate?.reviewTotalMs),
         reviewAvgMs: toNumber(aggregate?.reviewAvgMs),
+        reviewSampleCount: toNumber(aggregate?.reviewSampleCount),
       },
       tokens: {
         inputTokens,

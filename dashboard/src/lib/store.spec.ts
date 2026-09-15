@@ -506,3 +506,127 @@ describe("review detail", () => {
     expect(store.detailError).toBe("Review run not found.");
   });
 });
+
+describe("invariant 4 — the body is a second await, not just the headers", () => {
+  // loadSettings() issues exactly one request. refresh() would mask the hole:
+  // its sibling request fails the pre-status check and rejects the Promise.all
+  // first, so the payload never reaches an assignment either way.
+  it("discards a payload whose body finishes after the session was replaced", async () => {
+    const store = await unlocked();
+
+    // Headers arrive, then the operator locks while the body is still
+    // downloading. The pre-status check has already passed at that point.
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "",
+      json: async () => {
+        store.lock();
+        return { global: scope({ values: { model: "leaked" } }), repositories: [] };
+      },
+    } as unknown as Response);
+
+    await store.loadSettings();
+
+    expect(store.locked).toBe(true);
+    expect(store.settings).toBeNull();
+    expect(store.globalDraft.values["model"]).toBe("");
+    expect(JSON.stringify(store)).not.toContain("leaked");
+  });
+
+  // The save path reports through a callback that writes a notice with no
+  // session guard of its own, so this is where an error body read after a lock
+  // actually survives into the cleared store.
+  it("does not surface an error body read after the session was replaced", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      json: async () => {
+        store.lock();
+        return { message: "leaked failure" };
+      },
+    } as unknown as Response);
+
+    await store.saveGlobal();
+
+    expect(store.locked).toBe(true);
+    expect(store.globalNotice).toBeNull();
+  });
+});
+
+describe("invariant 6 — the conflict notice survives its own reload", () => {
+  it("keeps the repository conflict notice after the 409 reload", async () => {
+    const store = await unlocked();
+    store.loadRepository("acme", "api");
+
+    const routes = unlockRoutes();
+    fetchMock.mockImplementation((input: string, init?: RequestInit) =>
+      init?.method === "PATCH"
+        ? json({ message: "Runtime settings revision conflict" }, 409)
+        : routes(input),
+    );
+
+    await store.saveRepository();
+
+    // loadRepository() resets the notice, so reporting before the reload left
+    // the fields silently reverted with nothing on screen to explain it.
+    expect(store.repositoryNotice?.kind).toBe("conflict");
+    expect(store.repositoryNotice?.text).toContain("Not saved");
+  });
+});
+
+describe("review detail ordering within one session", () => {
+  it("ignores a response that arrives after the drawer was closed", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "",
+      json: async () => {
+        store.closeReview();
+        return { id: 42, reviewStatus: "completed" };
+      },
+    } as unknown as Response);
+
+    await store.openReview(42);
+
+    expect(store.detail).toBeNull();
+    expect(store.detailLoading).toBe(false);
+  });
+
+  it("keeps the newest selection when an older request resolves last", async () => {
+    const store = await unlocked();
+    let releaseFirst: () => void = () => undefined;
+    const firstBody = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    fetchMock.mockImplementation(
+      (input: string) =>
+        ({
+          ok: true,
+          status: 200,
+          statusText: "",
+          json: async () => {
+            if (input.endsWith("/reviews/1")) {
+              await firstBody;
+              return { id: 1, reviewStatus: "completed" };
+            }
+            return { id: 2, reviewStatus: "completed" };
+          },
+        }) as unknown as Response,
+    );
+
+    const first = store.openReview(1);
+    const second = store.openReview(2);
+    await second;
+    releaseFirst();
+    await first;
+
+    expect(store.detail?.id).toBe(2);
+  });
+});
