@@ -853,3 +853,46 @@ describe("the load-failure banner tracks the latest load", () => {
     expect(store.loadError).toBeNull();
   });
 });
+
+describe("a settings read cannot undo a save that landed while it was in flight", () => {
+  it("drops a refresh that started before the save committed", async () => {
+    const store = await unlocked();
+    store.view = "settings";
+    expect(store.settings?.global.revision).toBe(4);
+
+    let releaseRead: () => void = () => undefined;
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let reads = 0;
+
+    fetchMock.mockImplementation((_input: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return json(scope({ revision: 9 }));
+      reads += 1;
+      // Only the Refresh read is held open; the status read a global save makes
+      // afterwards resolves normally.
+      if (reads > 1) return json(settings());
+      return {
+        ok: true,
+        status: 200,
+        statusText: "",
+        json: async () => {
+          await readGate;
+          return settings();
+        },
+      } as unknown as Response;
+    });
+
+    const refreshing = store.refreshView();
+    await store.saveGlobal();
+    expect(store.settings?.global.revision).toBe(9);
+
+    releaseRead();
+    await refreshing;
+
+    // The pre-save document must not come back: the notice says the save
+    // succeeded, and revision 4 would lose the next edit to a 409.
+    expect(store.settings?.global.revision).toBe(9);
+    expect(store.globalNotice?.kind).toBe("ok");
+  });
+});

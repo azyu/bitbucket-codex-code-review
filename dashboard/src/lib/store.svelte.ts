@@ -118,6 +118,16 @@ export class DashboardStore {
    */
   #detailRequest = 0;
 
+  /**
+   * Bumped by every settings write that lands. A read issued before the write
+   * carries the pre-write document, so applying it afterwards would put the
+   * old revision back while the save's own notice still says it succeeded —
+   * and the next edit would lose to a 409 it should never have seen. The
+   * Refresh button and the Save buttons are gated on separate flags, so the
+   * two can be in flight at once.
+   */
+  #settingsWrites = 0;
+
   locked = $state(true);
   unlocking = $state(false);
   authError = $state<string | null>(null);
@@ -364,8 +374,13 @@ export class DashboardStore {
    */
   async loadSettings(): Promise<boolean> {
     const issued = this.#session;
+    const writes = this.#settingsWrites;
     try {
       const settings = await this.#request<SettingsDocument>("/settings");
+      // A save committed while this read was in flight, so the read is older
+      // than what is on screen. Reported as "not replaced": the caller that
+      // asks is the conflict path, and telling it to refresh is safe.
+      if (writes !== this.#settingsWrites) return false;
       this.settings = settings;
       this.hydrateGlobalDraft();
       if (this.repositoryLoadedIdentity !== null) {
@@ -517,6 +532,7 @@ export class DashboardStore {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
+      this.#settingsWrites += 1;
       this.#applyScope(scope);
       report({ kind: "ok", text: `Saved at revision ${scope.revision}.` });
       // The PATCH answers with the saved scope only, but a repository's secret
@@ -566,9 +582,11 @@ export class DashboardStore {
    */
   async #syncRepositoryStatuses(): Promise<void> {
     const issued = this.#session;
+    const writes = this.#settingsWrites;
     try {
       const document = await this.#request<SettingsDocument>("/settings");
       if (issued !== this.#session || this.settings === null) return;
+      if (writes !== this.#settingsWrites) return;
       this.settings = { ...this.settings, repositories: document.repositories };
     } catch {
       return;
