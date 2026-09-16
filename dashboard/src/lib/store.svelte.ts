@@ -374,6 +374,10 @@ export class DashboardStore {
           this.repositoryLoadedIdentity.repositorySlug,
         );
       }
+      // The banner is the one place a load failure is visible, so a load that
+      // succeeds has to take it down — otherwise a recovered outage still
+      // reads as "not loaded". refresh() clears it on the same grounds.
+      this.loadError = null;
       return true;
     } catch (error) {
       if (error instanceof StaleSessionError) return false;
@@ -515,6 +519,10 @@ export class DashboardStore {
       });
       this.#applyScope(scope);
       report({ kind: "ok", text: `Saved at revision ${scope.revision}.` });
+      // The PATCH answers with the saved scope only, but a repository's secret
+      // status is computed against the global secrets, so every stored
+      // repository document is stale the moment a global secret changes.
+      if (scope.scope === "global") await this.#syncRepositoryStatuses();
     } catch (error) {
       if (error instanceof StaleSessionError) return;
       if (error instanceof ApiError && error.status === 409) {
@@ -546,6 +554,24 @@ export class DashboardStore {
         return;
       }
       report({ kind: "error", text: describe(error) });
+    }
+  }
+
+  /**
+   * Re-reads the repository documents after a global save, for the inherited
+   * secret status a global change invalidates. The repository draft is left
+   * alone on purpose: only the displayed status is stale, and the operator may
+   * have edits in that form. A failure here leaves the status as stale as it
+   * already was, which is not something the operator could act on.
+   */
+  async #syncRepositoryStatuses(): Promise<void> {
+    const issued = this.#session;
+    try {
+      const document = await this.#request<SettingsDocument>("/settings");
+      if (issued !== this.#session || this.settings === null) return;
+      this.settings = { ...this.settings, repositories: document.repositories };
+    } catch {
+      return;
     }
   }
 

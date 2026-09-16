@@ -59,6 +59,19 @@ function unlockRoutes(): (input: string) => Response {
   };
 }
 
+/**
+ * The write itself, by method rather than by position: a global save is
+ * followed by a read of the repository statuses it invalidated, so the PATCH
+ * is not the last call.
+ */
+function lastPatch(): [string, RequestInit] {
+  const call = fetchMock.mock.calls
+    .filter((entry) => (entry[1] as RequestInit | undefined)?.method === "PATCH")
+    .at(-1);
+  if (call === undefined) throw new Error("no PATCH was sent");
+  return call as [string, RequestInit];
+}
+
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -280,7 +293,7 @@ describe("invariant 5 — secrets are status-only", () => {
     await store.saveGlobal();
 
     const patch = JSON.parse(
-      (fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string,
+      lastPatch()[1].body as string,
     ) as { secrets: Record<string, unknown> };
     expect(patch.secrets).toEqual({ webhookSecret: { operation: "clear" } });
   });
@@ -293,7 +306,7 @@ describe("invariant 6 — CAS on every write, never a silent retry", () => {
     fetchMock.mockResolvedValue(json(scope({ revision: 5 })));
     await store.saveGlobal();
 
-    const [url, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+    const [url, init] = lastPatch();
     expect(url).toBe("/api/internal/settings/global");
     expect(init.method).toBe("PATCH");
     expect(JSON.parse(init.body as string)).toMatchObject({
@@ -336,7 +349,7 @@ describe("invariant 6 — CAS on every write, never a silent retry", () => {
     await store.saveRepository();
 
     const patch = JSON.parse(
-      (fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string,
+      lastPatch()[1].body as string,
     ) as { values: Record<string, unknown> };
     expect(patch.values["timeoutMs"]).toBe(900_000);
     // customPrompt was inherited on load and stays inherited.
@@ -762,5 +775,81 @@ describe("the header Refresh reloads what the view shows", () => {
       .map((call) => String(call[0]));
     expect(paths).not.toContain("/api/internal/settings");
     expect(paths).toContain("/api/internal/stats/repos");
+  });
+});
+
+describe("a global save invalidates the inherited repository status", () => {
+  it("re-reads the repository documents after a global secret changes", async () => {
+    const store = await unlocked();
+    expect(
+      store.settings?.repositories[0]?.secrets["bitbucketApiToken"]
+        ?.configured,
+    ).toBe(true);
+
+    const cleared = settings();
+    cleared.repositories[0]!.secrets["bitbucketApiToken"] = {
+      configured: false,
+      source: "unconfigured",
+    };
+
+    fetchMock.mockImplementation((_input: string, init?: RequestInit) =>
+      init?.method === "PATCH"
+        ? json(scope({ revision: 5 }))
+        : json(cleared),
+    );
+
+    await store.saveGlobal();
+
+    // The PATCH answers with the global scope alone, so without the follow-up
+    // read the repository form keeps claiming a token it no longer inherits.
+    expect(
+      store.settings?.repositories[0]?.secrets["bitbucketApiToken"]
+        ?.configured,
+    ).toBe(false);
+    expect(store.globalNotice?.kind).toBe("ok");
+  });
+
+  it("does not re-read after a repository save", async () => {
+    const store = await unlocked();
+    store.loadRepository("acme", "api");
+    const before = fetchMock.mock.calls.length;
+
+    fetchMock.mockImplementation((_input: string, init?: RequestInit) =>
+      init?.method === "PATCH"
+        ? json(
+            scope({
+              scope: "repository",
+              workspaceSlug: "acme",
+              repositorySlug: "api",
+              revision: 3,
+            }),
+          )
+        : json(settings()),
+    );
+
+    await store.saveRepository();
+
+    const paths = fetchMock.mock.calls
+      .slice(before)
+      .map((call) => String(call[0]));
+    expect(paths.filter((path) => path === "/api/internal/settings")).toEqual(
+      [],
+    );
+  });
+});
+
+describe("the load-failure banner tracks the latest load", () => {
+  it("clears a stale settings error once the reload succeeds", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockResolvedValue(json({ message: "Service unavailable" }, 503));
+    await store.loadSettings();
+    expect(store.loadError).not.toBeNull();
+
+    const routes = unlockRoutes();
+    fetchMock.mockImplementation((input: string) => routes(input));
+    await store.loadSettings();
+
+    expect(store.loadError).toBeNull();
   });
 });

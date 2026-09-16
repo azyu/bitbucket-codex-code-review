@@ -9,8 +9,11 @@ export function duration(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || ms <= 0) return "—";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
+  // Rounded from the total, not from the remainder: rounding the remainder
+  // turns 119_999ms into "1m 60s" instead of "2m 00s".
+  const total = Math.round(ms / 1000);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 

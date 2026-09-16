@@ -110,3 +110,13 @@ describe("shortSha", () => {
     expect(shortSha("")).toBe("—");
   });
 });
+
+describe("duration carries rounded seconds into the minute", () => {
+  it("never prints sixty seconds", () => {
+    // Rounding the remainder rather than the total made this "1m 60s".
+    expect(duration(119_999)).toBe("2m 00s");
+    expect(duration(59_500 + 60_000)).toBe("2m 00s");
+    expect(duration(89_400)).toBe("1m 29s");
+    expect(duration(60_000)).toBe("1m 00s");
+  });
+});
