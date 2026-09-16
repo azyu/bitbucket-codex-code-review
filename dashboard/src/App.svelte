@@ -32,7 +32,7 @@
       </nav>
     </div>
     <div class="tools">
-      <button onclick={() => store.refresh()} disabled={store.loading}>
+      <button onclick={() => store.refreshView()} disabled={store.loading}>
         {store.loading ? "Refreshing…" : "Refresh"}
       </button>
       <button onclick={toggleTheme} aria-label="Toggle colour theme">

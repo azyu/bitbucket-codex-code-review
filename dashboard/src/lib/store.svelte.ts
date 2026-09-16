@@ -166,21 +166,23 @@ export class DashboardStore {
     const key = this.#key;
     if (key === null) throw new StaleSessionError();
 
-    const response = await fetch(`/api/internal${path}`, {
-      ...init,
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        ...(init?.body === undefined
-          ? {}
-          : { "Content-Type": "application/json" }),
-      },
-    });
-
     // Staleness is checked before the status: a 401 answering a request from a
     // session that has already been replaced must not lock the session that
-    // replaced it. (Invariant 4 before invariant 3.)
-    if (issued !== this.#session) throw new StaleSessionError();
+    // replaced it. (Invariant 4 before invariant 3.) #fresh covers the
+    // rejection too, so a network failure belonging to the old session cannot
+    // surface as the new one's error.
+    const response = await this.#fresh(issued, () =>
+      fetch(`/api/internal${path}`, {
+        ...init,
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          ...(init?.body === undefined
+            ? {}
+            : { "Content-Type": "application/json" }),
+        },
+      }),
+    );
 
     if (response.status === 401) {
       this.lock("Key rejected. Enter it again.");
@@ -188,26 +190,25 @@ export class DashboardStore {
     }
 
     // Reading the body is a second await: headers can arrive before a lock and
-    // the body after it. #freshBody re-checks the session on both settlement
-    // paths, so neither a resolved payload nor a malformed body's decode error
-    // reaches a caller that would write it into the replacement session.
-    // (Invariant 4.)
+    // the body after it. Neither a resolved payload nor a malformed body's
+    // decode error may reach a caller that would write it into the replacement
+    // session. (Invariant 4.)
     if (!response.ok) {
-      const message = await this.#freshBody(issued, () => readError(response));
+      const message = await this.#fresh(issued, () => readError(response));
       throw new ApiError(response.status, message);
     }
-    return await this.#freshBody(issued, () => response.json() as Promise<T>);
+    return await this.#fresh(issued, () => response.json() as Promise<T>);
   }
 
   /**
-   * Awaits one body read, rejecting with StaleSessionError if the session was
-   * replaced while it was in flight. Both settlement paths are checked: a
-   * truncated or malformed body rejects with a SyntaxError that must not
-   * surface as the current session's error either.
+   * Awaits one step that can settle after the session has moved on — the fetch
+   * itself, or a body read — and rejects with StaleSessionError when it did.
+   * Both settlement paths are checked: a network failure and a malformed
+   * body's SyntaxError must not surface as the current session's error either.
    */
-  async #freshBody<R>(issued: number, read: () => Promise<R>): Promise<R> {
+  async #fresh<R>(issued: number, step: () => Promise<R>): Promise<R> {
     try {
-      const value = await read();
+      const value = await step();
       if (issued !== this.#session) throw new StaleSessionError();
       return value;
     } catch (error) {
@@ -272,6 +273,28 @@ export class DashboardStore {
       if (!(error instanceof StaleSessionError)) this.lock(describe(error));
     } finally {
       if (issued === this.#session) this.unlocking = false;
+    }
+  }
+
+  /**
+   * What the header Refresh button reloads: the documents the current view
+   * shows. On the settings view that is the settings document itself, which is
+   * what makes the button a real recovery path after a CAS reload failed — the
+   * stale expectedRevision would otherwise survive every refresh and lose the
+   * next save to the same conflict. It re-hydrates the drafts, so an explicit
+   * Refresh discards unsaved edits exactly as the conflict reload does.
+   */
+  async refreshView(): Promise<void> {
+    if (this.view !== "settings") {
+      await this.refresh();
+      return;
+    }
+    this.loading = true;
+    const issued = this.#session;
+    try {
+      await this.loadSettings();
+    } finally {
+      if (issued === this.#session) this.loading = false;
     }
   }
 

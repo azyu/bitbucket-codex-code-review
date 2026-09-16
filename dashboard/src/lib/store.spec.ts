@@ -701,3 +701,66 @@ describe("invariant 6 — the conflict notice only claims what happened", () => 
     expect(store.globalNotice?.text).not.toContain("Reloaded;");
   });
 });
+
+describe("invariant 4 — a failed fetch belongs to the session that issued it", () => {
+  it("does not surface a network failure from a session that was replaced", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockImplementation(async () => {
+      store.lock();
+      throw new TypeError("Failed to fetch");
+    });
+
+    await store.saveGlobal();
+
+    expect(store.locked).toBe(true);
+    expect(store.globalNotice).toBeNull();
+  });
+
+  it("does not reopen a closed detail panel with the old session's error", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockImplementation(async () => {
+      store.lock();
+      throw new TypeError("Failed to fetch");
+    });
+
+    await store.openReview(42);
+
+    expect(store.detail).toBeNull();
+    expect(store.detailError).toBeNull();
+  });
+});
+
+describe("the header Refresh reloads what the view shows", () => {
+  it("reloads the settings document on the settings view", async () => {
+    const store = await unlocked();
+    store.view = "settings";
+    const before = fetchMock.mock.calls.length;
+
+    await store.refreshView();
+
+    const paths = fetchMock.mock.calls
+      .slice(before)
+      .map((call) => String(call[0]));
+    // Without this the stale expectedRevision survives every refresh, so the
+    // "Refresh before trying again" a failed conflict reload prints would send
+    // the operator into the same 409.
+    expect(paths).toContain("/api/internal/settings");
+    expect(store.loading).toBe(false);
+  });
+
+  it("reloads only the overview documents on the overview view", async () => {
+    const store = await unlocked();
+    store.view = "overview";
+    const before = fetchMock.mock.calls.length;
+
+    await store.refreshView();
+
+    const paths = fetchMock.mock.calls
+      .slice(before)
+      .map((call) => String(call[0]));
+    expect(paths).not.toContain("/api/internal/settings");
+    expect(paths).toContain("/api/internal/stats/repos");
+  });
+});
