@@ -678,3 +678,26 @@ describe("invariant 4 — the residual body-read edges", () => {
     expect(store.globalNotice).toBeNull();
   });
 });
+
+describe("invariant 6 — the conflict notice only claims what happened", () => {
+  it("does not say it reloaded when the reload failed", async () => {
+    const store = await unlocked();
+    const revisionBefore = store.settings?.global.revision;
+
+    fetchMock.mockImplementation((_input: string, init?: RequestInit) =>
+      init?.method === "PATCH"
+        ? json({ message: "Runtime settings revision conflict" }, 409)
+        : json({ message: "Service unavailable" }, 503),
+    );
+
+    await store.saveGlobal();
+
+    // The stale document — and so the stale expectedRevision — is still in
+    // place, so "re-apply your edits" would walk the operator into the same
+    // conflict again.
+    expect(store.settings?.global.revision).toBe(revisionBefore);
+    expect(store.globalNotice?.kind).toBe("error");
+    expect(store.globalNotice?.text).toContain("Refresh");
+    expect(store.globalNotice?.text).not.toContain("Reloaded;");
+  });
+});

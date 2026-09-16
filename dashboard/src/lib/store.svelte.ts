@@ -334,7 +334,12 @@ export class DashboardStore {
     this.detailLoading = false;
   }
 
-  async loadSettings(): Promise<void> {
+  /**
+   * @returns whether the document was replaced. A caller that tells the user
+   * what the reload produced has to know: on failure the old document — and so
+   * the old expectedRevision — is still in place.
+   */
+  async loadSettings(): Promise<boolean> {
     const issued = this.#session;
     try {
       const settings = await this.#request<SettingsDocument>("/settings");
@@ -346,9 +351,11 @@ export class DashboardStore {
           this.repositoryLoadedIdentity.repositorySlug,
         );
       }
+      return true;
     } catch (error) {
-      if (error instanceof StaleSessionError) return;
+      if (error instanceof StaleSessionError) return false;
       if (issued === this.#session) this.loadError = describe(error);
+      return false;
     }
   }
 
@@ -494,15 +501,25 @@ export class DashboardStore {
         // reloading a repository scope resets its notice, which would leave
         // the fields silently reverted with nothing on screen to explain it.
         const issued = this.#session;
-        await this.loadSettings();
+        const reloaded = await this.loadSettings();
         // loadSettings() swallows a StaleSessionError, so without this guard a
         // lock and re-unlock during the reload would land this notice — and
         // the reverted fields it describes — in the replacement session.
         if (issued !== this.#session) return;
-        report({
-          kind: "conflict",
-          text: "Not saved — changed elsewhere since load. Reloaded; re-apply your edits.",
-        });
+        // A failed reload leaves the stale document, and so the stale
+        // expectedRevision, in place: claiming it reloaded would send the user
+        // straight back into the same conflict.
+        report(
+          reloaded
+            ? {
+                kind: "conflict",
+                text: "Not saved — changed elsewhere since load. Reloaded; re-apply your edits.",
+              }
+            : {
+                kind: "error",
+                text: "Not saved — changed elsewhere since load, and reloading the current values failed. Refresh before trying again.",
+              },
+        );
         return;
       }
       report({ kind: "error", text: describe(error) });
