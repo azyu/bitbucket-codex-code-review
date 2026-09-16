@@ -13,13 +13,22 @@ import {
 } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { In, Repository } from "typeorm";
+import { DEFAULTS } from "../config/configuration";
 import {
-  DEFAULTS,
+  GLOBAL_SECRET_KEYS,
+  GLOBAL_VALUE_KEYS,
+  MAX_CUSTOM_PROMPT_CHARS,
+  MAX_MODEL_CHARS,
   MAX_OPENAI_BASE_URL_BYTES,
   MAX_QUEUE_RETRY_ATTEMPTS,
   MAX_TIMER_MS,
   MAX_WORKER_CONCURRENCY,
-} from "../config/configuration";
+  MODEL_PATTERN,
+  REASONING_EFFORT_VALUES,
+  REPOSITORY_SECRET_KEYS,
+  REPOSITORY_VALUE_KEYS,
+  TRIGGER_MODE_VALUES,
+} from "../config/limits";
 import { RuntimeSettingEntity } from "../entities/runtime-setting.entity";
 import { ServiceLogger } from "@lib/logger";
 import {
@@ -37,49 +46,6 @@ import {
 } from "./runtime-settings.types";
 
 const GLOBAL_KEY = "global";
-const GLOBAL_VALUE_KEYS: Record<string, true> = {
-  model: true,
-  reasoningEffort: true,
-  timeoutMs: true,
-  customPrompt: true,
-  openaiBaseUrl: true,
-  triggerMode: true,
-  retryAttempts: true,
-  retryDelay: true,
-  workerConcurrency: true,
-  cloneTimeoutMs: true,
-};
-const REPOSITORY_VALUE_KEYS: Record<string, true> = {
-  model: true,
-  reasoningEffort: true,
-  timeoutMs: true,
-  customPrompt: true,
-};
-const GLOBAL_SECRET_KEYS: Record<string, true> = {
-  openaiApiKey: true,
-  bitbucketApiToken: true,
-  webhookSecret: true,
-};
-const REPOSITORY_SECRET_KEYS: Record<string, true> = {
-  bitbucketApiToken: true,
-  webhookSecret: true,
-};
-const REASONING_VALUES: Record<string, true> = {
-  "": true,
-  none: true,
-  low: true,
-  medium: true,
-  high: true,
-  xhigh: true,
-  max: true,
-};
-const TRIGGER_VALUES: Record<string, true> = {
-  mention: true,
-  auto: true,
-  both: true,
-};
-
-const MAX_CUSTOM_PROMPT_CHARS = 100_000;
 const MYSQL_TEXT_MAX_BYTES = 65_535;
 const MAX_SECRET_UTF8_BYTES = 1_024;
 
@@ -311,9 +277,11 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
     ) {
       throw new BadRequestException("Invalid values");
     }
-    const allowedValues = global ? GLOBAL_VALUE_KEYS : REPOSITORY_VALUE_KEYS;
+    const allowedValues: readonly string[] = global
+      ? GLOBAL_VALUE_KEYS
+      : REPOSITORY_VALUE_KEYS;
     for (const [key, value] of Object.entries(patch.values ?? {})) {
-      if (!Object.hasOwn(allowedValues, key)) {
+      if (!allowedValues.includes(key)) {
         throw new BadRequestException(`Unknown setting: ${key}`);
       }
       if (!global && value === null) continue;
@@ -327,9 +295,11 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
     ) {
       throw new BadRequestException("Invalid secrets");
     }
-    const allowedSecrets = global ? GLOBAL_SECRET_KEYS : REPOSITORY_SECRET_KEYS;
+    const allowedSecrets: readonly string[] = global
+      ? GLOBAL_SECRET_KEYS
+      : REPOSITORY_SECRET_KEYS;
     for (const [key, mutation] of Object.entries(patch.secrets ?? {})) {
-      if (!Object.hasOwn(allowedSecrets, key)) {
+      if (!allowedSecrets.includes(key)) {
         throw new BadRequestException(`Unknown secret: ${key}`);
       }
       this.validateSecretMutation(mutation);
@@ -354,8 +324,8 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
     if (key === "model") {
       if (
         typeof value !== "string" ||
-        value.length > 64 ||
-        !/^[A-Za-z0-9][\w.-]*$/.test(value)
+        value.length > MAX_MODEL_CHARS ||
+        !MODEL_PATTERN.test(value)
       ) {
         throw new BadRequestException("Invalid model");
       }
@@ -373,7 +343,7 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
     if (key === "reasoningEffort") {
       if (
         typeof value !== "string" ||
-        !Object.hasOwn(REASONING_VALUES, value)
+        !(REASONING_EFFORT_VALUES as readonly string[]).includes(value)
       ) {
         throw new BadRequestException("Invalid reasoningEffort");
       }
@@ -382,7 +352,7 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
     if (key === "triggerMode") {
       if (
         typeof value !== "string" ||
-        !Object.hasOwn(TRIGGER_VALUES, value)
+        !(TRIGGER_MODE_VALUES as readonly string[]).includes(value)
       ) {
         throw new BadRequestException("Invalid triggerMode");
       }
@@ -570,10 +540,8 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
     globalSecrets: SecretValues,
   ): ISettingsScopeDocument {
     const secrets = this.decrypt(row);
-    const keys =
-      row.scope === "global"
-        ? Object.keys(GLOBAL_SECRET_KEYS)
-        : Object.keys(REPOSITORY_SECRET_KEYS);
+    const keys: readonly string[] =
+      row.scope === "global" ? GLOBAL_SECRET_KEYS : REPOSITORY_SECRET_KEYS;
     const statuses: Record<string, ISecretStatus> = {};
     for (const key of keys) {
       const local = Boolean(secrets[key as keyof SecretValues]);

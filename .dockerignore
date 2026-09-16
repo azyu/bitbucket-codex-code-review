@@ -1,0 +1,20 @@
+# The build stage copies the tree with `COPY . .`; host installs and build
+# output must not shadow what the deps stage resolved for linux.
+node_modules
+dashboard/node_modules
+dist
+coverage
+
+.git
+.github
+.claude
+.serena
+.worktrees
+
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store
+*.tsbuildinfo

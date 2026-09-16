@@ -53,6 +53,7 @@ describe("ReviewService stats", () => {
           codexAvgMs: "1750",
           reviewTotalMs: "4100",
           reviewAvgMs: "2050",
+          reviewSampleCount: "2",
           inputTokens: "1000",
           cachedInputTokens: "250",
           outputTokens: "120",
@@ -90,6 +91,10 @@ describe("ReviewService stats", () => {
         codexAvgMs: 1750,
         reviewTotalMs: 4100,
         reviewAvgMs: 2050,
+        // Two of the four runs reported a duration: 4100 / 2 = 2050, the
+        // average AVG(totalDurationMs) returns. Dividing by counts.total
+        // would give 1025.
+        reviewSampleCount: 2,
       },
       tokens: {
         inputTokens: 1000,

@@ -8,6 +8,16 @@ import {
   TriggerType,
 } from "../entities/review-run.entity";
 import { ICreateReviewRunParams } from "./interfaces/review.interfaces";
+import {
+  type ILatestReviewStats,
+  type IRecentReview,
+  type IRepoStatsOverview,
+} from "./review.types";
+
+// Declared in ./review.types.ts so the dashboard can import them without
+// pulling Nest and TypeORM into the browser bundle. Re-exported because
+// internal.controller.ts reads them from this path.
+export type { ILatestReviewStats, IRecentReview, IRepoStatsOverview };
 
 /** 게시 전 단계에서만 유효한 활성 상태 — PUBLISHING을 제외하는 것이 재진입 중복 게시를 막는다. */
 const CLAIMABLE_BEFORE_PUBLISH = [
@@ -43,25 +53,6 @@ const RECENT_LIMIT_MIN = 1;
 const RECENT_LIMIT_MAX = 50;
 const RECENT_LIMIT_DEFAULT = 10;
 
-export interface IRecentReview {
-  readonly id: number;
-  readonly workspaceSlug: string;
-  readonly repositorySlug: string;
-  readonly pullRequestId: number;
-  readonly headCommitHash: string;
-  readonly reviewStatus: ReviewRunStatus;
-  readonly triggerType: TriggerType;
-  readonly errorMessage: string | null;
-  readonly inputTokens: number | null;
-  readonly cachedInputTokens: number | null;
-  readonly outputTokens: number | null;
-  readonly durationMs: number | null;
-  readonly totalDurationMs: number | null;
-  readonly codexModel: string | null;
-  readonly codexReasoningEffort: string | null;
-  readonly createdAt: Date;
-}
-
 function clampLimit(raw: number | undefined | null): number {
   const value = typeof raw === "number" && Number.isFinite(raw)
     ? Math.floor(raw)
@@ -89,44 +80,6 @@ export function sanitizeErrorMessage(
     .replace(ABSOLUTE_PATH_PATTERN, "[path]");
 }
 
-export interface ILatestReviewStats {
-  readonly id: number;
-  readonly workspaceSlug: string;
-  readonly repositorySlug: string;
-  readonly pullRequestId: number;
-  readonly reviewStatus: ReviewRunStatus;
-  readonly durationMs: number | null;
-  readonly totalDurationMs: number | null;
-  readonly inputTokens: number | null;
-  readonly cachedInputTokens: number | null;
-  readonly outputTokens: number | null;
-  readonly createdAt: Date;
-}
-
-export interface IRepoStatsOverview {
-  readonly workspaceSlug: string;
-  readonly repoSlug: string;
-  readonly counts: {
-    readonly total: number;
-    readonly completed: number;
-    readonly failed: number;
-    readonly superseded: number;
-  };
-  readonly durations: {
-    readonly codexTotalMs: number;
-    readonly codexAvgMs: number;
-    readonly reviewTotalMs: number;
-    readonly reviewAvgMs: number;
-  };
-  readonly tokens: {
-    readonly inputTokens: number;
-    readonly cachedInputTokens: number;
-    readonly outputTokens: number;
-    readonly totalTokens: number;
-  };
-  readonly latestReview: ILatestReviewStats | null;
-}
-
 interface IRepoAggregateRow {
   readonly workspaceSlug: string;
   readonly repositorySlug: string;
@@ -138,6 +91,7 @@ interface IRepoAggregateRow {
   readonly codexAvgMs: string | number | null;
   readonly reviewTotalMs: string | number | null;
   readonly reviewAvgMs: string | number | null;
+  readonly reviewSampleCount: string | number | null;
   readonly inputTokens: string | number | null;
   readonly cachedInputTokens: string | number | null;
   readonly outputTokens: string | number | null;
@@ -436,6 +390,10 @@ export class ReviewService {
         COALESCE(AVG(durationMs), 0) AS codexAvgMs,
         COALESCE(SUM(totalDurationMs), 0) AS reviewTotalMs,
         COALESCE(AVG(totalDurationMs), 0) AS reviewAvgMs,
+        -- COUNT of a column skips NULLs, so this is the denominator AVG used:
+        -- runs still in flight carry no totalDurationMs and must not dilute a
+        -- caller's own average of reviewTotalMs.
+        COUNT(totalDurationMs) AS reviewSampleCount,
         COALESCE(SUM(inputTokens), 0) AS inputTokens,
         COALESCE(SUM(cachedInputTokens), 0) AS cachedInputTokens,
         COALESCE(SUM(outputTokens), 0) AS outputTokens
@@ -532,6 +490,7 @@ export class ReviewService {
         codexAvgMs: toNumber(aggregate?.codexAvgMs),
         reviewTotalMs: toNumber(aggregate?.reviewTotalMs),
         reviewAvgMs: toNumber(aggregate?.reviewAvgMs),
+        reviewSampleCount: toNumber(aggregate?.reviewSampleCount),
       },
       tokens: {
         inputTokens,
