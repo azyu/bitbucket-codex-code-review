@@ -164,7 +164,7 @@ export class WebhookController {
       this.postDuplicateReply(
         prPayload,
         body.comment.id,
-        duplicate.reviewStatus,
+        await this.resolveDuplicateStatus(prPayload, duplicate),
         credentials,
       );
     }
@@ -332,6 +332,27 @@ export class WebhookController {
       return `⏳ 이 커밋(\`${shortHash}\`)에 대한 리뷰가 이미 진행 중입니다.`;
     }
     return `ℹ️ 마지막 리뷰 이후 코드 변경이 없습니다 (commit \`${shortHash}\`).\n\n같은 커밋을 다시 리뷰하려면 \`@codex --force\` 를 남겨주세요.`;
+  }
+
+  /**
+   * 안내에 쓸 상태는 idempotency 행이 아니라 이 PR의 최신 런에서 읽는다. --force 런은
+   * `-force-<댓글ID>` key를 쓰므로 idempotency 행에는 잡히지 않고, 그 행만 보면 force
+   * 리뷰가 도는 중에도 "코드 변경이 없습니다 — --force 하세요"라고 답하게 된다.
+   */
+  private async resolveDuplicateStatus(
+    prPayload: IWebhookPrPayload,
+    duplicate: IDuplicateReviewRun,
+  ): Promise<ReviewRunStatus> {
+    const latest = await this.reviewService.findLatestByPr(
+      prPayload.workspaceSlug,
+      prPayload.repositorySlug,
+      prPayload.pullRequestId,
+    );
+    // 최신 런이 다른 커밋의 것이면(헤드가 이미 이동한 뒤 옛 커밋의 웹훅이 도착) 이
+    // 커밋을 설명하는 건 idempotency 행뿐이다.
+    return latest?.headCommitHash === prPayload.headCommitHash
+      ? latest.reviewStatus
+      : duplicate.reviewStatus;
   }
 
   /** Fire-and-forget: 중복 트리거에 이유를 남긴다 (무응답이 고장으로 보이는 것을 막는다) */

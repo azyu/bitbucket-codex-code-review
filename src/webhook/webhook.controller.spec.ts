@@ -47,6 +47,7 @@ describe("WebhookController", () => {
   };
   const reviewService = {
     findDuplicateRun: jest.fn(),
+    findLatestByPr: jest.fn(),
     createReviewRun: jest.fn(),
     supersedeActivePrReviews: jest.fn(),
     updateStatus: jest.fn(),
@@ -120,6 +121,7 @@ describe("WebhookController", () => {
     reviewQueue.getJob.mockResolvedValue(null);
     reviewQueue.add.mockResolvedValue(undefined);
     reviewService.findDuplicateRun.mockResolvedValue(null);
+    reviewService.findLatestByPr.mockResolvedValue(null);
     reviewService.createReviewRun.mockResolvedValue({ id: 99 });
     reviewService.supersedeActivePrReviews.mockResolvedValue(undefined);
     reviewService.updateStatus.mockResolvedValue(undefined);
@@ -292,6 +294,51 @@ describe("WebhookController", () => {
       }),
       BITBUCKET_CREDENTIALS,
     );
+  });
+
+  it("reports the active force run instead of claiming nothing changed", async () => {
+    // --force 런은 `-force-<댓글ID>` key라 idempotency 행에는 종료된 base 런만 잡힌다.
+    // 그 행만 보고 답하면 force 리뷰가 도는 중에 "코드 변경 없음 + --force"가 나간다.
+    reviewService.findDuplicateRun.mockResolvedValue({
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerCommentId: null,
+    });
+    reviewService.findLatestByPr.mockResolvedValue({
+      headCommitHash: "abcdef1234567890",
+      reviewStatus: ReviewRunStatus.REVIEWING,
+    });
+
+    await controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity);
+
+    expect(reviewService.findLatestByPr).toHaveBeenCalledWith(
+      "workspace",
+      "repo-a",
+      17,
+    );
+    expect(bitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: "⏳ 이 커밋(`abcdef1`)에 대한 리뷰가 이미 진행 중입니다.",
+      }),
+      BITBUCKET_CREDENTIALS,
+    );
+  });
+
+  it("falls back to the idempotency row when the PR head has moved on", async () => {
+    reviewService.findDuplicateRun.mockResolvedValue({
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerCommentId: null,
+    });
+    // 최신 런이 다른 커밋의 것이면 이 커밋을 설명하지 못한다.
+    reviewService.findLatestByPr.mockResolvedValue({
+      headCommitHash: "9999999999999999",
+      reviewStatus: ReviewRunStatus.REVIEWING,
+    });
+
+    await controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity);
+
+    const [{ body }] = bitbucketService.replyToComment.mock
+      .calls[0] as [{ body: string }];
+    expect(body).toContain("마지막 리뷰 이후 코드 변경이 없습니다");
   });
 
   it("gates the --force recovery on evidence that publishing is stuck", async () => {
