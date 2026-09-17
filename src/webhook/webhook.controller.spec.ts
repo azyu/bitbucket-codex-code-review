@@ -46,7 +46,8 @@ describe("WebhookController", () => {
     parseModelOverride: jest.fn(),
   };
   const reviewService = {
-    existsByIdempotencyKey: jest.fn(),
+    findDuplicateRun: jest.fn(),
+    findLatestByPr: jest.fn(),
     createReviewRun: jest.fn(),
     supersedeActivePrReviews: jest.fn(),
     updateStatus: jest.fn(),
@@ -119,7 +120,8 @@ describe("WebhookController", () => {
     });
     reviewQueue.getJob.mockResolvedValue(null);
     reviewQueue.add.mockResolvedValue(undefined);
-    reviewService.existsByIdempotencyKey.mockResolvedValue(false);
+    reviewService.findDuplicateRun.mockResolvedValue(null);
+    reviewService.findLatestByPr.mockResolvedValue(null);
     reviewService.createReviewRun.mockResolvedValue({ id: 99 });
     reviewService.supersedeActivePrReviews.mockResolvedValue(undefined);
     reviewService.updateStatus.mockResolvedValue(undefined);
@@ -234,13 +236,170 @@ describe("WebhookController", () => {
     );
   });
 
-  it("returns duplicate when idempotency key already exists", async () => {
-    reviewService.existsByIdempotencyKey.mockResolvedValue(true);
+  it("tells the mention author that nothing changed since the last review", async () => {
+    reviewService.findDuplicateRun.mockResolvedValue({
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerCommentId: null,
+    });
+
+    const result = await controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity);
+
+    // 무응답이면 사용자는 고장과 구분할 수 없다 — 이유와 탈출구(--force)를 같이 남긴다.
+    expect(result).toEqual({ accepted: false, reason: "Duplicate request" });
+    expect(reviewQueue.add).not.toHaveBeenCalled();
+    expect(bitbucketService.replyToComment).toHaveBeenCalledWith(
+      {
+        workspace: "workspace",
+        repoSlug: "repo-a",
+        pullRequestId: 17,
+        parentCommentId: 321,
+        body:
+          "ℹ️ 마지막 리뷰 이후 코드 변경이 없습니다 (commit `abcdef1`).\n\n같은 커밋을 다시 리뷰하려면 `@codex --force` 를 남겨주세요.",
+      },
+      BITBUCKET_CREDENTIALS,
+    );
+  });
+
+  it("does not arm its own duplicate reply as a codex trigger", async () => {
+    reviewService.findDuplicateRun.mockResolvedValue({
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerCommentId: null,
+    });
+
+    await controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity);
+
+    // Bitbucket은 봇이 만든 댓글에도 comment_created를 보내고, 컨트롤러는 작성자를
+    // 보지 않는다. 답글 본문이 트리거로 읽히면 중복 멘션마다 강제 리뷰가 하나씩 돈다.
+    // 지금 이를 막는 것은 `@codex --force`를 감싼 백틱뿐이므로, 문구를 다듬다 백틱이
+    // 빠지면 여기서 깨져야 한다. mock이 아닌 실제 TriggerService로 검사한다.
+    const [{ body }] = bitbucketService.replyToComment.mock
+      .calls[0] as [{ body: string }];
+    const realTrigger = new TriggerService();
+    expect(realTrigger.hasCodexMention(body)).toBe(false);
+    expect(realTrigger.isForceReview(body)).toBe(false);
+  });
+
+  it("tells the mention author a review for the same commit is still running", async () => {
+    reviewService.findDuplicateRun.mockResolvedValue({
+      reviewStatus: ReviewRunStatus.REVIEWING,
+      triggerCommentId: null,
+    });
+
+    await controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity);
+
+    // 진행 중인 런에 "코드 변경이 없습니다"라고 답하면 거짓 안내가 된다.
+    expect(bitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: "⏳ 이 커밋(`abcdef1`)에 대한 리뷰가 이미 진행 중입니다.",
+      }),
+      BITBUCKET_CREDENTIALS,
+    );
+  });
+
+  it("reports the active force run instead of claiming nothing changed", async () => {
+    // --force 런은 `-force-<댓글ID>` key라 idempotency 행에는 종료된 base 런만 잡힌다.
+    // 그 행만 보고 답하면 force 리뷰가 도는 중에 "코드 변경 없음 + --force"가 나간다.
+    reviewService.findDuplicateRun.mockResolvedValue({
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerCommentId: null,
+    });
+    reviewService.findLatestByPr.mockResolvedValue({
+      headCommitHash: "abcdef1234567890",
+      reviewStatus: ReviewRunStatus.REVIEWING,
+    });
+
+    await controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity);
+
+    expect(reviewService.findLatestByPr).toHaveBeenCalledWith(
+      "workspace",
+      "repo-a",
+      17,
+    );
+    expect(bitbucketService.replyToComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: "⏳ 이 커밋(`abcdef1`)에 대한 리뷰가 이미 진행 중입니다.",
+      }),
+      BITBUCKET_CREDENTIALS,
+    );
+  });
+
+  it("falls back to the idempotency row when the PR head has moved on", async () => {
+    reviewService.findDuplicateRun.mockResolvedValue({
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerCommentId: null,
+    });
+    // 최신 런이 다른 커밋의 것이면 이 커밋을 설명하지 못한다.
+    reviewService.findLatestByPr.mockResolvedValue({
+      headCommitHash: "9999999999999999",
+      reviewStatus: ReviewRunStatus.REVIEWING,
+    });
+
+    await controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity);
+
+    const [{ body }] = bitbucketService.replyToComment.mock
+      .calls[0] as [{ body: string }];
+    expect(body).toContain("마지막 리뷰 이후 코드 변경이 없습니다");
+  });
+
+  it("gates the --force recovery on evidence that publishing is stuck", async () => {
+    reviewService.findDuplicateRun.mockResolvedValue({
+      reviewStatus: ReviewRunStatus.PUBLISHING,
+      triggerCommentId: null,
+    });
+
+    await controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity);
+
+    // PUBLISHING은 claimStatus의 from-set 밖이라 재시도로 회수되지 않으므로 복구 수단을
+    // 알려야 한다. 다만 살아 있는 publishResults는 supersede로 멈추지 않아 무조건 권하면
+    // 중복 게시를 부른다 — 결과 댓글 유무라는 증거를 먼저 확인하게 만든다.
+    const [{ body }] = bitbucketService.replyToComment.mock
+      .calls[0] as [{ body: string }];
+    expect(body).toContain("게시하는 중입니다");
+    expect(body).toContain("결과 댓글이 이미 올라와 있으면 기다려 주세요");
+    expect(body).toContain("두 번 게시될 수 있습니다");
+    expect(body).toContain("`@codex --force`");
+    expect(new TriggerService().isForceReview(body)).toBe(false);
+  });
+
+  it("stays silent when the same plain mention webhook is redelivered", async () => {
+    // 일반 멘션의 key에는 댓글 ID가 없어 재전송도 새 멘션과 같은 key로 들어온다.
+    // 기존 run을 만든 댓글(321)과 같은 댓글이면 안내는 이미 달려 있다.
+    reviewService.findDuplicateRun.mockResolvedValue({
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerCommentId: 321,
+    });
 
     const result = await controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity);
 
     expect(result).toEqual({ accepted: false, reason: "Duplicate request" });
-    expect(reviewQueue.add).not.toHaveBeenCalled();
+    expect(bitbucketService.replyToComment).not.toHaveBeenCalled();
+  });
+
+  it("stays silent when a --force mention webhook is redelivered", async () => {
+    triggerService.isForceReview.mockReturnValue(true);
+    reviewService.findDuplicateRun.mockResolvedValue({
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerCommentId: null,
+    });
+
+    await controller.handleBitbucketWebhook(buildCommentWebhook("@codex --force"), "pullrequest:comment_created", verifiedIdentity);
+
+    // force key는 댓글 단위라 중복 = 재전송뿐 — `--force` 댓글에 `--force`를 권할 수 없다.
+    expect(bitbucketService.replyToComment).not.toHaveBeenCalled();
+  });
+
+  it("stays silent on a duplicate auto trigger", async () => {
+    triggerService.shouldAutoReview.mockReturnValue(true);
+    reviewService.findDuplicateRun.mockResolvedValue({
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerCommentId: null,
+    });
+
+    // pullrequest:updated는 제목/리뷰어 변경에도 같은 head commit으로 날아온다.
+    const result = await controller.handleBitbucketWebhook(buildPrWebhook(), "pullrequest:updated", verifiedIdentity);
+
+    expect(result).toEqual({ accepted: false, reason: "Duplicate request" });
+    expect(bitbucketService.createComment).not.toHaveBeenCalled();
     expect(bitbucketService.replyToComment).not.toHaveBeenCalled();
   });
 
@@ -248,15 +407,18 @@ describe("WebhookController", () => {
     const baseKey = "workspace:repo-a:17:abcdef1234567890";
     triggerService.isForceReview.mockReturnValue(true);
     triggerService.shouldMentionReview.mockReturnValue(false);
-    reviewService.existsByIdempotencyKey.mockImplementation(
-      async (key: string) => key === baseKey,
+    reviewService.findDuplicateRun.mockImplementation(
+      async (key: string) =>
+        key === baseKey
+          ? { reviewStatus: ReviewRunStatus.COMPLETED, triggerCommentId: null }
+          : null,
     );
 
     const result = await controller.handleBitbucketWebhook(buildCommentWebhook("@codex --force"), "pullrequest:comment_created", verifiedIdentity);
 
     const forceKey = `${baseKey}-force-321`;
     expect(result).toEqual({ accepted: true });
-    expect(reviewService.existsByIdempotencyKey).toHaveBeenCalledWith(forceKey);
+    expect(reviewService.findDuplicateRun).toHaveBeenCalledWith(forceKey);
     expect(reviewService.createReviewRun).toHaveBeenCalledWith(
       expect.objectContaining({ idempotencyKey: forceKey }),
     );
@@ -296,7 +458,7 @@ describe("WebhookController", () => {
       controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity),
     ).rejects.toThrow(enqueueError);
 
-    // FAILED + 게시 증거 없음이어야 existsByIdempotencyKey가 row를 지우고
+    // FAILED + 게시 증거 없음이어야 findDuplicateRun가 row를 지우고
     // Bitbucket 재시도를 통과시킨다. queued로 남으면 재시도가 duplicate로 삼켜진다.
     expect(reviewService.updateStatus).toHaveBeenCalledWith(
       99,
@@ -358,11 +520,11 @@ describe("WebhookController", () => {
       verifiedRepoSlug: "repo-a",
     });
 
-    expect(reviewService.existsByIdempotencyKey).toHaveBeenNthCalledWith(
+    expect(reviewService.findDuplicateRun).toHaveBeenNthCalledWith(
       1,
       "workspace:repo-a:17:abcdef1234567890",
     );
-    expect(reviewService.existsByIdempotencyKey).toHaveBeenNthCalledWith(
+    expect(reviewService.findDuplicateRun).toHaveBeenNthCalledWith(
       2,
       "other-workspace:repo-a:17:abcdef1234567890",
     );

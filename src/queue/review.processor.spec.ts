@@ -773,7 +773,7 @@ describe("ReviewProcessor publish results", () => {
   const mockReviewService = {
     updateStatus: jest.fn(),
     updateResultCommentId: jest.fn(),
-    existsByIdempotencyKey: jest.fn(),
+    findDuplicateRun: jest.fn(),
     createReviewRun: jest.fn(),
     supersedeActivePrReviews: jest.fn(),
     claimStatus: jest.fn(),
@@ -1436,7 +1436,7 @@ describe("ReviewProcessor publish results", () => {
         expect.anything(),
       );
       // 균일하게 던져도 안전한 이유: 요약 ID가 FAILED와 함께 남아 행이 삭제되지 않는다
-      // (게시 증거 없는 FAILED는 existsByIdempotencyKey가 지워 중복 게시로 이어진다).
+      // (게시 증거 없는 FAILED는 findDuplicateRun가 지워 중복 게시로 이어진다).
       expect(mockReviewService.claimFailure).toHaveBeenCalledWith(
         1,
         expect.objectContaining({ resultCommentId: 100 }),
@@ -1528,7 +1528,7 @@ describe("ReviewProcessor error handling", () => {
   const mockReviewService = {
     updateStatus: jest.fn(),
     updateResultCommentId: jest.fn(),
-    existsByIdempotencyKey: jest.fn(),
+    findDuplicateRun: jest.fn(),
     createReviewRun: jest.fn(),
     supersedeActivePrReviews: jest.fn(),
     claimStatus: jest.fn(),
@@ -1838,7 +1838,7 @@ describe("ReviewProcessor error handling", () => {
     expect(mockCodexService.executeCodex).not.toHaveBeenCalled();
     expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
     expect(mockReviewService.updateStatus).not.toHaveBeenCalled();
-    // 거부된 클레임에는 상태를 쓰지 않는다 — FAILED를 쓰면 existsByIdempotencyKey가
+    // 거부된 클레임에는 상태를 쓰지 않는다 — FAILED를 쓰면 findDuplicateRun가
     // 미게시 실패로 보고 행을 지워 같은 요청을 다시 받아들인다.
     expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
   });
@@ -2110,7 +2110,7 @@ describe("ReviewProcessor error handling", () => {
     expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
     // COMPLETED도 쓰지 않는다 — 게시하지 않은 런이 완료로 집계되면 통계가 거짓이 된다.
     expect(mockReviewService.updateStatus).not.toHaveBeenCalled();
-    // FAILED도 쓰지 않는다 — 여기서 실패로 기록하면 existsByIdempotencyKey가 미게시
+    // FAILED도 쓰지 않는다 — 여기서 실패로 기록하면 findDuplicateRun가 미게시
     // 실패로 보고 행을 삭제해 같은 요청을 재수용한다(막으려던 중복 게시의 부활).
     expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
     // 게시를 포기해도 worktree는 정리돼야 한다 (디스크 누수 방지).

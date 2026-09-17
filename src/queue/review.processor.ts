@@ -177,7 +177,7 @@ export class ReviewProcessor
           ReviewRunStatus.PUBLISHING,
         ))
       ) {
-        // 여기서 FAILED를 쓰면 existsByIdempotencyKey가 미게시 실패로 판단해 행을 삭제하고
+        // 여기서 FAILED를 쓰면 findDuplicateRun가 미게시 실패로 판단해 행을 삭제하고
         // 같은 요청을 다시 받아들인다 — 막으려던 중복 게시를 되살리는 셈이다. 로그만 남긴다.
         this.logger.log(
           `Skipping publish for inactive review run ${data.reviewRunId}: ${data.idempotencyKey}`,

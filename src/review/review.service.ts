@@ -19,6 +19,12 @@ import {
 // internal.controller.ts reads them from this path.
 export type { ILatestReviewStats, IRecentReview, IRepoStatsOverview };
 
+/** 중복으로 판정된 기존 run에서 웹훅 경로가 읽는 부분. */
+export interface IDuplicateReviewRun {
+  readonly reviewStatus: ReviewRunStatus;
+  readonly triggerCommentId: number | null;
+}
+
 /** 게시 전 단계에서만 유효한 활성 상태 — PUBLISHING을 제외하는 것이 재진입 중복 게시를 막는다. */
 const CLAIMABLE_BEFORE_PUBLISH = [
   ReviewRunStatus.QUEUED,
@@ -161,14 +167,21 @@ export class ReviewService {
     return saved;
   }
 
-  /** idempotency key로 중복 확인 (게시되지 않은 FAILED만 재시도 허용) */
-  async existsByIdempotencyKey(idempotencyKey: string): Promise<boolean> {
+  /**
+   * idempotency key로 중복 확인 (게시되지 않은 FAILED만 재시도 허용).
+   * boolean이 아니라 기존 run을 돌려주는 이유: 웹훅 경로가 "이미 리뷰된 커밋"과
+   * "리뷰가 아직 도는 중"을 구분해 안내해야 하고(reviewStatus), 같은 댓글의 웹훅
+   * 재전송과 새 멘션을 구분해야 하기 때문이다(triggerCommentId).
+   */
+  async findDuplicateRun(
+    idempotencyKey: string,
+  ): Promise<IDuplicateReviewRun | null> {
     const existing = await this.reviewRunRepository.findOne({
       where: { idempotencyKey },
-      select: ["id", "reviewStatus", "resultCommentId"],
+      select: ["id", "reviewStatus", "resultCommentId", "triggerCommentId"],
     });
 
-    if (!existing) return false;
+    if (!existing) return null;
 
     // 게시 증거가 없는 FAILED만 삭제해 재시도를 허용한다.
     if (
@@ -179,10 +192,16 @@ export class ReviewService {
       this.logger.log(
         `Removed unpublished failed review run (id=${existing.id}) for retry: ${idempotencyKey}`,
       );
-      return false;
+      return null;
     }
 
-    return true;
+    return {
+      reviewStatus: existing.reviewStatus,
+      // bigint 컬럼이라 MySQL 드라이버는 문자열을 돌려준다(toRecentReview의
+      // pullRequestId와 같은 이유). 그대로 두면 호출부의 === 비교가 "321" !== 321로
+      // 항상 어긋나 재전송 억제가 프로덕션에서만 조용히 풀린다.
+      triggerCommentId: toNullableNumber(existing.triggerCommentId),
+    };
   }
 
   /** 리뷰 상태 업데이트 */

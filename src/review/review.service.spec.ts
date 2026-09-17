@@ -204,13 +204,13 @@ describe("ReviewService idempotency", () => {
       resultCommentId: null,
     });
 
-    await expect(service.existsByIdempotencyKey("repo:1:commit")).resolves.toBe(
-      false,
+    await expect(service.findDuplicateRun("repo:1:commit")).resolves.toBe(
+      null,
     );
 
     expect(mockRepository.findOne).toHaveBeenCalledWith({
       where: { idempotencyKey: "repo:1:commit" },
-      select: ["id", "reviewStatus", "resultCommentId"],
+      select: ["id", "reviewStatus", "resultCommentId", "triggerCommentId"],
     });
     expect(mockRepository.delete).toHaveBeenCalledWith(7);
   });
@@ -220,13 +220,29 @@ describe("ReviewService idempotency", () => {
       id: 8,
       reviewStatus: ReviewRunStatus.FAILED,
       resultCommentId: 321,
+      triggerCommentId: 99,
     });
 
-    await expect(service.existsByIdempotencyKey("repo:1:commit")).resolves.toBe(
-      true,
-    );
+    await expect(service.findDuplicateRun("repo:1:commit")).resolves.toEqual({
+      reviewStatus: ReviewRunStatus.FAILED,
+      triggerCommentId: 99,
+    });
 
     expect(mockRepository.delete).not.toHaveBeenCalled();
+  });
+
+  it("normalizes the bigint trigger comment ID the driver returns as a string", async () => {
+    mockRepository.findOne.mockResolvedValueOnce({
+      id: 10,
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      resultCommentId: 555,
+      triggerCommentId: "321",
+    });
+
+    await expect(service.findDuplicateRun("repo:1:commit")).resolves.toEqual({
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerCommentId: 321,
+    });
   });
 
   it("keeps a publishing run without a result comment as a duplicate", async () => {
@@ -236,9 +252,10 @@ describe("ReviewService idempotency", () => {
       resultCommentId: null,
     });
 
-    await expect(service.existsByIdempotencyKey("repo:1:commit")).resolves.toBe(
-      true,
-    );
+    await expect(service.findDuplicateRun("repo:1:commit")).resolves.toEqual({
+      reviewStatus: ReviewRunStatus.PUBLISHING,
+      triggerCommentId: null,
+    });
 
     expect(mockRepository.delete).not.toHaveBeenCalled();
   });
