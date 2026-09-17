@@ -19,6 +19,7 @@ FROM node:24-alpine AS build
 
 WORKDIR /app
 
+# renovate: datasource=npm depName=corepack
 RUN npm install -g corepack@0.36.0 && corepack enable
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -38,6 +39,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# renovate: datasource=npm depName=corepack
 RUN npm install -g corepack@0.36.0 && corepack enable
 # tini: PID 1 init that reaps orphaned grandchildren (codex-linux-sandbox)
 # spawned by the codex CLI. Without it Node leaks zombies until cgroup

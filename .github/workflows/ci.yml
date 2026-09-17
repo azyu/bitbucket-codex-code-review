@@ -39,7 +39,15 @@ jobs:
       # The deps stage is the cheapest layer that exercises corepack and the
       # workspace install; the later stages are covered by the steps above.
       - name: Build Docker deps stage
-        run: docker build --target deps .
+        run: |
+          # Renovate only bumps a pin that carries the marker comment, and CI
+          # builds the deps stage alone, so an unmarked pin in a later stage
+          # would break the image with everything here still green.
+          awk '/# renovate: datasource=npm depName=corepack/{m++}
+               /RUN npm install -g corepack@/{p++}
+               END{if (m != p || p == 0) {
+                 printf "::error::%d corepack pins, %d marked for Renovate\n", p, m; exit 1}}' Dockerfile
+          docker build --target deps .
 
       # Gates the automerged Renovate bump of the Dockerfile pin: the step
       # above stops at the deps stage, so a Codex CLI that fails to run would
