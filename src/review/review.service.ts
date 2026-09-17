@@ -197,7 +197,10 @@ export class ReviewService {
 
     return {
       reviewStatus: existing.reviewStatus,
-      triggerCommentId: existing.triggerCommentId ?? null,
+      // bigint 컬럼이라 MySQL 드라이버는 문자열을 돌려준다(toRecentReview의
+      // pullRequestId와 같은 이유). 그대로 두면 호출부의 === 비교가 "321" !== 321로
+      // 항상 어긋나 재전송 억제가 프로덕션에서만 조용히 풀린다.
+      triggerCommentId: toNullableNumber(existing.triggerCommentId),
     };
   }
 

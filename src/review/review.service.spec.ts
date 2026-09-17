@@ -231,6 +231,20 @@ describe("ReviewService idempotency", () => {
     expect(mockRepository.delete).not.toHaveBeenCalled();
   });
 
+  it("normalizes the bigint trigger comment ID the driver returns as a string", async () => {
+    mockRepository.findOne.mockResolvedValueOnce({
+      id: 10,
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      resultCommentId: 555,
+      triggerCommentId: "321",
+    });
+
+    await expect(service.findDuplicateRun("repo:1:commit")).resolves.toEqual({
+      reviewStatus: ReviewRunStatus.COMPLETED,
+      triggerCommentId: 321,
+    });
+  });
+
   it("keeps a publishing run without a result comment as a duplicate", async () => {
     mockRepository.findOne.mockResolvedValueOnce({
       id: 9,
