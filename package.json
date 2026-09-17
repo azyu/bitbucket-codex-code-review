@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Bitbucket PR webhook → Codex CLI code review → PR comment",
   "private": true,
-  "packageManager": "pnpm@10.34.5",
+  "packageManager": "pnpm@12.4.2",
   "engines": {
     "node": ">=24.0.0"
   },
@@ -21,11 +21,6 @@
     "migration:generate": "node --env-file-if-exists=.env node_modules/typeorm/cli.js migration:generate",
     "migration:run": "node --env-file-if-exists=.env node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js",
     "migration:revert": "node --env-file-if-exists=.env node_modules/typeorm/cli.js migration:revert -d dist/database/data-source.js"
-  },
-  "pnpm": {
-    "overrides": {
-      "multer": "^2.3.0"
-    }
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.5",
