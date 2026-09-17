@@ -257,6 +257,24 @@ describe("WebhookController", () => {
     );
   });
 
+  it("does not arm its own duplicate reply as a codex trigger", async () => {
+    reviewService.findDuplicateStatus.mockResolvedValue(
+      ReviewRunStatus.COMPLETED,
+    );
+
+    await controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity);
+
+    // Bitbucket은 봇이 만든 댓글에도 comment_created를 보내고, 컨트롤러는 작성자를
+    // 보지 않는다. 답글 본문이 트리거로 읽히면 중복 멘션마다 강제 리뷰가 하나씩 돈다.
+    // 지금 이를 막는 것은 `@codex --force`를 감싼 백틱뿐이므로, 문구를 다듬다 백틱이
+    // 빠지면 여기서 깨져야 한다. mock이 아닌 실제 TriggerService로 검사한다.
+    const [{ body }] = bitbucketService.replyToComment.mock
+      .calls[0] as [{ body: string }];
+    const realTrigger = new TriggerService();
+    expect(realTrigger.hasCodexMention(body)).toBe(false);
+    expect(realTrigger.isForceReview(body)).toBe(false);
+  });
+
   it("tells the mention author a review for the same commit is still running", async () => {
     reviewService.findDuplicateStatus.mockResolvedValue(
       ReviewRunStatus.REVIEWING,
