@@ -19,6 +19,12 @@ import {
 // internal.controller.ts reads them from this path.
 export type { ILatestReviewStats, IRecentReview, IRepoStatsOverview };
 
+/** 중복으로 판정된 기존 run에서 웹훅 경로가 읽는 부분. */
+export interface IDuplicateReviewRun {
+  readonly reviewStatus: ReviewRunStatus;
+  readonly triggerCommentId: number | null;
+}
+
 /** 게시 전 단계에서만 유효한 활성 상태 — PUBLISHING을 제외하는 것이 재진입 중복 게시를 막는다. */
 const CLAIMABLE_BEFORE_PUBLISH = [
   ReviewRunStatus.QUEUED,
@@ -163,15 +169,16 @@ export class ReviewService {
 
   /**
    * idempotency key로 중복 확인 (게시되지 않은 FAILED만 재시도 허용).
-   * boolean이 아니라 기존 run의 상태를 돌려주는 이유: 웹훅 경로가 "이미 리뷰된
-   * 커밋"과 "리뷰가 아직 도는 중"을 구분해 안내해야 하고, 그 판정 근거는 상태뿐이다.
+   * boolean이 아니라 기존 run을 돌려주는 이유: 웹훅 경로가 "이미 리뷰된 커밋"과
+   * "리뷰가 아직 도는 중"을 구분해 안내해야 하고(reviewStatus), 같은 댓글의 웹훅
+   * 재전송과 새 멘션을 구분해야 하기 때문이다(triggerCommentId).
    */
-  async findDuplicateStatus(
+  async findDuplicateRun(
     idempotencyKey: string,
-  ): Promise<ReviewRunStatus | null> {
+  ): Promise<IDuplicateReviewRun | null> {
     const existing = await this.reviewRunRepository.findOne({
       where: { idempotencyKey },
-      select: ["id", "reviewStatus", "resultCommentId"],
+      select: ["id", "reviewStatus", "resultCommentId", "triggerCommentId"],
     });
 
     if (!existing) return null;
@@ -188,7 +195,10 @@ export class ReviewService {
       return null;
     }
 
-    return existing.reviewStatus;
+    return {
+      reviewStatus: existing.reviewStatus,
+      triggerCommentId: existing.triggerCommentId ?? null,
+    };
   }
 
   /** 리뷰 상태 업데이트 */

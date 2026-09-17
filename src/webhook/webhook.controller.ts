@@ -22,7 +22,10 @@ import {
   IWebhookPrPayload,
 } from "./interfaces/webhook.interfaces";
 import { ReviewRunStatus, TriggerType } from "../entities/review-run.entity";
-import { ReviewService } from "../review/review.service";
+import {
+  type IDuplicateReviewRun,
+  ReviewService,
+} from "../review/review.service";
 import { IReviewJobData } from "../queue/interfaces/queue.interfaces";
 import { BitbucketService } from "../bitbucket/bitbucket.service";
 import { RuntimeSettingsService } from "../settings/runtime-settings.service";
@@ -131,7 +134,7 @@ export class WebhookController {
       await this.runtimeSettings.resolveJobCredentials(prPayload)
     ).bitbucket;
 
-    const { duplicateStatus, ...result } = await this.enqueueReview(
+    const { duplicate, ...result } = await this.enqueueReview(
       prPayload,
       TriggerType.MENTION,
       body.comment.id,
@@ -146,7 +149,14 @@ export class WebhookController {
         settings,
         credentials,
       );
-    } else if (duplicateStatus && !forceReview) {
+    } else if (
+      duplicate &&
+      !forceReview &&
+      // 일반 멘션의 key에는 댓글 ID가 없어 "새 멘션"과 "같은 웹훅의 재전송"이 같은
+      // key로 들어온다. 기존 run을 만든 댓글과 같으면 재전송이므로 답글을 반복하지
+      // 않는다 — 사람이 새로 멘션한 경우에만 ID가 달라진다.
+      duplicate.triggerCommentId !== body.comment.id
+    ) {
       // 멘션에만 답한다. pullrequest:updated는 제목/리뷰어 변경에도 같은 head
       // commit으로 날아오므로 AUTO 경로에서 같은 안내를 달면 PR마다 잡음이 쌓인다.
       // --force는 key가 댓글 단위라 중복 = 그 댓글의 웹훅 재전송뿐이다. 여기에
@@ -154,7 +164,7 @@ export class WebhookController {
       this.postDuplicateReply(
         prPayload,
         body.comment.id,
-        duplicateStatus,
+        duplicate.reviewStatus,
         credentials,
       );
     }
@@ -177,7 +187,7 @@ export class WebhookController {
       await this.runtimeSettings.resolveJobCredentials(prPayload)
     ).bitbucket;
 
-    const { duplicateStatus: _duplicateStatus, ...result } =
+    const { duplicate: _duplicate, ...result } =
       await this.enqueueReview(
         prPayload,
         TriggerType.AUTO,
@@ -203,7 +213,7 @@ export class WebhookController {
   ): Promise<{
     accepted: boolean;
     reason?: string;
-    duplicateStatus?: ReviewRunStatus;
+    duplicate?: IDuplicateReviewRun;
   }> {
     const legacyBaseKey = `${prPayload.repositorySlug}:${prPayload.pullRequestId}:${prPayload.headCommitHash}`;
     const baseKey = `${prPayload.workspaceSlug}:${legacyBaseKey}`;
@@ -218,11 +228,10 @@ export class WebhookController {
         : legacyBaseKey;
     const legacyEncodedJobId = `review-${Buffer.from(legacyKey).toString("base64url")}`;
 
-    const duplicateStatus =
-      await this.reviewService.findDuplicateStatus(idempotencyKey);
-    if (duplicateStatus) {
+    const duplicate = await this.reviewService.findDuplicateRun(idempotencyKey);
+    if (duplicate) {
       this.logger.log(`Duplicate review request skipped: ${idempotencyKey}`);
-      return { accepted: false, reason: "Duplicate request", duplicateStatus };
+      return { accepted: false, reason: "Duplicate request", duplicate };
     }
 
     // 새 ID와 전환 전 idempotencyKey ID를 모두 정리해 rolling deploy 중 재큐잉을
@@ -272,7 +281,7 @@ export class WebhookController {
     };
 
     // 등록이 실패하면 run을 FAILED로 남긴다. 게시 증거 없는 FAILED는
-    // findDuplicateStatus가 지우고 재시도를 허용하므로, 이 마킹이 없으면 방금 만든
+    // findDuplicateRun가 지우고 재시도를 허용하므로, 이 마킹이 없으면 방금 만든
     // queued row가 Bitbucket 재시도까지 duplicate로 삼켜 PR이 무응답으로 남는다.
     try {
       await this.reviewQueue.add("review", jobData, {

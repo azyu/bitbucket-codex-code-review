@@ -204,13 +204,13 @@ describe("ReviewService idempotency", () => {
       resultCommentId: null,
     });
 
-    await expect(service.findDuplicateStatus("repo:1:commit")).resolves.toBe(
+    await expect(service.findDuplicateRun("repo:1:commit")).resolves.toBe(
       null,
     );
 
     expect(mockRepository.findOne).toHaveBeenCalledWith({
       where: { idempotencyKey: "repo:1:commit" },
-      select: ["id", "reviewStatus", "resultCommentId"],
+      select: ["id", "reviewStatus", "resultCommentId", "triggerCommentId"],
     });
     expect(mockRepository.delete).toHaveBeenCalledWith(7);
   });
@@ -220,11 +220,13 @@ describe("ReviewService idempotency", () => {
       id: 8,
       reviewStatus: ReviewRunStatus.FAILED,
       resultCommentId: 321,
+      triggerCommentId: 99,
     });
 
-    await expect(service.findDuplicateStatus("repo:1:commit")).resolves.toBe(
-      ReviewRunStatus.FAILED,
-    );
+    await expect(service.findDuplicateRun("repo:1:commit")).resolves.toEqual({
+      reviewStatus: ReviewRunStatus.FAILED,
+      triggerCommentId: 99,
+    });
 
     expect(mockRepository.delete).not.toHaveBeenCalled();
   });
@@ -236,9 +238,10 @@ describe("ReviewService idempotency", () => {
       resultCommentId: null,
     });
 
-    await expect(service.findDuplicateStatus("repo:1:commit")).resolves.toBe(
-      ReviewRunStatus.PUBLISHING,
-    );
+    await expect(service.findDuplicateRun("repo:1:commit")).resolves.toEqual({
+      reviewStatus: ReviewRunStatus.PUBLISHING,
+      triggerCommentId: null,
+    });
 
     expect(mockRepository.delete).not.toHaveBeenCalled();
   });
