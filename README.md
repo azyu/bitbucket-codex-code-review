@@ -184,6 +184,7 @@ DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path
 > [!NOTE]
 > `auto`/`both` 모드에서 `pullrequest:updated` 이벤트도 처리됩니다. 동일 commit hash에 대한 중복 리뷰는 idempotency key로 자동 방지됩니다.
 > 동일 commit을 다시 리뷰하려면 트리거 모드와 관계없이 PR 댓글에 `@codex --force`를 입력합니다. 댓글 ID를 기준으로 웹훅 재전송은 중복 방지됩니다.
+> 중복으로 걸러진 `@codex` 멘션에는 이유(코드 변경 없음 / 리뷰 진행 중)를 답글로 남깁니다. 자동 트리거는 답글 없이 조용히 무시합니다.
 >
 > 이번 리뷰에만 다른 모델을 쓰려면 `@codex --model:gpt-6-astra`처럼 지정합니다(`--model=`, `--model ` 형식도 동일). 지정하지 않으면 대시보드의 repository → global → 코드 기본값 순서로 해석합니다.
 

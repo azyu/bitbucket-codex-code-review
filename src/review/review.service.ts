@@ -161,14 +161,20 @@ export class ReviewService {
     return saved;
   }
 
-  /** idempotency key로 중복 확인 (게시되지 않은 FAILED만 재시도 허용) */
-  async existsByIdempotencyKey(idempotencyKey: string): Promise<boolean> {
+  /**
+   * idempotency key로 중복 확인 (게시되지 않은 FAILED만 재시도 허용).
+   * boolean이 아니라 기존 run의 상태를 돌려주는 이유: 웹훅 경로가 "이미 리뷰된
+   * 커밋"과 "리뷰가 아직 도는 중"을 구분해 안내해야 하고, 그 판정 근거는 상태뿐이다.
+   */
+  async findDuplicateStatus(
+    idempotencyKey: string,
+  ): Promise<ReviewRunStatus | null> {
     const existing = await this.reviewRunRepository.findOne({
       where: { idempotencyKey },
       select: ["id", "reviewStatus", "resultCommentId"],
     });
 
-    if (!existing) return false;
+    if (!existing) return null;
 
     // 게시 증거가 없는 FAILED만 삭제해 재시도를 허용한다.
     if (
@@ -179,10 +185,10 @@ export class ReviewService {
       this.logger.log(
         `Removed unpublished failed review run (id=${existing.id}) for retry: ${idempotencyKey}`,
       );
-      return false;
+      return null;
     }
 
-    return true;
+    return existing.reviewStatus;
   }
 
   /** 리뷰 상태 업데이트 */

@@ -32,6 +32,14 @@ import {
   type IReviewSettingsSnapshot,
 } from "../settings/runtime-settings.types";
 
+/** 게시가 끝나지 않은 상태 — 같은 커밋 재멘션에 "진행 중"으로 답해야 하는 범위. */
+const IN_FLIGHT_STATUSES: ReadonlyArray<ReviewRunStatus> = [
+  ReviewRunStatus.QUEUED,
+  ReviewRunStatus.PREPARING,
+  ReviewRunStatus.REVIEWING,
+  ReviewRunStatus.PUBLISHING,
+];
+
 @Controller("webhooks")
 export class WebhookController {
   private readonly logger = new ServiceLogger(WebhookController.name);
@@ -119,7 +127,7 @@ export class WebhookController {
       await this.runtimeSettings.resolveJobCredentials(prPayload)
     ).bitbucket;
 
-    const result = await this.enqueueReview(
+    const { duplicateStatus, ...result } = await this.enqueueReview(
       prPayload,
       TriggerType.MENTION,
       body.comment.id,
@@ -132,6 +140,17 @@ export class WebhookController {
         prPayload,
         body.comment.id,
         settings,
+        credentials,
+      );
+    } else if (duplicateStatus && !forceReview) {
+      // 멘션에만 답한다. pullrequest:updated는 제목/리뷰어 변경에도 같은 head
+      // commit으로 날아오므로 AUTO 경로에서 같은 안내를 달면 PR마다 잡음이 쌓인다.
+      // --force는 key가 댓글 단위라 중복 = 그 댓글의 웹훅 재전송뿐이다. 여기에
+      // "--force를 쓰세요"라고 답하면 --force 댓글에 --force를 권하는 꼴이 된다.
+      this.postDuplicateReply(
+        prPayload,
+        body.comment.id,
+        duplicateStatus,
         credentials,
       );
     }
@@ -154,13 +173,14 @@ export class WebhookController {
       await this.runtimeSettings.resolveJobCredentials(prPayload)
     ).bitbucket;
 
-    const result = await this.enqueueReview(
-      prPayload,
-      TriggerType.AUTO,
-      undefined,
-      false,
-      settings,
-    );
+    const { duplicateStatus: _duplicateStatus, ...result } =
+      await this.enqueueReview(
+        prPayload,
+        TriggerType.AUTO,
+        undefined,
+        false,
+        settings,
+      );
 
     if (result.accepted) {
       this.postInProgressComment(prPayload, settings, credentials);
@@ -176,7 +196,11 @@ export class WebhookController {
     triggerCommentId: number | undefined,
     forceReview: boolean,
     settings: IReviewSettingsSnapshot,
-  ): Promise<{ accepted: boolean; reason?: string }> {
+  ): Promise<{
+    accepted: boolean;
+    reason?: string;
+    duplicateStatus?: ReviewRunStatus;
+  }> {
     const legacyBaseKey = `${prPayload.repositorySlug}:${prPayload.pullRequestId}:${prPayload.headCommitHash}`;
     const baseKey = `${prPayload.workspaceSlug}:${legacyBaseKey}`;
     const idempotencyKey =
@@ -190,11 +214,11 @@ export class WebhookController {
         : legacyBaseKey;
     const legacyEncodedJobId = `review-${Buffer.from(legacyKey).toString("base64url")}`;
 
-    const isDuplicate =
-      await this.reviewService.existsByIdempotencyKey(idempotencyKey);
-    if (isDuplicate) {
+    const duplicateStatus =
+      await this.reviewService.findDuplicateStatus(idempotencyKey);
+    if (duplicateStatus) {
       this.logger.log(`Duplicate review request skipped: ${idempotencyKey}`);
-      return { accepted: false, reason: "Duplicate request" };
+      return { accepted: false, reason: "Duplicate request", duplicateStatus };
     }
 
     // 새 ID와 전환 전 idempotencyKey ID를 모두 정리해 rolling deploy 중 재큐잉을
@@ -244,7 +268,7 @@ export class WebhookController {
     };
 
     // 등록이 실패하면 run을 FAILED로 남긴다. 게시 증거 없는 FAILED는
-    // existsByIdempotencyKey가 지우고 재시도를 허용하므로, 이 마킹이 없으면 방금 만든
+    // findDuplicateStatus가 지우고 재시도를 허용하므로, 이 마킹이 없으면 방금 만든
     // queued row가 Bitbucket 재시도까지 duplicate로 삼켜 PR이 무응답으로 남는다.
     try {
       await this.reviewQueue.add("review", jobData, {
@@ -276,6 +300,42 @@ export class WebhookController {
       ? `\n- Reasoning: ${settings.reasoningEffort}`
       : "";
     return `⏳ Summary & Code Review 진행 중...\n\n- Model: ${settings.model}${reasoningLine}`;
+  }
+
+  private buildDuplicateMessage(
+    duplicateStatus: ReviewRunStatus,
+    headCommitHash: string,
+  ): string {
+    const shortHash = headCommitHash.substring(0, 7);
+    if (IN_FLIGHT_STATUSES.includes(duplicateStatus)) {
+      return `⏳ 이 커밋(\`${shortHash}\`)에 대한 리뷰가 이미 진행 중입니다.`;
+    }
+    return `ℹ️ 마지막 리뷰 이후 코드 변경이 없습니다 (commit \`${shortHash}\`).\n\n같은 커밋을 다시 리뷰하려면 \`@codex --force\` 를 남겨주세요.`;
+  }
+
+  /** Fire-and-forget: 중복 트리거에 이유를 남긴다 (무응답이 고장으로 보이는 것을 막는다) */
+  private postDuplicateReply(
+    prPayload: IWebhookPrPayload,
+    parentCommentId: number,
+    duplicateStatus: ReviewRunStatus,
+    credentials: IBitbucketCredentialSnapshot,
+  ): void {
+    this.bitbucketService
+      .replyToComment({
+        workspace: prPayload.workspaceSlug,
+        repoSlug: prPayload.repositorySlug,
+        pullRequestId: prPayload.pullRequestId,
+        parentCommentId,
+        body: this.buildDuplicateMessage(
+          duplicateStatus,
+          prPayload.headCommitHash,
+        ),
+      }, credentials)
+      .catch((err) => {
+        this.logger.error(
+          `Failed to post duplicate reply: ${(err as Error).message}`,
+        );
+      });
   }
 
   /** Fire-and-forget: reply to trigger comment */
