@@ -291,6 +291,25 @@ describe("WebhookController", () => {
     );
   });
 
+  it("gates the --force recovery on evidence that publishing is stuck", async () => {
+    reviewService.findDuplicateStatus.mockResolvedValue(
+      ReviewRunStatus.PUBLISHING,
+    );
+
+    await controller.handleBitbucketWebhook(buildCommentWebhook(), "pullrequest:comment_created", verifiedIdentity);
+
+    // PUBLISHING은 claimStatus의 from-set 밖이라 재시도로 회수되지 않으므로 복구 수단을
+    // 알려야 한다. 다만 살아 있는 publishResults는 supersede로 멈추지 않아 무조건 권하면
+    // 중복 게시를 부른다 — 결과 댓글 유무라는 증거를 먼저 확인하게 만든다.
+    const [{ body }] = bitbucketService.replyToComment.mock
+      .calls[0] as [{ body: string }];
+    expect(body).toContain("게시하는 중입니다");
+    expect(body).toContain("결과 댓글이 이미 올라와 있으면 기다려 주세요");
+    expect(body).toContain("두 번 게시될 수 있습니다");
+    expect(body).toContain("`@codex --force`");
+    expect(new TriggerService().isForceReview(body)).toBe(false);
+  });
+
   it("stays silent when a --force mention webhook is redelivered", async () => {
     triggerService.isForceReview.mockReturnValue(true);
     reviewService.findDuplicateStatus.mockResolvedValue(

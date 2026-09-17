@@ -32,12 +32,16 @@ import {
   type IReviewSettingsSnapshot,
 } from "../settings/runtime-settings.types";
 
-/** 게시가 끝나지 않은 상태 — 같은 커밋 재멘션에 "진행 중"으로 답해야 하는 범위. */
+/**
+ * 아직 게시에 들어가지 않은 진행 상태 — 같은 커밋 재멘션에 "진행 중"으로 답하는 범위.
+ * PUBLISHING은 회수 불가라 안내가 달라야 하므로 제외한다(buildDuplicateMessage 참고).
+ * review.service.ts의 CLAIMABLE_BEFORE_PUBLISH와 같은 집합이지만, 게시 권한 판정과
+ * 사용자 안내는 함께 움직여야 할 이유가 없어 각자 유지한다.
+ */
 const IN_FLIGHT_STATUSES: ReadonlyArray<ReviewRunStatus> = [
   ReviewRunStatus.QUEUED,
   ReviewRunStatus.PREPARING,
   ReviewRunStatus.REVIEWING,
-  ReviewRunStatus.PUBLISHING,
 ];
 
 @Controller("webhooks")
@@ -307,6 +311,14 @@ export class WebhookController {
     headCommitHash: string,
   ): string {
     const shortHash = headCommitHash.substring(0, 7);
+    // 게시 클레임 직후 죽은 런은 어떤 재시도로도 다시 클레임되지 않고(review.service.ts
+    // claimStatus), --force가 만든 새 런의 supersede만이 그 행을 풀어준다. 다만 supersede는
+    // DB 행만 바꿀 뿐 살아 있는 publishResults를 멈추지 못하고 markCompleted가 SUPERSEDED를
+    // 덮어쓰므로, 아직 게시 중인 런에 --force를 걸면 리뷰가 두 번 올라간다. 그래서 무조건
+    // 권하지 않고, 죽은 런과 살아 있는 런을 가르는 관찰 가능한 증거(결과 댓글 유무)를 준다.
+    if (duplicateStatus === ReviewRunStatus.PUBLISHING) {
+      return `⏳ 이 커밋(\`${shortHash}\`)의 리뷰 결과를 게시하는 중입니다.\n\n결과 댓글이 이미 올라와 있으면 기다려 주세요 — 지금 \`@codex --force\` 를 쓰면 리뷰가 두 번 게시될 수 있습니다. 몇 분이 지나도 결과 댓글이 없으면 게시가 멈춘 것이므로 그때 \`@codex --force\` 로 복구하세요.`;
+    }
     if (IN_FLIGHT_STATUSES.includes(duplicateStatus)) {
       return `⏳ 이 커밋(\`${shortHash}\`)에 대한 리뷰가 이미 진행 중입니다.`;
     }
