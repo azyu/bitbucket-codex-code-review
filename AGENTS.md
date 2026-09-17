@@ -59,6 +59,14 @@ Renovate PR의 CI green은 타입 호환성만 증명한다. 테스트가 실제
 
 peer dependency가 optional로 강등되는 변경은 lockfile이 이전 트리의 잔재를 유지해 정상으로 보인다. `package.json`만 빈 디렉터리에 복사해 `pnpm install --lockfile-only`로 재해석하고 패키지가 살아남는지 확인할 것 (bullmq v6 → ioredis 유실, PR #90).
 
+CI가 빌드하는 이미지 레이어는 `--target deps`까지다. build·runtime stage에서만 깨지는 변경은 CI 전 항목 green으로 main에 들어가고 publish 잡에서야 터진다. Dockerfile이나 툴체인을 건드렸으면 `docker build .`를 직접 한 번 돌릴 것.
+
+pnpm 메이저를 올릴 때는 corepack부터 확인할 것. pnpm은 npm 패키지의 `bin` 매핑을 메이저마다 바꿨고(10 `bin/pnpm.cjs` → 11 `bin/pnpm.mjs` → 12 네이티브 런처), `node:*-alpine`에 번들된 corepack이 새 레이아웃을 모르면 `pnpm install`이 시작조차 못 하고 `MODULE_NOT_FOUND`로 죽는다. `pnpm/action-setup`은 멀쩡히 동작하므로 CI는 전부 통과한다 — 이미지만 깨진다(PR #112 → #114). 확인은 `docker run --rm node:24-alpine sh -c 'corepack enable && corepack prepare pnpm@<버전> --activate && pnpm -v'`.
+
+`minimumReleaseAge`는 pnpm·Renovate 양쪽에 2일로 맞춰져 있다. lockfile에 그보다 어린 항목이 있으면 경고가 아니라 install 실패다. 선언 범위가 어린 버전만 허용하면 `pnpm-workspace.yaml`의 `minimumReleaseAgeExclude`에 버전까지 박아 넣어야 하고, 해당 패키지가 다음에 올라가면 그 줄은 죽은 항목이 되므로 같이 지울 것.
+
+`package.json`의 `pnpm` 필드는 pnpm 12부터 읽히지 않는다. `overrides`·`allowBuilds` 같은 설정은 `pnpm-workspace.yaml`에만 있다. 경고 한 줄만 찍고 install은 성공하므로 무시된 것을 눈치채기 어렵다.
+
 ## 프로젝트 개요
 
 Bitbucket PR webhook → Codex CLI 코드 리뷰 → PR 코멘트 게시하는 NestJS 워커 서비스.
