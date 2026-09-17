@@ -34,9 +34,16 @@ jobs:
       - name: Test
         run: pnpm test
 
-      # Gates the automerged Renovate bump of the Dockerfile pin: CI never
-      # builds the image, so a Codex CLI that fails to run would otherwise
-      # reach main unverified and only break the publish job afterwards.
+      # The pnpm 12 bump (#112) passed every check here and still broke the
+      # image: corepack in node:24-alpine could not launch pnpm 12 at all.
+      # The deps stage is the cheapest layer that exercises corepack and the
+      # workspace install; the later stages are covered by the steps above.
+      - name: Build Docker deps stage
+        run: docker build --target deps .
+
+      # Gates the automerged Renovate bump of the Dockerfile pin: the step
+      # above stops at the deps stage, so a Codex CLI that fails to run would
+      # otherwise reach main unverified and only break the publish job.
       - name: Smoke-test pinned Codex CLI
         run: |
           version=$(sed -n 's|.*@openai/codex@\([0-9.]*\).*|\1|p' Dockerfile)

@@ -2,7 +2,11 @@ FROM node:24-alpine AS deps
 
 WORKDIR /app
 
-RUN corepack enable
+# node:24-alpine bundles corepack 0.34.0, which still resolves pnpm through
+# bin/pnpm.cjs. pnpm 12 ships a native launcher instead, so that corepack dies
+# with MODULE_NOT_FOUND before any install runs. 0.36.0 downloads the binary.
+# renovate: datasource=npm depName=corepack
+RUN npm install -g corepack@0.36.0 && corepack enable
 
 # pnpm-workspace.yaml plus every member's package.json: --frozen-lockfile
 # rejects a workspace lockfile whose importers are not all on disk.
@@ -15,7 +19,7 @@ FROM node:24-alpine AS build
 
 WORKDIR /app
 
-RUN corepack enable
+RUN npm install -g corepack@0.36.0 && corepack enable
 
 COPY --from=deps /app/node_modules ./node_modules
 # Workspace members get their own node_modules of symlinks into the store.
@@ -34,7 +38,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN corepack enable
+RUN npm install -g corepack@0.36.0 && corepack enable
 # tini: PID 1 init that reaps orphaned grandchildren (codex-linux-sandbox)
 # spawned by the codex CLI. Without it Node leaks zombies until cgroup
 # pids.max is hit and new threads fail to spawn (EAGAIN).
