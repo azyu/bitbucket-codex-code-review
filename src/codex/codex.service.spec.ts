@@ -625,6 +625,42 @@ describe("CodexService", () => {
       expect(JSON.stringify(status)).not.toContain("sk-leaked");
     });
 
+    // exp가 유한해도 Date 범위를 넘으면 toISOString()이 던진다. 던지면 이
+    // 라우트가 약속한 503 본문 대신 Nest 기본 500이 나가서, 폴러가 무엇이
+    // 잘못됐는지 읽을 수 없다.
+    it.each([1e20, -1e20, 8_640_000_000_001])(
+      "maps an out-of-range exp (%p) to bad_jwt instead of throwing",
+      async (exp) => {
+        readFileSpy.mockResolvedValue(
+          JSON.stringify({
+            auth_mode: "chatgpt",
+            tokens: { access_token: token({ exp, iat: 1 }) },
+          }),
+        );
+
+        const status = await createService().getAuthStatus();
+
+        expect(status).toMatchObject({ status: "unknown", reason: "bad_jwt" });
+        expect(status.expiresAt).toBeNull();
+      },
+    );
+
+    it("keeps an out-of-range iat from breaking an otherwise valid session", async () => {
+      const exp = nowSeconds() + 3600;
+      readFileSpy.mockResolvedValue(
+        JSON.stringify({
+          auth_mode: "chatgpt",
+          tokens: { access_token: token({ exp, iat: 1e20 }) },
+        }),
+      );
+
+      const status = await createService().getAuthStatus();
+
+      expect(status.status).toBe("ok");
+      expect(status.issuedAt).toBeNull();
+      expect(status.expiresAt).toBe(new Date(exp * 1000).toISOString());
+    });
+
     it("reads auth.json from CODEX_HOME when set", async () => {
       const previous = process.env["CODEX_HOME"];
       process.env["CODEX_HOME"] = "/root/.codex";

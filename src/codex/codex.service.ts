@@ -62,6 +62,24 @@ function toIsoOrNull(value: unknown): string | null {
   return Number.isNaN(ms) ? null : new Date(ms).toISOString();
 }
 
+/**
+ * Date가 표현할 수 있는 최대 시각은 epoch ±8.64e15ms다. 초로 바꾸면 이 값이고,
+ * 넘어서면 `toIso`의 `toISOString()`이 RangeError를 던진다.
+ *
+ * isFinite만으로는 부족하다 — 1e20은 유한하지만 Date로는 표현되지 않는다.
+ * 그대로 통과시키면 getAuthStatus가 예외를 던지고, 이 라우트가 약속한
+ * `unknown`/503 대신 Nest 기본 필터의 500이 나가 폴러가 원인을 못 읽는다.
+ */
+const MAX_EPOCH_SECONDS = 8_640_000_000_000;
+
+function isEpochSeconds(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    Math.abs(value) <= MAX_EPOCH_SECONDS
+  );
+}
+
 /** JWT payload에서 exp/iat만 꺼낸다. 서명은 검증하지 않는다 — 발급자는 codex다. */
 function decodeJwtClaims(
   token: string,
@@ -73,9 +91,9 @@ function decodeJwtClaims(
       Buffer.from(payload, "base64url").toString("utf-8"),
     ) as Record<string, unknown>;
     const exp = claims["exp"];
-    if (typeof exp !== "number" || !Number.isFinite(exp)) return null;
+    if (!isEpochSeconds(exp)) return null;
     const iat = claims["iat"];
-    return { exp, iat: typeof iat === "number" && Number.isFinite(iat) ? iat : null };
+    return { exp, iat: isEpochSeconds(iat) ? iat : null };
   } catch {
     return null;
   }
