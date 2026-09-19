@@ -27,8 +27,13 @@ async function bootstrap(): Promise<string> {
   // Configure HTTP server
   const globalPrefix = "api";
   // The dashboard is served by static middleware, which sits outside Nest's
-  // router and so needs no exclude entry — /health is the only excluded route.
-  app.setGlobalPrefix(globalPrefix, { exclude: ["/health"] });
+  // router and so needs no exclude entry — the health routes are the only
+  // excluded ones. /health/codex-auth is listed separately because exclude
+  // matches exact paths, not prefixes: without its own entry it would be
+  // served at /api/health/codex-auth.
+  app.setGlobalPrefix(globalPrefix, {
+    exclude: ["/health", "/health/codex-auth"],
+  });
 
   const defaultHelmet = helmet();
   const dashboardHelmet = helmet({

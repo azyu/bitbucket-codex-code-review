@@ -4,7 +4,11 @@ import { ServiceLogger } from "@lib/logger";
 import { spawn } from "child_process";
 import { readFile, rm } from "fs/promises";
 import { join } from "path";
-import { ICodexReviewResult } from "./interfaces/codex.interfaces";
+import { homedir } from "os";
+import {
+  ICodexAuthStatus,
+  ICodexReviewResult,
+} from "./interfaces/codex.interfaces";
 import {
   ICodexUsageMetrics,
   parseCodexErrorLine,
@@ -19,6 +23,8 @@ const MAX_STDERR_BYTES = 64 * 1024;
 const CAPACITY_ERROR_MESSAGE =
   "Selected model is at capacity. Please try a different model.";
 const TIMEOUT_EXIT_CODE = 124;
+const AUTH_FILE_NAME = "auth.json";
+const CHATGPT_AUTH_MODE = "chatgpt";
 const CODEX_ENV_ALLOWLIST = [
   "PATH",
   "HOME",
@@ -38,6 +44,29 @@ const CODEX_ENV_ALLOWLIST = [
   "NODE_EXTRA_CA_CERTS",
   "CODEX_HOME",
 ] as const;
+
+function toIso(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toISOString();
+}
+
+/** JWT payload에서 exp/iat만 꺼낸다. 서명은 검증하지 않는다 — 발급자는 codex다. */
+function decodeJwtClaims(
+  token: string,
+): { exp: number; iat: number | null } | null {
+  const payload = token.split(".")[1];
+  if (!payload) return null;
+  try {
+    const claims = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf-8"),
+    ) as Record<string, unknown>;
+    const exp = claims["exp"];
+    if (typeof exp !== "number" || !Number.isFinite(exp)) return null;
+    const iat = claims["iat"];
+    return { exp, iat: typeof iat === "number" && Number.isFinite(iat) ? iat : null };
+  } catch {
+    return null;
+  }
+}
 
 interface ISpawnResult {
   readonly code: number;
@@ -189,6 +218,94 @@ export class CodexService {
         });
       });
     });
+  }
+
+  private authFilePath(): string {
+    const home = process.env["CODEX_HOME"] || join(homedir(), ".codex");
+    return join(home, AUTH_FILE_NAME);
+  }
+
+  /**
+   * codex의 ChatGPT 세션 상태를 auth.json만 읽어 판정한다. 네트워크 호출 없음.
+   *
+   * ⚠️ **access_token의 만료만 본다. refresh_token이 살아 있는지는 알 수 없다.**
+   * codex는 access_token이 유효한 동안 refresh 엔드포인트를 건드리지 않으므로,
+   * 무효화된 refresh_token은 access_token이 만료될 때까지(최대 10일) 증상이 없다.
+   * 그 구간을 덮으려면 주기적으로 실제 `codex exec`을 돌리는 수밖에 없다.
+   *
+   * 반대 방향의 한계도 있다 — 리뷰가 한동안 없으면 갱신이 일어나지 않아 만료로
+   * 보이지만, 다음 리뷰가 정상 갱신할 수도 있다. `expired`는 "고장"이 아니라
+   * "사람이 확인할 것"이다.
+   */
+  async getAuthStatus(): Promise<ICodexAuthStatus> {
+    const unknown = (
+      reason: NonNullable<ICodexAuthStatus["reason"]>,
+      authMode: string | null = null,
+    ): ICodexAuthStatus => ({
+      status: "unknown",
+      reason,
+      authMode,
+      issuedAt: null,
+      expiresAt: null,
+      expiresInSeconds: null,
+      lastRefresh: null,
+    });
+
+    let raw: string;
+    try {
+      raw = await readFile(this.authFilePath(), "utf-8");
+    } catch {
+      return unknown("missing");
+    }
+
+    // 파서 에러 메시지는 파일 내용을 그대로 인용할 수 있어 밖으로 내보내지 않는다.
+    let doc: Record<string, unknown>;
+    try {
+      doc = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return unknown("malformed");
+    }
+    if (typeof doc !== "object" || doc === null) return unknown("malformed");
+
+    const authMode = typeof doc["auth_mode"] === "string" ? doc["auth_mode"] : null;
+    const lastRefresh =
+      typeof doc["last_refresh"] === "string" ? doc["last_refresh"] : null;
+
+    if (authMode !== CHATGPT_AUTH_MODE) {
+      // API key 모드에는 만료가 없다 — 이 엔드포인트가 답할 수 있는 질문이 아니다.
+      return {
+        status: "unsupported_mode",
+        reason: null,
+        authMode,
+        issuedAt: null,
+        expiresAt: null,
+        expiresInSeconds: null,
+        lastRefresh,
+      };
+    }
+
+    const tokens = doc["tokens"];
+    const accessToken =
+      typeof tokens === "object" && tokens !== null
+        ? (tokens as Record<string, unknown>)["access_token"]
+        : undefined;
+    if (typeof accessToken !== "string" || accessToken.length === 0) {
+      return unknown("no_token", authMode);
+    }
+
+    const claims = decodeJwtClaims(accessToken);
+    if (!claims) return unknown("bad_jwt", authMode);
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    return {
+      status: claims.exp > nowSeconds ? "ok" : "expired",
+      reason: null,
+      authMode,
+      issuedAt: claims.iat === null ? null : toIso(claims.iat),
+      expiresAt: toIso(claims.exp),
+      expiresInSeconds: claims.exp - nowSeconds,
+      lastRefresh,
+    };
   }
 
   /**
