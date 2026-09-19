@@ -49,6 +49,19 @@ function toIso(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toISOString();
 }
 
+/**
+ * auth.json에서 읽은 시각 문자열을 ISO로 정규화한다. 파싱되지 않으면 null.
+ *
+ * 응답의 다른 시각 필드는 JWT의 숫자 claim에서 만들어지는데 이것만 파일의
+ * 문자열이었다. 공개 경로로 파일 내용을 그대로 통과시키지 않도록, 값이 아니라
+ * 모양을 강제한다.
+ */
+function toIsoOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+}
+
 /** JWT payload에서 exp/iat만 꺼낸다. 서명은 검증하지 않는다 — 발급자는 codex다. */
 function decodeJwtClaims(
   token: string,
@@ -240,7 +253,7 @@ export class CodexService {
   async getAuthStatus(): Promise<ICodexAuthStatus> {
     const unknown = (
       reason: NonNullable<ICodexAuthStatus["reason"]>,
-      authMode: string | null = null,
+      authMode: ICodexAuthStatus["authMode"] = null,
     ): ICodexAuthStatus => ({
       status: "unknown",
       reason,
@@ -267,9 +280,12 @@ export class CodexService {
     }
     if (typeof doc !== "object" || doc === null) return unknown("malformed");
 
-    const authMode = typeof doc["auth_mode"] === "string" ? doc["auth_mode"] : null;
-    const lastRefresh =
-      typeof doc["last_refresh"] === "string" ? doc["last_refresh"] : null;
+    // 우리가 판정할 수 있는 모드만 되돌려준다. 다른 값이면 status가
+    // unsupported_mode로 이미 말하고 있고, 어떤 모드인지까지 공개 경로에 실을
+    // 이유는 없다 — auth.json의 임의 문자열을 그대로 내보내는 통로가 된다.
+    const authMode =
+      doc["auth_mode"] === CHATGPT_AUTH_MODE ? CHATGPT_AUTH_MODE : null;
+    const lastRefresh = toIsoOrNull(doc["last_refresh"]);
 
     if (authMode !== CHATGPT_AUTH_MODE) {
       // API key 모드에는 만료가 없다 — 이 엔드포인트가 답할 수 있는 질문이 아니다.

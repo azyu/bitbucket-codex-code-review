@@ -536,7 +536,7 @@ describe("CodexService", () => {
       expect(status.authMode).toBe("chatgpt");
       expect(status.expiresAt).toBe(new Date(exp * 1000).toISOString());
       expect(status.expiresInSeconds).toBeGreaterThan(3500);
-      expect(status.lastRefresh).toBe("2026-09-05T16:03:55.571058Z");
+      expect(status.lastRefresh).toBe("2026-09-05T16:03:55.571Z");
       expect(status.reason).toBeNull();
     });
 
@@ -589,7 +589,40 @@ describe("CodexService", () => {
       const status = await createService().getAuthStatus();
 
       expect(status.status).toBe("unsupported_mode");
+      expect(status.authMode).toBeNull();
       expect(JSON.stringify(status)).not.toContain("sk-secret");
+    });
+
+    // auth_mode와 last_refresh는 파일에서 온 문자열이라, 값을 그대로 실어
+    // 보내면 이 공개 경로가 auth.json의 내용을 읽는 창구가 된다. 모양을
+    // 강제해 그 통로를 막는다.
+    it("never passes raw auth.json strings through to the response", async () => {
+      const exp = nowSeconds() + 3600;
+      readFileSpy.mockResolvedValue(
+        JSON.stringify({
+          auth_mode: "chatgpt",
+          last_refresh: "sk-leaked-via-last-refresh",
+          tokens: { access_token: token({ exp, iat: exp - 864000 }) },
+        }),
+      );
+
+      const status = await createService().getAuthStatus();
+
+      expect(status.status).toBe("ok");
+      expect(status.lastRefresh).toBeNull();
+      expect(JSON.stringify(status)).not.toContain("sk-leaked");
+    });
+
+    it("drops an unrecognized auth_mode instead of echoing it", async () => {
+      readFileSpy.mockResolvedValue(
+        JSON.stringify({ auth_mode: "sk-leaked-via-auth-mode" }),
+      );
+
+      const status = await createService().getAuthStatus();
+
+      expect(status.status).toBe("unsupported_mode");
+      expect(status.authMode).toBeNull();
+      expect(JSON.stringify(status)).not.toContain("sk-leaked");
     });
 
     it("reads auth.json from CODEX_HOME when set", async () => {

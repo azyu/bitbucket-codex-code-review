@@ -24,12 +24,15 @@ export interface ICodexAuthStatus {
   readonly status: "ok" | "expired" | "unsupported_mode" | "unknown";
   /** status가 unknown일 때만. 파일에서 온 문자열이 아니라 고정 코드다 */
   readonly reason: "missing" | "malformed" | "no_token" | "bad_jwt" | null;
-  /** auth.json의 auth_mode. chatgpt가 아니면 만료 판정 대상이 아니다 */
-  readonly authMode: string | null;
+  /**
+   * chatgpt 모드일 때만 값이 있다. 다른 모드는 null이고 status가
+   * unsupported_mode로 말한다 — auth.json의 문자열을 그대로 통과시키지 않는다.
+   */
+  readonly authMode: "chatgpt" | null;
   readonly issuedAt: string | null;
   readonly expiresAt: string | null;
   /** 음수면 이미 만료됐다. 임계값 알람을 걸 곳이다 */
   readonly expiresInSeconds: number | null;
-  /** codex가 마지막으로 토큰을 갱신한 시각 */
+  /** codex가 마지막으로 토큰을 갱신한 시각. ISO로 정규화되며, 못 읽으면 null */
   readonly lastRefresh: string | null;
 }
