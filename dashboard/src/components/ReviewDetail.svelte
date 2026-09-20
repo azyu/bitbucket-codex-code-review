@@ -1,6 +1,6 @@
 <script lang="ts">
   import { absoluteTime, count, duration, shortSha, tokens } from "../lib/format";
-  import { t } from "../lib/i18n.svelte";
+  import { resolve, t } from "../lib/i18n.svelte";
   import { store } from "../lib/store.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
@@ -36,7 +36,7 @@
     {#if store.detailLoading}
       <p class="dim">{t("common.loading")}</p>
     {:else if store.detailError !== null}
-      <p class="error" role="alert">{store.detailError}</p>
+      <p class="error" role="alert">{resolve(store.detailError)}</p>
     {:else if detail !== null}
       <dl>
         <div><dt>{t("detail.runId")}</dt><dd class="mono">{detail.id}</dd></div>

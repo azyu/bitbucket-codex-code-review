@@ -4,7 +4,7 @@
   import Overview from "./components/Overview.svelte";
   import ReviewDetail from "./components/ReviewDetail.svelte";
   import Settings from "./components/Settings.svelte";
-  import { t } from "./lib/i18n.svelte";
+  import { resolve, t } from "./lib/i18n.svelte";
   import { store } from "./lib/store.svelte";
   import { applyStoredTheme, setTheme, type Theme } from "./lib/theme";
 
@@ -47,7 +47,7 @@
 
   <main>
     {#if store.loadError !== null}
-      <p class="banner" role="alert">{store.loadError}</p>
+      <p class="banner" role="alert">{resolve(store.loadError)}</p>
     {/if}
 
     {#if store.view === "overview"}

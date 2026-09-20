@@ -6,7 +6,7 @@
     REPOSITORY_VALUE_KEYS,
   } from "../lib/fields";
   import { absoluteTime } from "../lib/format";
-  import { t } from "../lib/i18n.svelte";
+  import { resolve, t } from "../lib/i18n.svelte";
   import { store } from "../lib/store.svelte";
   import SecretField from "./SecretField.svelte";
   import ValueField from "./ValueField.svelte";
@@ -50,7 +50,7 @@
 
     {#if store.globalNotice !== null}
       <p class="notice" data-kind={store.globalNotice.kind} role="status">
-        {store.globalNotice.text}
+        {resolve(store.globalNotice.text)}
       </p>
     {/if}
 
@@ -129,7 +129,7 @@
 
     {#if store.repositoryNotice !== null}
       <p class="notice" data-kind={store.repositoryNotice.kind} role="status">
-        {store.repositoryNotice.text}
+        {resolve(store.repositoryNotice.text)}
       </p>
     {/if}
 

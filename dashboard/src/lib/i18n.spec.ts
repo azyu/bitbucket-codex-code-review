@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getLocale, setLocale, t } from "./i18n.svelte";
+import { getLocale, resolve, setLocale, t } from "./i18n.svelte";
 
 afterEach(() => {
   setLocale("ko");
@@ -37,6 +37,23 @@ describe("i18n", () => {
   // A gap has to be visible in the UI, not rendered as an empty label.
   it("falls back to English, then to the key itself", () => {
     expect(t("no.such.key")).toBe("no.such.key");
+  });
+
+  // t() resolves against the locale live at call time, so a message kept as
+  // its result would stay in the language it was written in while the rest of
+  // the screen switches. Storing the key is what makes it follow.
+  it("re-resolves a stored message after a switch", () => {
+    const stored = { key: "error.keyRequired" };
+
+    expect(resolve(stored)).toBe("대시보드 키를 입력하세요.");
+    setLocale("en");
+    expect(resolve(stored)).toBe("Enter the dashboard key.");
+  });
+
+  it("passes a message it did not author through verbatim", () => {
+    // A server message has no key to translate to, so it is shown as received.
+    expect(resolve("500 Internal Server Error")).toBe("500 Internal Server Error");
+    expect(resolve(null)).toBeNull();
   });
 
   it("still switches the language when writing storage throws", () => {

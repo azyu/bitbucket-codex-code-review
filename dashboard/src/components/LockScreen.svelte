@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t } from "../lib/i18n.svelte";
+  import { resolve, t } from "../lib/i18n.svelte";
   import LocaleToggle from "./LocaleToggle.svelte";
   import { store } from "../lib/store.svelte";
 
@@ -35,7 +35,7 @@
     />
 
     {#if store.authError !== null}
-      <p class="error" role="alert">{store.authError}</p>
+      <p class="error" role="alert">{resolve(store.authError)}</p>
     {/if}
 
     <button class="primary" type="submit" disabled={store.unlocking}>

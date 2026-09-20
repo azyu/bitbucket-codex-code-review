@@ -73,6 +73,28 @@ describe("invariant 8 — the lock screen is the public shell", () => {
     expect(target.querySelector("h1")?.textContent?.trim()).toBe(
       "Code review operations",
     );
+    // The toggle sits inside the key form, where a button with no explicit
+    // type submits it: switching language must not attempt an unlock.
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // The reviewer's scenario: an error raised in one language must not stay in
+  // it while the rest of the lock screen switches.
+  it("re-translates an error already on screen when the language changes", async () => {
+    target.querySelector<HTMLFormElement>("form")?.requestSubmit();
+    await tick();
+    await tick();
+
+    const error = () => target.querySelector('[role="alert"]')?.textContent?.trim();
+    expect(error()).toBe("대시보드 키를 입력하세요.");
+
+    target
+      .querySelector<HTMLButtonElement>('button[aria-label="언어 전환"]')
+      ?.click();
+    await tick();
+
+    expect(error()).toBe("Enter the dashboard key.");
   });
 
   it("uses a password input, so the key is never rendered as text", () => {

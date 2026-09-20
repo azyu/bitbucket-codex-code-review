@@ -371,3 +371,20 @@ export function t(
     name in params ? String(params[name]) : match,
   );
 }
+
+/**
+ * A message that outlives the render that produced it. `t()` resolves against
+ * the locale that is live when it is called, so a message stored as its result
+ * would keep the language it was written in while the rest of the screen
+ * switches. Our own text is therefore stored as its key and parameters and
+ * resolved at render time; a bare string is text we did not author — a server
+ * message — and is shown verbatim because there is nothing to translate it to.
+ */
+export type Message =
+  | string
+  | { key: string; params?: Record<string, string | number> };
+
+export function resolve(message: Message | null): string | null {
+  if (message === null) return null;
+  return typeof message === "string" ? message : t(message.key, message.params);
+}

@@ -6,7 +6,7 @@ import {
   coerceValue,
   valueToInput,
 } from "./fields";
-import { t } from "./i18n.svelte";
+import type { Message } from "./i18n.svelte";
 import type {
   RecentReview,
   RepoStats,
@@ -46,7 +46,7 @@ export type RepositoryValueDraft = { inherit: boolean; value: string };
 
 export type Notice = {
   kind: "ok" | "error" | "conflict";
-  text: string;
+  text: Message;
 };
 
 export type View = "overview" | "settings";
@@ -81,10 +81,10 @@ function emptyRepositoryDraft() {
   };
 }
 
-function describe(error: unknown): string {
+function describe(error: unknown): Message {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
-  return t("error.request");
+  return { key: "error.request" };
 }
 
 async function readError(response: Response): Promise<string> {
@@ -131,18 +131,18 @@ export class DashboardStore {
 
   locked = $state(true);
   unlocking = $state(false);
-  authError = $state<string | null>(null);
+  authError = $state<Message | null>(null);
 
   view = $state<View>("overview");
   loading = $state(false);
-  loadError = $state<string | null>(null);
+  loadError = $state<Message | null>(null);
 
   repoStats = $state<RepoStats[]>([]);
   recent = $state<RecentReview[]>([]);
   recentLimit = $state(10);
 
   detail = $state<ReviewDetail | null>(null);
-  detailError = $state<string | null>(null);
+  detailError = $state<Message | null>(null);
   detailLoading = $state(false);
 
   settings = $state<SettingsDocument | null>(null);
@@ -196,7 +196,7 @@ export class DashboardStore {
     );
 
     if (response.status === 401) {
-      this.lock(t("error.keyRejected"));
+      this.lock({ key: "error.keyRejected" });
       throw new StaleSessionError();
     }
 
@@ -234,7 +234,7 @@ export class DashboardStore {
    * here, so a rejected key never leaves another view's content on screen.
    * (Invariants 1 and 3.)
    */
-  lock(reason: string | null = null): void {
+  lock(reason: Message | null = null): void {
     this.#key = null;
     this.#session += 1;
     this.#clear();
@@ -262,7 +262,7 @@ export class DashboardStore {
 
   async unlock(key: string): Promise<void> {
     if (key === "") {
-      this.authError = t("error.keyRequired");
+      this.authError = { key: "error.keyRequired" };
       return;
     }
     this.#clear();
@@ -349,7 +349,7 @@ export class DashboardStore {
       const detail = await this.#request<ReviewDetail | null>(`/reviews/${id}`);
       if (generation !== this.#detailRequest) return;
       this.detail = detail;
-      if (detail === null) this.detailError = t("error.reviewNotFound");
+      if (detail === null) this.detailError = { key: "error.reviewNotFound" };
     } catch (error) {
       if (error instanceof StaleSessionError) return;
       if (generation !== this.#detailRequest) return;
@@ -490,7 +490,7 @@ export class DashboardStore {
     if (this.repositoryDraftStale) {
       this.repositoryNotice = {
         kind: "error",
-        text: t("error.repoChanged"),
+        text: { key: "error.repoChanged" },
       };
       return;
     }
@@ -537,7 +537,7 @@ export class DashboardStore {
       this.#applyScope(scope);
       report({
         kind: "ok",
-        text: t("notice.saved", { revision: scope.revision }),
+        text: { key: "notice.saved", params: { revision: scope.revision } },
       });
       // The PATCH answers with the saved scope only, but a repository's secret
       // status is computed against the global secrets, so every stored
@@ -564,11 +564,11 @@ export class DashboardStore {
           reloaded
             ? {
                 kind: "conflict",
-                text: t("notice.conflictReloaded"),
+                text: { key: "notice.conflictReloaded" },
               }
             : {
                 kind: "error",
-                text: t("notice.conflictReloadFailed"),
+                text: { key: "notice.conflictReloadFailed" },
               },
         );
         return;
