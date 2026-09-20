@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tEnum } from "../lib/i18n.svelte";
   import { ReviewRunStatus } from "../../../src/review/review.types";
 
   let { status }: { status: string } = $props();
@@ -16,7 +17,7 @@
   let tone = $derived(TONE[status] ?? "mute");
 </script>
 
-<span class="badge" data-tone={tone}>{status}</span>
+<span class="badge" data-tone={tone}>{tEnum("status", status)}</span>
 
 <style>
   .badge {

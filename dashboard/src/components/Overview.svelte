@@ -1,6 +1,6 @@
 <script lang="ts">
   import { count, duration, percent, relativeTime, shortSha, tokens } from "../lib/format";
-  import { t } from "../lib/i18n.svelte";
+  import { t, tEnum } from "../lib/i18n.svelte";
   import { store } from "../lib/store.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
@@ -225,7 +225,7 @@
               </td>
               <td>#{review.pullRequestId}</td>
               <td class="mono dim">{shortSha(review.headCommitHash)}</td>
-              <td class="dim">{review.triggerType}</td>
+              <td class="dim">{tEnum("trigger", review.triggerType)}</td>
               <td class="dim">
                 {review.codexModel ?? "—"}{review.codexReasoningEffort
                   ? ` / ${review.codexReasoningEffort}`

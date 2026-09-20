@@ -1,6 +1,6 @@
 <script lang="ts">
   import { absoluteTime, count, duration, shortSha, tokens } from "../lib/format";
-  import { resolve, t } from "../lib/i18n.svelte";
+  import { resolve, t, tEnum } from "../lib/i18n.svelte";
   import { store } from "../lib/store.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
@@ -48,7 +48,10 @@
           <dt>{t("detail.updated")}</dt>
           <dd>{absoluteTime(detail.updatedAt)}</dd>
         </div>
-        <div><dt>{t("detail.trigger")}</dt><dd>{detail.triggerType}</dd></div>
+        <div>
+          <dt>{t("detail.trigger")}</dt>
+          <dd>{tEnum("trigger", detail.triggerType)}</dd>
+        </div>
         <div>
           <dt>{t("detail.branch")}</dt>
           <dd class="mono">{detail.headBranch} → {detail.baseBranch}</dd>

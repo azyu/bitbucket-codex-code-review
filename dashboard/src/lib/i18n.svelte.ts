@@ -148,6 +148,16 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
     "field.cloneTimeoutMs": "Git clone 타임아웃",
     "field.hint.ms": "ms",
 
+    "status.queued": "대기 중",
+    "status.preparing": "준비 중",
+    "status.reviewing": "리뷰 중",
+    "status.publishing": "게시 중",
+    "status.completed": "완료",
+    "status.failed": "실패",
+    "status.superseded": "대체됨",
+    "trigger.mention": "멘션",
+    "trigger.auto": "자동",
+
     "time.justNow": "방금 전",
     "time.minutesAgo": "{count}분 전",
     "time.hoursAgo": "{count}시간 전",
@@ -304,6 +314,16 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
     "field.cloneTimeoutMs": "Git clone timeout",
     "field.hint.ms": "ms",
 
+    "status.queued": "queued",
+    "status.preparing": "preparing",
+    "status.reviewing": "reviewing",
+    "status.publishing": "publishing",
+    "status.completed": "completed",
+    "status.failed": "failed",
+    "status.superseded": "superseded",
+    "trigger.mention": "mention",
+    "trigger.auto": "auto",
+
     "time.justNow": "just now",
     "time.minutesAgo": "{count}m ago",
     "time.hoursAgo": "{count}h ago",
@@ -393,6 +413,16 @@ export function t(
 export type Message =
   | string
   | { key: string; params?: Record<string, string | number> };
+
+/**
+ * For a value the API chose rather than this module: an enum with no mapping
+ * shows as itself, which is what an operator can match against a log line —
+ * `t()` would show the missing key instead.
+ */
+export function tEnum(prefix: string, value: string): string {
+  const key = `${prefix}.${value}`;
+  return MESSAGES[locale][key] ?? MESSAGES.en[key] ?? value;
+}
 
 export function resolve(message: Message | null): string | null {
   if (message === null) return null;
