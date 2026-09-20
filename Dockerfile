@@ -53,7 +53,7 @@ COPY dashboard/package.json ./dashboard/
 # runtime production set is unchanged by the rewrite.
 RUN pnpm install --prod --frozen-lockfile
 # renovate: datasource=npm depName=@openai/codex
-RUN npm install -g @openai/codex@0.154.0
+RUN npm install -g @openai/codex@0.155.0
 
 COPY --from=build /app/dist ./dist
 
