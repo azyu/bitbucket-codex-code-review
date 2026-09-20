@@ -1,40 +1,42 @@
 # bitbucket-codex-code-review
 
-> Bitbucket PR webhook → Codex CLI 자동 코드 리뷰 → PR 코멘트 게시
+> Bitbucket PR webhook → automated Codex CLI code review → PR comments
 
-Bitbucket PR에 `@codex` 멘션 또는 PR 오픈/업데이트 시 자동으로 코드 리뷰를 수행하고, 인라인 코멘트와 요약을 PR에 게시하는 워커 서비스.
+*English · [한국어](README.ko.md)*
+
+A worker service that reviews Bitbucket pull requests — triggered by an `@codex` mention or by the PR being opened or updated — and posts inline comments plus a summary back to the PR.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     A[Bitbucket Webhook] -->|PR event / comment| B[NestJS Server]
-    B -->|HMAC 검증| C{트리거 감지}
-    C -->|"@codex 멘션"| D[BullMQ Job Queue]
-    C -->|"PR 오픈/업데이트 (auto)"| D
-    D --> E[Git Worktree 생성]
-    E --> F[Codex CLI: 요약 + 상세 리뷰]
+    B -->|HMAC verification| C{Trigger detection}
+    C -->|"@codex mention"| D[BullMQ Job Queue]
+    C -->|"PR opened/updated (auto)"| D
+    D --> E[Create git worktree]
+    E --> F[Codex CLI: summary + detailed review]
     F --> G[Bitbucket API]
     G -->|inline comments + summary| A
 ```
 
 ## How It Works
 
-1. **Webhook 수신** — Bitbucket PR 이벤트 (`pullrequest:created`, `pullrequest:updated`, `pullrequest:comment_created`) 수신
-2. **트리거 감지** — 트리거 모드에 따라 자동(PR 오픈/업데이트) 또는 멘션(`@codex`) 기반으로 리뷰 작업 큐잉
-3. **Worktree 준비** — Bare repo clone + git worktree 생성 (PR head commit)
-4. **통합 리뷰** — Codex CLI로 **요약 + verdict + 상세 리뷰** 단일 호출
-5. **결과 게시** — verdict badge + 인라인 코멘트 + summary table로 Bitbucket PR에 게시
+1. **Receive webhook** — Bitbucket PR events (`pullrequest:created`, `pullrequest:updated`, `pullrequest:comment_created`)
+2. **Detect trigger** — depending on the trigger mode, queue a review job automatically (PR opened/updated) or on an `@codex` mention
+3. **Prepare worktree** — bare repo clone + git worktree at the PR head commit
+4. **Single review pass** — one Codex CLI call produces the **summary, verdict, and detailed review**
+5. **Post results** — verdict badge, inline comments, and a summary table on the Bitbucket PR
 
 ## Prerequisites
 
-**필수:**
+**Required:**
 
 - Node.js >= 24.0.0
 - pnpm
-- [Codex CLI](https://github.com/openai/codex) 설치
+- [Codex CLI](https://github.com/openai/codex)
 
-**인프라 (로컬 개발 시 Docker Compose로 자동 구성):**
+**Infrastructure (provisioned by Docker Compose for local development):**
 
 - MySQL 26.7
 - Redis
@@ -44,46 +46,47 @@ flowchart LR
 ### Local Development
 
 ```bash
-# 1. 환경 변수 설정
+# 1. Configure environment variables
 cp .env.example .env
-# .env 파일 편집: DASHBOARD_SECRET_KEY, SETTINGS_ENCRYPTION_KEY와 최초 이관 값을 설정
-#   DASHBOARD_SECRET_KEY="$(openssl rand -base64 32)"   # 최소 32 bytes
-#   SETTINGS_ENCRYPTION_KEY="$(openssl rand -hex 16)"   # 정확히 32 bytes
+# Edit .env: set DASHBOARD_SECRET_KEY, SETTINGS_ENCRYPTION_KEY, and the values to import once
+#   DASHBOARD_SECRET_KEY="$(openssl rand -base64 32)"   # at least 32 bytes
+#   SETTINGS_ENCRYPTION_KEY="$(openssl rand -hex 16)"   # exactly 32 bytes
 
-# 2. 의존성 설치
+# 2. Install dependencies
 pnpm install
 
-# 3. 인프라 (MySQL + Redis) 기동
+# 3. Start infrastructure (MySQL + Redis)
 docker compose up -d mysql redis
 
-# 4. 스키마 초기화 (최초 1회) — dist를 실행하므로 build가 선행되어야 합니다
+# 4. Initialize the schema (first run only) — this runs dist, so build first
 pnpm build
 pnpm database:prepare
 
-# 5. 개발 서버 시작
+# 5. Start the dev server
 pnpm start:dev
 
-# 6. 대시보드를 수정할 때만 — 별도 터미널에서 Vite dev server
+# 6. Only when working on the dashboard — Vite dev server in a separate terminal
 pnpm --filter dashboard dev
 ```
 
-`pnpm build`는 `nest build` 다음에 대시보드의 `vite build`를 실행합니다. 순서가 고정인 이유는
-`nest-cli.json`의 `deleteOutDir`가 `dist/`를 먼저 비우기 때문입니다 — 대시보드 산출물은
-`dist/dashboard/`에 쓰이므로 `nest build`를 나중에 돌리면 지워집니다.
+`pnpm build` runs `nest build` first and the dashboard's `vite build` after it. The order is fixed
+because `nest-cli.json`'s `deleteOutDir` wipes `dist/` — the dashboard output lands in
+`dist/dashboard/`, so running `nest build` later would delete it.
 
-같은 이유로 `pnpm start:dev`(`nest start --watch`)는 재컴파일마다 `dist/dashboard/`를 날립니다.
-그래서 대시보드 작업은 5173의 Vite dev server(`/api`는 `localhost:3000`으로 프록시)에서 하고,
-통합 확인은 `pnpm build && pnpm start`로 합니다.
+For the same reason `pnpm start:dev` (`nest start --watch`) clears `dist/dashboard/` on every
+recompile. So do dashboard work against the Vite dev server on port 5173 (`/api` is proxied to
+`localhost:3000`) and verify the combined output with `pnpm build && pnpm start`.
 
-`database:prepare`와 `migration:*`는 Nest `ConfigModule`을 거치지 않는 standalone TypeORM DataSource이므로
-`process.env`만 읽습니다. 그래서 package.json에서 Node의 `--env-file-if-exists=.env`로 `.env`를 직접 읽습니다.
-쉘/컨테이너에 이미 설정된 환경변수가 `.env` 값보다 우선하므로 Compose 배포 동작은 달라지지 않습니다.
+`database:prepare` and `migration:*` use a standalone TypeORM DataSource that never goes through
+Nest's `ConfigModule`, so they only see `process.env`. package.json therefore passes `.env` in
+directly with Node's `--env-file-if-exists=.env`. Environment variables already set in the shell or
+container win over `.env` values, so Compose deployments behave exactly as before.
 
-`.env.example`의 `REDIS_QUEUE_PORT`는 Compose가 호스트에 게시하는 `6381`입니다. 워커를 호스트에서 직접
-띄울 때 이 값을 쓰고, Compose 내부 워커는 `redis:6379`를 그대로 사용합니다.
+`REDIS_QUEUE_PORT` in `.env.example` is `6381`, the port Compose publishes on the host. Use it when
+running the worker directly on the host; the worker inside Compose keeps using `redis:6379`.
 
-대시보드는 `http://localhost:3000/dashboard`에서 열고, 잠금 화면에 `DASHBOARD_SECRET_KEY`를 입력합니다.
-리뷰 이력 없이 화면만 확인하려면 데모 데이터를 넣습니다.
+Open the dashboard at `http://localhost:3000/dashboard` and enter `DASHBOARD_SECRET_KEY` on the lock
+screen. To look at the UI without any review history, load the demo data:
 
 ```bash
 mysql -h127.0.0.1 -P3309 -uroot -p"$DB_PASSWORD" lxp_code_review < scripts/seed-review-stats.sql
@@ -92,8 +95,9 @@ mysql -h127.0.0.1 -P3309 -uroot -p"$DB_PASSWORD" lxp_code_review < scripts/seed-
 ### Docker Compose
 
 ```bash
-# 필수 bootstrap key와 최초 이관용 자격증명
-# 아래 값은 최초 1회만 생성해 .env/secret manager에 저장합니다. 기존 MySQL volume에서 재생성하면 저장된 runtime secret을 복호화할 수 없습니다.
+# Required bootstrap keys and the credentials imported on first boot
+# Generate these once and keep them in .env or a secret manager. Regenerating them against an existing
+# MySQL volume makes the stored runtime secrets undecryptable.
 export DASHBOARD_SECRET_KEY="$(openssl rand -base64 32)"
 export SETTINGS_ENCRYPTION_KEY="$(openssl rand -hex 16)"
 export BITBUCKET_API_TOKEN=your_token
@@ -102,216 +106,223 @@ export BITBUCKET_WEBHOOK_SECRET=your_secret
 docker compose up -d
 ```
 
-Compose는 `database:prepare`에서 `review_runs`가 없는 clean volume만 현재 schema로 초기화한 뒤 migration을 적용하고 worker를 시작합니다. 기존 volume은 schema 동기화를 건너뛰고 migration만 실행하며, 실패 시 애플리케이션을 시작하지 않습니다. 애플리케이션의 `DB_SYNCHRONIZE`는 비활성화되어 부팅 뒤 schema 변경은 없습니다.
+In `database:prepare`, Compose initializes the current schema only on a clean volume (one without
+`review_runs`), then applies migrations and starts the worker. An existing volume skips schema
+synchronization and only runs migrations; if that fails, the application does not start. The
+application's `DB_SYNCHRONIZE` is off, so the schema never changes after boot.
 
-개발용 Redis의 호스트 포트는 `127.0.0.1:6381`에만 게시됩니다. Compose 내부 worker는 기존처럼 `redis:6379`로 연결합니다. 이 설정은 외부 인프라 저장소의 운영 배포에는 적용되지 않습니다.
+The development Redis host port is published on `127.0.0.1:6381` only. The worker inside Compose
+still connects to `redis:6379`. None of this applies to production deployments, which live in a
+separate infrastructure repository.
 
 > [!IMPORTANT]
-> Codex의 대형 PR branch-diff 모드는 worktree에서 `git`을 실행하는 sandbox를 사용합니다. 이 sandbox의 bubblewrap이 비특권 user namespace를 만들 수 있도록 `code-review-worker`는 `seccomp:unconfined`로 실행해야 합니다. `CAP_SYS_ADMIN`이나 `privileged`는 필요하지 않습니다. 배포 후 파드/컨테이너에서 `unshare --user --map-root-user true`가 성공하는지 확인하세요.
+> Codex's branch-diff mode for large PRs uses a sandbox that runs `git` in the worktree. So that the sandbox's bubblewrap can create an unprivileged user namespace, `code-review-worker` must run with `seccomp:unconfined`. `CAP_SYS_ADMIN` and `privileged` are not needed. After deploying, check that `unshare --user --map-root-user true` succeeds inside the pod or container.
 
 ## Configuration
 
-DB/Redis, 포트, workspace base path, Bitbucket API base URL, Codex binary path,
-`DASHBOARD_SECRET_KEY`, `SETTINGS_ENCRYPTION_KEY`는 bootstrap-static 설정입니다.
-나머지 리뷰/연동 설정은 최초 부팅 때 환경변수에서 MySQL로 한 번 이관되고 이후
-`/dashboard`에서 관리합니다. Pod 재시작 없이 새 webhook/job부터 적용됩니다.
+DB/Redis, ports, the workspace base path, the Bitbucket API base URL, the Codex binary path,
+`DASHBOARD_SECRET_KEY` and `SETTINGS_ENCRYPTION_KEY` are bootstrap-static settings.
+Every other review/integration setting is imported once from environment variables into MySQL on
+first boot and managed from `/dashboard` afterwards. Changes apply to new webhooks and jobs without
+restarting the pod.
 
 ### Core
 
-| 환경변수 | 설명 | 기본값 |
+| Variable | Description | Default |
 |---|---|---|
-| `PORT` | HTTP 서버 포트 | `3000` |
-| `METRICS_PORT` | Prometheus 메트릭 포트 | `9463` |
-| `NODE_ENV` | 환경 | `development` |
-| `LOG_LEVEL` | 로그 레벨 | `info` |
-| `DASHBOARD_SECRET_KEY` | 내부 API Bearer key (최소 32 bytes, 필수) | - |
-| `SETTINGS_ENCRYPTION_KEY` | runtime secret AES-256-GCM key (정확히 32 bytes, 필수) | - |
+| `PORT` | HTTP server port | `3000` |
+| `METRICS_PORT` | Prometheus metrics port | `9463` |
+| `NODE_ENV` | Environment | `development` |
+| `LOG_LEVEL` | Log level | `info` |
+| `DASHBOARD_SECRET_KEY` | Internal API bearer key (at least 32 bytes, required) | - |
+| `SETTINGS_ENCRYPTION_KEY` | AES-256-GCM key for runtime secrets (exactly 32 bytes, required) | - |
 
 ### Database (MySQL)
 
-| 환경변수 | 설명 | 기본값 |
+| Variable | Description | Default |
 |---|---|---|
-| `DB_HOST` | MySQL 호스트 | `localhost` |
-| `DB_PORT` | MySQL 포트 | `3309` |
-| `DB_USERNAME` | DB 사용자 | `root` |
-| `DB_PASSWORD` | DB 비밀번호 | - |
-| `DB_NAME` | DB 이름 | `lxp_code_review` |
-| `DB_POOL_SIZE` | 커넥션 풀 크기 | `5` |
-| `DB_SYNCHRONIZE` | 스키마 자동 동기화 | `false` |
+| `DB_HOST` | MySQL host | `localhost` |
+| `DB_PORT` | MySQL port | `3309` |
+| `DB_USERNAME` | DB user | `root` |
+| `DB_PASSWORD` | DB password | - |
+| `DB_NAME` | DB name | `lxp_code_review` |
+| `DB_POOL_SIZE` | Connection pool size | `5` |
+| `DB_SYNCHRONIZE` | Automatic schema synchronization | `false` |
 
 ### Queue (Redis / BullMQ)
 
-| 환경변수 | 설명 | 기본값 |
+| Variable | Description | Default |
 |---|---|---|
-| `REDIS_QUEUE_HOST` | Redis 호스트 | `localhost` |
-| `REDIS_QUEUE_PORT` | Redis 포트 | `6379` |
-| `REDIS_QUEUE_PASSWORD` | Redis 비밀번호 | - |
-| `REDIS_QUEUE_DB` | Redis DB 번호 | `0` |
-| `QUEUE_RETRY_ATTEMPTS` | 최초 이관할 잡 총 시도 횟수 (1–10) | `3` |
-| `QUEUE_RETRY_DELAY` | 최초 이관할 재시도 딜레이 (ms) | `5000` |
+| `REDIS_QUEUE_HOST` | Redis host | `localhost` |
+| `REDIS_QUEUE_PORT` | Redis port | `6379` |
+| `REDIS_QUEUE_PASSWORD` | Redis password | - |
+| `REDIS_QUEUE_DB` | Redis DB number | `0` |
+| `QUEUE_RETRY_ATTEMPTS` | Total job attempts, imported once (1–10) | `3` |
+| `QUEUE_RETRY_DELAY` | Retry delay in ms, imported once | `5000` |
 
 ### Codex CLI
 
-| 환경변수 | 설명 | 기본값 |
+| Variable | Description | Default |
 |---|---|---|
-| `CODEX_BINARY_PATH` | Codex CLI 바이너리 경로 | `codex` |
-| `CODEX_MODEL` | 최초 이관할 모델 | `gpt-5.6-sol` |
-| `CODEX_REASONING_EFFORT` | 최초 이관할 추론 노력도 | `medium` |
-| `CODEX_TIMEOUT_MS` | 최초 이관할 실행 타임아웃 (ms) | `600000` |
-| `OPENAI_API_KEY` | 최초 이관할 OpenAI API 키 | - |
-| `OPENAI_BASE_URL` | 최초 이관할 HTTPS API endpoint (최대 2,048 UTF-8 bytes) | - |
-| `REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS` | 최초 이관할 repo slug별 프롬프트 파일 JSON 맵 | - |
-| `REVIEW_CUSTOM_PROMPT_FILEPATH` | 최초 이관할 전역 프롬프트 파일 | - |
-| `RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP` | repo별 이관에 필요한 repo slug → workspace slug JSON 맵 | - |
+| `CODEX_BINARY_PATH` | Path to the Codex CLI binary | `codex` |
+| `CODEX_MODEL` | Model, imported once | `gpt-5.6-sol` |
+| `CODEX_REASONING_EFFORT` | Reasoning effort, imported once | `medium` |
+| `CODEX_TIMEOUT_MS` | Execution timeout in ms, imported once | `600000` |
+| `OPENAI_API_KEY` | OpenAI API key, imported once | - |
+| `OPENAI_BASE_URL` | HTTPS API endpoint, imported once (max 2,048 UTF-8 bytes) | - |
+| `REVIEW_REPO_CUSTOM_PROMPT_FILEPATHS` | JSON map of repo slug → prompt file, imported once | - |
+| `REVIEW_CUSTOM_PROMPT_FILEPATH` | Global prompt file, imported once | - |
+| `RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP` | JSON map of repo slug → workspace slug, required for per-repo import | - |
 
 ### Bitbucket
 
-| 환경변수 | 설명 | 기본값 |
+| Variable | Description | Default |
 |---|---|---|
-| `BITBUCKET_BASE_URL` | Bitbucket API 기본 URL | `https://api.bitbucket.org/2.0` |
-| `BITBUCKET_API_TOKEN` | 최초 이관할 global API token | - |
-| `BITBUCKET_WEBHOOK_SECRET` | 최초 이관할 global webhook HMAC secret | - |
-| `REVIEW_TRIGGER_MODE` | 최초 이관할 트리거 모드 | `mention` |
+| `BITBUCKET_BASE_URL` | Bitbucket API base URL | `https://api.bitbucket.org/2.0` |
+| `BITBUCKET_API_TOKEN` | Global API token, imported once | - |
+| `BITBUCKET_WEBHOOK_SECRET` | Global webhook HMAC secret, imported once | - |
+| `REVIEW_TRIGGER_MODE` | Trigger mode, imported once | `mention` |
 
-#### `REVIEW_TRIGGER_MODE` 상세
+#### `REVIEW_TRIGGER_MODE` in detail
 
-| 모드 | PR 오픈/업데이트 시 | `@codex` 댓글 시 |
+| Mode | PR opened/updated | `@codex` comment |
 |------|:---:|:---:|
-| `mention` (기본) | 무시 | 리뷰 실행 |
-| `auto` | 리뷰 실행 | 무시 |
-| `both` | 리뷰 실행 | 리뷰 실행 |
+| `mention` (default) | ignored | review runs |
+| `auto` | review runs | ignored |
+| `both` | review runs | review runs |
 
 > [!NOTE]
-> `auto`/`both` 모드에서 `pullrequest:updated` 이벤트도 처리됩니다. 동일 commit hash에 대한 중복 리뷰는 idempotency key로 자동 방지됩니다.
-> 동일 commit을 다시 리뷰하려면 트리거 모드와 관계없이 PR 댓글에 `@codex --force`를 입력합니다. 댓글 ID를 기준으로 웹훅 재전송은 중복 방지됩니다.
-> 중복으로 걸러진 `@codex` 멘션에는 이유(코드 변경 없음 / 리뷰 진행 중)를 답글로 남깁니다. 자동 트리거는 답글 없이 조용히 무시합니다.
+> In `auto` and `both` modes, `pullrequest:updated` events are handled as well. Reviewing the same commit hash twice is prevented by the idempotency key.
+> To review the same commit again, comment `@codex --force` on the PR — this works in any trigger mode. Webhook redeliveries are deduplicated by comment ID.
+> An `@codex` mention that gets filtered out as a duplicate receives a reply explaining why (no code changes / review already running). Automatic triggers are ignored silently, with no reply.
 >
-> 이번 리뷰에만 다른 모델을 쓰려면 `@codex --model:gpt-6-astra`처럼 지정합니다(`--model=`, `--model ` 형식도 동일). 지정하지 않으면 대시보드의 repository → global → 코드 기본값 순서로 해석합니다.
+> To use a different model for one review only, write `@codex --model:gpt-6-astra` (`--model=` and `--model ` work too). Without it, the model resolves from the dashboard's repository setting, then global, then the code default.
 
 ### Workspace
 
-| 환경변수 | 설명 | 기본값 |
+| Variable | Description | Default |
 |---|---|---|
-| `WORKSPACE_BASE_PATH` | 워크스페이스 경로 | `/tmp/code-review-workspaces` |
-| `WORKSPACE_MAX_CONCURRENT` | 최초 이관할 worker concurrency (1–32) | `3` |
-| `GIT_CLONE_TIMEOUT_MS` | 최초 이관할 bare clone 타임아웃 (ms) | `600000` |
+| `WORKSPACE_BASE_PATH` | Workspace path | `/tmp/code-review-workspaces` |
+| `WORKSPACE_MAX_CONCURRENT` | Worker concurrency, imported once (1–32) | `3` |
+| `GIT_CLONE_TIMEOUT_MS` | Bare clone timeout in ms, imported once | `600000` |
 
-Workspace/repository 식별자는 점을 보존하고 대소문자 구분이 없는 파일시스템에서도 충돌하지 않도록 경로로 인코딩합니다. 기존 bare cache의 `origin`이 요청 저장소와 다르면 fetch 전에 실패하며 캐시를 자동 삭제하지 않습니다. 이전 버전이 `foo.bar`를 `foobar.git`에 저장한 경우, 관련 job을 drain한 뒤 해당 캐시의 `origin`을 확인하고 운영자가 이동·정리해야 합니다.
+Workspace and repository identifiers are path-encoded so that dots survive and nothing collides on a case-insensitive filesystem. If an existing bare cache's `origin` differs from the requested repository, the job fails before fetching and the cache is not deleted automatically. If an older version stored `foo.bar` under `foobar.git`, drain the related jobs, check that cache's `origin`, and have an operator move or clean it up by hand.
 
 > [!TIP]
-> 전체 설정은 [`.env.example`](.env.example) 참조.
+> See [`.env.example`](.env.example) for the full set of settings.
 
-### 최초 runtime settings cutover
+### First runtime-settings cutover
 
-1. Webhook ingress를 중단합니다.
-2. 기존 queued/retrying/running job을 기존 이미지의 `job.data.model`로 모두 drain합니다.
-3. 각 legacy idempotency key의 raw job ID와 `review-${base64url(legacyKey)}` job ID를 제거하고 실행/복구 가능한 job이 0인지 확인합니다.
-4. `RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP`에 모든 repo별 import key의 workspace를 명시합니다. 누락되면 importer가 실패합니다.
-5. 새 이미지를 배포합니다. Docker Compose는 `database:prepare`가 migration을 완료한 뒤 worker를 시작하며, 외부 배포 환경은 애플리케이션 시작 전에 `pnpm database:prepare`를 실행해야 합니다.
-6. 모든 인스턴스에서 runtime settings import 및 worker concurrency 적용을 확인합니다.
-7. Webhook ingress를 재개합니다.
+1. Stop webhook ingress.
+2. Drain every queued, retrying, and running job on the old image using its `job.data.model`.
+3. Remove both the raw job ID and the `review-${base64url(legacyKey)}` job ID for each legacy idempotency key, and confirm that no runnable or recoverable job is left.
+4. List the workspace for every per-repo import key in `RUNTIME_SETTINGS_REPOSITORY_WORKSPACE_MAP`. The importer fails on a missing entry.
+5. Deploy the new image. Docker Compose starts the worker only after `database:prepare` finishes the migrations; other deployment environments must run `pnpm database:prepare` before the application starts.
+6. Verify on every instance that the runtime settings were imported and the worker concurrency applied.
+7. Resume webhook ingress.
 
-이 migration의 workspace-qualified idempotency key 변환은 되돌릴 수 없습니다. Migration 적용 뒤에는 legacy 이미지만 교체해 rollback하면 안 됩니다. 호환되는 수정 이미지를 배포하거나, webhook ingress를 중단하고 새 형식 job을 모두 drain한 뒤 배포 전 DB backup과 환경변수 설정을 함께 복원해야 합니다.
-여러 인스턴스가 동시에 시작하면 MySQL advisory lock이 schema 준비와 migration ledger 기록까지 직렬화합니다. Idempotency key 변환은 별도 transaction marker와 함께 commit되며, 변환 중 실패하면 둘 다 rollback되어 다음 실행이 재시도합니다.
+This migration's conversion to workspace-qualified idempotency keys cannot be undone. Once it has been applied, do not roll back by swapping in the legacy image alone. Either deploy a compatible fixed image, or stop webhook ingress, drain every new-format job, and restore the pre-deployment DB backup together with the matching environment variables.
+When several instances start at once, a MySQL advisory lock serializes everything from schema preparation through writing the migration ledger. The idempotency key conversion commits alongside a separate transaction marker; if the conversion fails midway both roll back and the next run retries.
 
 ## Security
 
 > [!IMPORTANT]
-> Webhook secret이 설정되지 않으면 **모든 요청이 거부**됩니다 (fail-closed).
+> If no webhook secret is configured, **every request is rejected** (fail-closed).
 
-- **HMAC 검증** — Raw body 기반 SHA-256 서명 검증
-- **Webhook 요청 제한** — 서명 형식·raw body·저장소 식별자를 먼저 검사하며, secret 조회 시도는 프로세스 전체에서 60초 고정 구간당 120회로 제한합니다. 형식이 맞는 오서명도 횟수를 소비하고, 초과 시 DB 조회 없이 `429`와 남은 초 단위 `Retry-After`를 반환합니다. 정상 요청도 같은 한도를 공유하므로 대규모 트래픽·다중 인스턴스에서는 별도 ingress/distributed 제한이 필요합니다.
-- **Runtime secret 저장** — MySQL에는 scope별 AES-256-GCM ciphertext만 저장하며 API는 `configured`/`source`만 반환
-- **Dashboard 인증** — 모든 `/api/internal/*` 요청에 `Authorization: Bearer <DASHBOARD_SECRET_KEY>` 필요
-- **Git 인증** — `GIT_ASKPASS` 방식 (URL에 토큰 미포함)
-- **Path traversal / 저장소 격리** — Workspace·repository 식별자 검증, 충돌 없는 경로 인코딩, workspace root 및 cached origin 검증
-- **Payload 검증** — Webhook payload 필수 필드 타입 검증
+- **HMAC verification** — SHA-256 signature over the raw body
+- **Webhook rate limiting** — the signature format, raw body, and repository identifier are checked first; secret lookups are capped process-wide at 120 per fixed 60-second window. A well-formed but wrongly signed request consumes the budget too, and once it is exhausted the service returns `429` with a `Retry-After` in seconds, without touching the DB. Legitimate requests share the same budget, so heavy traffic or multiple instances need a separate ingress or distributed limit.
+- **Runtime secret storage** — MySQL holds only per-scope AES-256-GCM ciphertext; the API returns just `configured` and `source`
+- **Dashboard authentication** — every `/api/internal/*` request requires `Authorization: Bearer <DASHBOARD_SECRET_KEY>`
+- **Git authentication** — via `GIT_ASKPASS`, so no token ends up in a URL
+- **Path traversal / repository isolation** — identifier validation, collision-free path encoding, workspace root and cached origin checks
+- **Payload validation** — required webhook payload fields are type-checked
 
 ## Scripts
 
 ```bash
-pnpm build          # 프로덕션 빌드
-pnpm database:prepare # clean DB 초기화(최초 1회) + pending migration 적용
-pnpm migration:run    # 기존 DB의 pending migration 적용
-pnpm start          # 프로덕션 실행
-pnpm start:dev      # 개발 서버 (watch)
-pnpm test           # 테스트 실행
-pnpm test:cov       # 커버리지 포함 테스트
+pnpm build          # production build
+pnpm database:prepare # initialize a clean DB (first run) + apply pending migrations
+pnpm migration:run    # apply pending migrations to an existing DB
+pnpm start          # production run
+pnpm start:dev      # dev server (watch)
+pnpm test           # run tests
+pnpm test:cov       # tests with coverage
 pnpm lint           # ESLint
 ```
 
 ## Internal API
 
-대시보드/운영 도구용 API입니다. 모든 route가
-`Authorization: Bearer <DASHBOARD_SECRET_KEY>`를 요구하고 `Cache-Control: no-store`를 반환합니다.
+The API behind the dashboard and operational tooling. Every route requires
+`Authorization: Bearer <DASHBOARD_SECRET_KEY>` and responds with `Cache-Control: no-store`.
 
-| Method | Path | 설명 |
+| Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/internal/settings` | redacted runtime settings 조회 |
-| `PATCH` | `/api/internal/settings/global` | global 설정 CAS 갱신 |
-| `PATCH` | `/api/internal/settings/repositories/:workspaceSlug/:repoSlug` | repository override CAS 갱신 |
-| `GET` | `/api/internal/reviews/recent?limit=` | 최근 리뷰 목록 (limit 1..50, 기본 10) |
-| `GET` | `/api/internal/reviews/:id` | 리뷰 실행 1건 상세 조회 |
-| `GET` | `/api/internal/reviews/:workspaceSlug/:repoSlug/:prId/latest` | 특정 PR의 최신 리뷰 조회 |
-| `GET` | `/api/internal/stats/repos` | workspace/repo별 요약 통계 목록 |
-| `GET` | `/api/internal/stats/repos/:workspaceSlug/:repoSlug` | 특정 workspace/repo의 누적 요약 통계 |
+| `GET` | `/api/internal/settings` | redacted runtime settings |
+| `PATCH` | `/api/internal/settings/global` | CAS update of global settings |
+| `PATCH` | `/api/internal/settings/repositories/:workspaceSlug/:repoSlug` | CAS update of a repository override |
+| `GET` | `/api/internal/reviews/recent?limit=` | recent reviews (limit 1..50, default 10) |
+| `GET` | `/api/internal/reviews/:id` | one review run in detail |
+| `GET` | `/api/internal/reviews/:workspaceSlug/:repoSlug/:prId/latest` | latest review for a PR |
+| `GET` | `/api/internal/stats/repos` | summary statistics per workspace/repo |
+| `GET` | `/api/internal/stats/repos/:workspaceSlug/:repoSlug` | cumulative statistics for one workspace/repo |
 
-repo 통계 응답에는 리뷰 건수, Codex/전체 소요 시간, input/cached/output token 합계, 최신 리뷰 메타데이터가 포함됩니다.
+A repo statistics response carries the review count, Codex and total durations, input/cached/output token totals, and metadata for the latest review.
 
 ## Local Dashboard
 
-내장 대시보드는 `GET /dashboard`에서 확인합니다. 잠금 화면에 `DASHBOARD_SECRET_KEY`를 입력하면 모든 `/api/internal/*` 조회/수정 요청에 Bearer header로 사용합니다. Key는 브라우저 메모리에만 남으므로 새로고침·로그아웃·401 뒤에는 다시 입력해야 합니다. Runtime secret은 값 대신 configured/inherited 상태만 표시됩니다.
+The built-in dashboard lives at `GET /dashboard`. The `DASHBOARD_SECRET_KEY` you enter on the lock screen is attached as the bearer header on every `/api/internal/*` read and write. The key stays in browser memory only, so a refresh, a logout, or a 401 means entering it again. Runtime secrets show their configured/inherited state instead of their value.
 
-잠금·401 시 입력 중인 전역/저장소 비밀값과 custom prompt도 비웁니다. 이전 세션에서 시작한 비동기 응답은 재로그인한 세션의 상태를 변경하지 않습니다. 운영 `/api/internal/*` 네트워크 노출 정책은 외부 인프라에서 확인해야 하며, 현재 확인에 필요한 정보는 [#83](https://github.com/azyu/bitbucket-codex-code-review/issues/83)에 기록되어 있습니다.
+Locking, or a 401, also clears any global and repository secrets you were typing along with the custom prompt. Async responses started in an earlier session do not touch the state of the session you logged back into. The network exposure policy for `/api/internal/*` in production has to be confirmed in the infrastructure repository; what is known so far is recorded in [#83](https://github.com/azyu/bitbucket-codex-code-review/issues/83).
 
-### 구성
+### Structure
 
-`dashboard/`는 Vite + Svelte 5 + TypeScript 패키지입니다 (pnpm workspace 멤버). 산출물은 정적 파일이며
-`dist/dashboard/`에 빌드되어 `main.ts`의 static mount 하나가 `/dashboard` prefix로 서빙합니다.
-런타임 의존성은 없습니다 — 패키지의 모든 의존성이 devDependency이므로 `pnpm install --prod`는 아무것도
-설치하지 않습니다.
+`dashboard/` is a Vite + Svelte 5 + TypeScript package and a pnpm workspace member. Its output is
+static files built into `dist/dashboard/`, served by a single static mount in `main.ts` under the
+`/dashboard` prefix. It has no runtime dependencies — every dependency of the package is a
+devDependency, so `pnpm install --prod` installs nothing for it.
 
-`/dashboard` 하위 경로 전체가 완화된 CSP를 받습니다. Vite가 content hash가 붙은 파일명을 내보내므로
-`src/dashboard-csp.ts`의 `isDashboardPath()` prefix 판정 하나로 문서와 모든 asset을 함께 처리합니다
-(정확 일치 목록을 두 곳에 중복하던 구조를 대체). 현재 정책은 `script-src 'self'` / `style-src 'self'`로,
-helmet 기본값보다 모든 directive에서 더 엄격합니다.
+Everything under `/dashboard` gets the relaxed CSP. Because Vite emits content-hashed filenames, the
+single `isDashboardPath()` prefix check in `src/dashboard-csp.ts` covers the document and all its
+assets (replacing an older structure that duplicated an exact-match list in two places). The current
+policy is `script-src 'self'` / `style-src 'self'`, stricter than helmet's defaults on every
+directive.
 
-| 검증 항목 | 위치 |
+| What is verified | Where |
 |---|---|
-| Bearer key 메모리 전용, 401 전체 잠금, stale-session, secret 비노출, CAS | `dashboard/src/lib/store.spec.ts` |
-| 미인증 문서에 보호 콘텐츠 없음 | `dashboard/src/lib/shell.spec.ts` |
-| CSP 완화 금지, `/dashboard` prefix 판정 | `src/dashboard-csp.spec.ts` |
+| Bearer key in memory only, full lock on 401, stale sessions, secrets never exposed, CAS | `dashboard/src/lib/store.spec.ts` |
+| No protected content in the unauthenticated document | `dashboard/src/lib/shell.spec.ts` |
+| CSP never relaxed further, `/dashboard` prefix check | `src/dashboard-csp.spec.ts` |
 
-## Codex CLI 인증
+## Codex CLI Authentication
 
-최초 배포에서는 `OPENAI_API_KEY`와 HTTPS `OPENAI_BASE_URL` 환경변수가 runtime settings로 이관됩니다. 이후 대시보드에서 함께 관리하며 새 job 시작 시 같은 DB revision에서 하나의 connection snapshot으로 읽습니다. Codex 실행은 API key만 allowlist child env로 전달하고 CLI에 `model_provider="openai"`와 `openai_base_url`을 명시합니다.
+On the first deployment, the `OPENAI_API_KEY` and HTTPS `OPENAI_BASE_URL` environment variables are imported into runtime settings. From then on both are managed from the dashboard, and each new job reads them as a single connection snapshot from the same DB revision. Codex runs with only the API key passed through as an allowlisted child env var, and the CLI is given an explicit `model_provider="openai"` and `openai_base_url`.
 
-### `auth.json` 볼륨 마운트 대안
+### Alternative: mounting `auth.json`
 
-`codex login`으로 생성되는 `~/.codex/auth.json`을 컨테이너의 `/root/.codex`에 마운트합니다. `docker-compose.yml`의 주석 처리된 볼륨 항목을 참고하세요.
+Mount the `~/.codex/auth.json` that `codex login` creates at `/root/.codex` in the container. See the commented-out volume entry in `docker-compose.yml`.
 
-대형 PR의 branch-diff 리뷰를 사용하려면 Codex bubblewrap이 비특권 user namespace를 만들 수 있어야 합니다. `docker-compose.yml`은 워커에 `security_opt: seccomp:unconfined`를 적용합니다. `CAP_SYS_ADMIN`이나 `privileged`는 필요하지 않습니다. 컨테이너 안에서 `unshare --user --map-root-user true`가 성공하는지 확인하세요.
+To use branch-diff reviews for large PRs, Codex's bubblewrap must be able to create an unprivileged user namespace. `docker-compose.yml` applies `security_opt: seccomp:unconfined` to the worker. `CAP_SYS_ADMIN` and `privileged` are not needed. Check that `unshare --user --map-root-user true` succeeds inside the container.
 
 > [!NOTE]
-> `auth.json` mount는 bootstrap-static 대안입니다. 대시보드 OpenAI API key를 사용하는 경우 HTTPS endpoint도 대시보드 값이 Codex `config.toml`보다 우선합니다.
+> Mounting `auth.json` is the bootstrap-static alternative. If an OpenAI API key is set in the dashboard, the dashboard's HTTPS endpoint also takes precedence over Codex's `config.toml`.
 
 > [!TIP]
-> 프로덕션 환경에서는 시크릿 매니저를 사용하고, 이미지 태그는 `latest`가 아니라 git SHA로 고정하세요.
+> In production, use a secret manager and pin the image tag to a git SHA rather than `latest`.
 
 ## Project Structure
 
 ```
 src/
-├── webhook/          # Webhook 수신, HMAC guard, 트리거 감지
-├── queue/            # BullMQ processor, 리뷰 포매터/타입
-├── workspace/        # Git bare clone + worktree 관리
-├── codex/            # Codex CLI 실행
-├── bitbucket/        # Bitbucket API 클라이언트
+├── webhook/          # Webhook intake, HMAC guard, trigger detection
+├── queue/            # BullMQ processor, review formatter/types
+├── workspace/        # Git bare clone + worktree management
+├── codex/            # Codex CLI execution
+├── bitbucket/        # Bitbucket API client
 ├── review/           # ReviewRun entity + service
-├── internal/         # 내부 API (클러스터 전용)
-├── config/           # 환경변수 설정 + validation
-├── database/         # TypeORM 모듈
+├── internal/         # Internal API (cluster only)
+├── config/           # Environment variable config + validation
+├── database/         # TypeORM module
 ├── entities/         # TypeORM entities
-├── lib/              # 공유 유틸 (logger, OTel, DB)
-└── main.ts           # 엔트리포인트
+├── lib/              # Shared utilities (logger, OTel, DB)
+└── main.ts           # Entry point
 ```
