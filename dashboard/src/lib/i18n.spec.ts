@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getLocale, resolve, setLocale, t } from "./i18n.svelte";
+import {
+  applyStoredLocale,
+  getLocale,
+  resolve,
+  setLocale,
+  t,
+} from "./i18n.svelte";
 
 afterEach(() => {
   setLocale("ko");
@@ -19,6 +25,20 @@ describe("i18n", () => {
     expect(getLocale()).toBe("en");
     expect(t("nav.overview")).toBe("Overview");
     expect(document.documentElement.lang).toBe("en");
+  });
+
+  // index.html can only carry one language, so a tab left in the other one is
+  // the single label a runtime switch would otherwise miss.
+  it("retitles the document on a switch and on boot", () => {
+    setLocale("en");
+    expect(document.title).toBe("Code review operations");
+
+    setLocale("ko");
+    expect(document.title).toBe("코드 리뷰 운영");
+
+    document.title = "stale";
+    applyStoredLocale();
+    expect(document.title).toBe("코드 리뷰 운영");
   });
 
   it("remembers the choice", () => {

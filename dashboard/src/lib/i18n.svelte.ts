@@ -344,9 +344,19 @@ export function getLocale(): Locale {
   return locale;
 }
 
+/**
+ * The tab title is part of the interface, so it follows the locale like every
+ * other label; index.html can only carry one language. Both the boot path and
+ * the runtime switch go through here so neither can drift from the other.
+ */
+function applyToDocument(): void {
+  document.documentElement.lang = locale;
+  document.title = t("app.title");
+}
+
 export function setLocale(next: Locale): void {
   locale = next;
-  document.documentElement.lang = next;
+  applyToDocument();
   try {
     localStorage.setItem(STORAGE_KEY, next);
   } catch {
@@ -355,7 +365,7 @@ export function setLocale(next: Locale): void {
 }
 
 export function applyStoredLocale(): Locale {
-  document.documentElement.lang = locale;
+  applyToDocument();
   return locale;
 }
 
