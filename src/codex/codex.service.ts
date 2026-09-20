@@ -4,7 +4,11 @@ import { ServiceLogger } from "@lib/logger";
 import { spawn } from "child_process";
 import { readFile, rm } from "fs/promises";
 import { join } from "path";
-import { ICodexReviewResult } from "./interfaces/codex.interfaces";
+import { homedir } from "os";
+import {
+  ICodexAuthStatus,
+  ICodexReviewResult,
+} from "./interfaces/codex.interfaces";
 import {
   ICodexUsageMetrics,
   parseCodexErrorLine,
@@ -19,6 +23,8 @@ const MAX_STDERR_BYTES = 64 * 1024;
 const CAPACITY_ERROR_MESSAGE =
   "Selected model is at capacity. Please try a different model.";
 const TIMEOUT_EXIT_CODE = 124;
+const AUTH_FILE_NAME = "auth.json";
+const CHATGPT_AUTH_MODE = "chatgpt";
 const CODEX_ENV_ALLOWLIST = [
   "PATH",
   "HOME",
@@ -38,6 +44,60 @@ const CODEX_ENV_ALLOWLIST = [
   "NODE_EXTRA_CA_CERTS",
   "CODEX_HOME",
 ] as const;
+
+function toIso(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toISOString();
+}
+
+/**
+ * auth.json에서 읽은 시각 문자열을 ISO로 정규화한다. 파싱되지 않으면 null.
+ *
+ * 응답의 다른 시각 필드는 JWT의 숫자 claim에서 만들어지는데 이것만 파일의
+ * 문자열이었다. 공개 경로로 파일 내용을 그대로 통과시키지 않도록, 값이 아니라
+ * 모양을 강제한다.
+ */
+function toIsoOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+}
+
+/**
+ * Date가 표현할 수 있는 최대 시각은 epoch ±8.64e15ms다. 초로 바꾸면 이 값이고,
+ * 넘어서면 `toIso`의 `toISOString()`이 RangeError를 던진다.
+ *
+ * isFinite만으로는 부족하다 — 1e20은 유한하지만 Date로는 표현되지 않는다.
+ * 그대로 통과시키면 getAuthStatus가 예외를 던지고, 이 라우트가 약속한
+ * `unknown`/503 대신 Nest 기본 필터의 500이 나가 폴러가 원인을 못 읽는다.
+ */
+const MAX_EPOCH_SECONDS = 8_640_000_000_000;
+
+function isEpochSeconds(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    Math.abs(value) <= MAX_EPOCH_SECONDS
+  );
+}
+
+/** JWT payload에서 exp/iat만 꺼낸다. 서명은 검증하지 않는다 — 발급자는 codex다. */
+function decodeJwtClaims(
+  token: string,
+): { exp: number; iat: number | null } | null {
+  const payload = token.split(".")[1];
+  if (!payload) return null;
+  try {
+    const claims = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf-8"),
+    ) as Record<string, unknown>;
+    const exp = claims["exp"];
+    if (!isEpochSeconds(exp)) return null;
+    const iat = claims["iat"];
+    return { exp, iat: isEpochSeconds(iat) ? iat : null };
+  } catch {
+    return null;
+  }
+}
 
 interface ISpawnResult {
   readonly code: number;
@@ -189,6 +249,97 @@ export class CodexService {
         });
       });
     });
+  }
+
+  private authFilePath(): string {
+    const home = process.env["CODEX_HOME"] || join(homedir(), ".codex");
+    return join(home, AUTH_FILE_NAME);
+  }
+
+  /**
+   * codex의 ChatGPT 세션 상태를 auth.json만 읽어 판정한다. 네트워크 호출 없음.
+   *
+   * ⚠️ **access_token의 만료만 본다. refresh_token이 살아 있는지는 알 수 없다.**
+   * codex는 access_token이 유효한 동안 refresh 엔드포인트를 건드리지 않으므로,
+   * 무효화된 refresh_token은 access_token이 만료될 때까지(최대 10일) 증상이 없다.
+   * 그 구간을 덮으려면 주기적으로 실제 `codex exec`을 돌리는 수밖에 없다.
+   *
+   * 반대 방향의 한계도 있다 — 리뷰가 한동안 없으면 갱신이 일어나지 않아 만료로
+   * 보이지만, 다음 리뷰가 정상 갱신할 수도 있다. `expired`는 "고장"이 아니라
+   * "사람이 확인할 것"이다.
+   */
+  async getAuthStatus(): Promise<ICodexAuthStatus> {
+    const unknown = (
+      reason: NonNullable<ICodexAuthStatus["reason"]>,
+      authMode: ICodexAuthStatus["authMode"] = null,
+    ): ICodexAuthStatus => ({
+      status: "unknown",
+      reason,
+      authMode,
+      issuedAt: null,
+      expiresAt: null,
+      expiresInSeconds: null,
+      lastRefresh: null,
+    });
+
+    let raw: string;
+    try {
+      raw = await readFile(this.authFilePath(), "utf-8");
+    } catch {
+      return unknown("missing");
+    }
+
+    // 파서 에러 메시지는 파일 내용을 그대로 인용할 수 있어 밖으로 내보내지 않는다.
+    let doc: Record<string, unknown>;
+    try {
+      doc = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return unknown("malformed");
+    }
+    if (typeof doc !== "object" || doc === null) return unknown("malformed");
+
+    // 우리가 판정할 수 있는 모드만 되돌려준다. 다른 값이면 status가
+    // unsupported_mode로 이미 말하고 있고, 어떤 모드인지까지 공개 경로에 실을
+    // 이유는 없다 — auth.json의 임의 문자열을 그대로 내보내는 통로가 된다.
+    const authMode =
+      doc["auth_mode"] === CHATGPT_AUTH_MODE ? CHATGPT_AUTH_MODE : null;
+    const lastRefresh = toIsoOrNull(doc["last_refresh"]);
+
+    if (authMode !== CHATGPT_AUTH_MODE) {
+      // API key 모드에는 만료가 없다 — 이 엔드포인트가 답할 수 있는 질문이 아니다.
+      return {
+        status: "unsupported_mode",
+        reason: null,
+        authMode,
+        issuedAt: null,
+        expiresAt: null,
+        expiresInSeconds: null,
+        lastRefresh,
+      };
+    }
+
+    const tokens = doc["tokens"];
+    const accessToken =
+      typeof tokens === "object" && tokens !== null
+        ? (tokens as Record<string, unknown>)["access_token"]
+        : undefined;
+    if (typeof accessToken !== "string" || accessToken.length === 0) {
+      return unknown("no_token", authMode);
+    }
+
+    const claims = decodeJwtClaims(accessToken);
+    if (!claims) return unknown("bad_jwt", authMode);
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    return {
+      status: claims.exp > nowSeconds ? "ok" : "expired",
+      reason: null,
+      authMode,
+      issuedAt: claims.iat === null ? null : toIso(claims.iat),
+      expiresAt: toIso(claims.exp),
+      expiresInSeconds: claims.exp - nowSeconds,
+      lastRefresh,
+    };
   }
 
   /**

@@ -507,4 +507,173 @@ describe("CodexService", () => {
     expect(result.exitCode).toBe(1);
     expect(result.rawOutput).toContain("spawn /usr/bin/codex ENOENT");
   });
+
+  describe("getAuthStatus", () => {
+    const b64url = (o: unknown) =>
+      Buffer.from(JSON.stringify(o)).toString("base64url");
+    const token = (claims: Record<string, unknown>) =>
+      `header.${b64url(claims)}.signature`;
+    const authFile = (exp: number, iat: number) =>
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        last_refresh: "2026-09-05T16:03:55.571058Z",
+        tokens: {
+          access_token: token({ exp, iat, sub: "user-abc", session_id: "s-1" }),
+          refresh_token: "rt-super-secret",
+          account_id: "acct-1",
+        },
+      });
+
+    const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+    it("reports ok with expiry metadata while the access token is valid", async () => {
+      const exp = nowSeconds() + 3600;
+      readFileSpy.mockResolvedValue(authFile(exp, exp - 864000));
+
+      const status = await createService().getAuthStatus();
+
+      expect(status.status).toBe("ok");
+      expect(status.authMode).toBe("chatgpt");
+      expect(status.expiresAt).toBe(new Date(exp * 1000).toISOString());
+      expect(status.expiresInSeconds).toBeGreaterThan(3500);
+      expect(status.lastRefresh).toBe("2026-09-05T16:03:55.571Z");
+      expect(status.reason).toBeNull();
+    });
+
+    it("reports expired once exp has passed", async () => {
+      const exp = nowSeconds() - 60;
+      readFileSpy.mockResolvedValue(authFile(exp, exp - 864000));
+
+      const status = await createService().getAuthStatus();
+
+      expect(status.status).toBe("expired");
+      expect(status.expiresInSeconds).toBeLessThan(0);
+    });
+
+    it("reports unknown/missing when auth.json is absent", async () => {
+      readFileSpy.mockRejectedValue(new Error("ENOENT"));
+
+      const status = await createService().getAuthStatus();
+
+      expect(status).toMatchObject({ status: "unknown", reason: "missing" });
+      expect(status.expiresAt).toBeNull();
+    });
+
+    // 이 응답은 인증 없는 경로로 나간다 — 파서 에러가 파일 내용을 인용하면
+    // refresh_token이 그대로 새어 나간다.
+    it("never echoes auth.json content when it cannot be parsed", async () => {
+      readFileSpy.mockResolvedValue('{"refresh_token": "rt-super-secret",,,}');
+
+      const status = await createService().getAuthStatus();
+
+      expect(status).toMatchObject({ status: "unknown", reason: "malformed" });
+      expect(JSON.stringify(status)).not.toContain("rt-super-secret");
+    });
+
+    it("does not leak token fields for a healthy session either", async () => {
+      const exp = nowSeconds() + 3600;
+      readFileSpy.mockResolvedValue(authFile(exp, exp - 864000));
+
+      const serialized = JSON.stringify(await createService().getAuthStatus());
+
+      expect(serialized).not.toContain("rt-super-secret");
+      expect(serialized).not.toContain("acct-1");
+      expect(serialized).not.toContain("session_id");
+    });
+
+    it("reports unsupported_mode for API-key auth, which has no expiry", async () => {
+      readFileSpy.mockResolvedValue(
+        JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "sk-secret" }),
+      );
+
+      const status = await createService().getAuthStatus();
+
+      expect(status.status).toBe("unsupported_mode");
+      expect(status.authMode).toBeNull();
+      expect(JSON.stringify(status)).not.toContain("sk-secret");
+    });
+
+    // auth_mode와 last_refresh는 파일에서 온 문자열이라, 값을 그대로 실어
+    // 보내면 이 공개 경로가 auth.json의 내용을 읽는 창구가 된다. 모양을
+    // 강제해 그 통로를 막는다.
+    it("never passes raw auth.json strings through to the response", async () => {
+      const exp = nowSeconds() + 3600;
+      readFileSpy.mockResolvedValue(
+        JSON.stringify({
+          auth_mode: "chatgpt",
+          last_refresh: "sk-leaked-via-last-refresh",
+          tokens: { access_token: token({ exp, iat: exp - 864000 }) },
+        }),
+      );
+
+      const status = await createService().getAuthStatus();
+
+      expect(status.status).toBe("ok");
+      expect(status.lastRefresh).toBeNull();
+      expect(JSON.stringify(status)).not.toContain("sk-leaked");
+    });
+
+    it("drops an unrecognized auth_mode instead of echoing it", async () => {
+      readFileSpy.mockResolvedValue(
+        JSON.stringify({ auth_mode: "sk-leaked-via-auth-mode" }),
+      );
+
+      const status = await createService().getAuthStatus();
+
+      expect(status.status).toBe("unsupported_mode");
+      expect(status.authMode).toBeNull();
+      expect(JSON.stringify(status)).not.toContain("sk-leaked");
+    });
+
+    // exp가 유한해도 Date 범위를 넘으면 toISOString()이 던진다. 던지면 이
+    // 라우트가 약속한 503 본문 대신 Nest 기본 500이 나가서, 폴러가 무엇이
+    // 잘못됐는지 읽을 수 없다.
+    it.each([1e20, -1e20, 8_640_000_000_001])(
+      "maps an out-of-range exp (%p) to bad_jwt instead of throwing",
+      async (exp) => {
+        readFileSpy.mockResolvedValue(
+          JSON.stringify({
+            auth_mode: "chatgpt",
+            tokens: { access_token: token({ exp, iat: 1 }) },
+          }),
+        );
+
+        const status = await createService().getAuthStatus();
+
+        expect(status).toMatchObject({ status: "unknown", reason: "bad_jwt" });
+        expect(status.expiresAt).toBeNull();
+      },
+    );
+
+    it("keeps an out-of-range iat from breaking an otherwise valid session", async () => {
+      const exp = nowSeconds() + 3600;
+      readFileSpy.mockResolvedValue(
+        JSON.stringify({
+          auth_mode: "chatgpt",
+          tokens: { access_token: token({ exp, iat: 1e20 }) },
+        }),
+      );
+
+      const status = await createService().getAuthStatus();
+
+      expect(status.status).toBe("ok");
+      expect(status.issuedAt).toBeNull();
+      expect(status.expiresAt).toBe(new Date(exp * 1000).toISOString());
+    });
+
+    it("reads auth.json from CODEX_HOME when set", async () => {
+      const previous = process.env["CODEX_HOME"];
+      process.env["CODEX_HOME"] = "/root/.codex";
+      readFileSpy.mockRejectedValue(new Error("ENOENT"));
+
+      try {
+        await createService().getAuthStatus();
+      } finally {
+        if (previous === undefined) delete process.env["CODEX_HOME"];
+        else process.env["CODEX_HOME"] = previous;
+      }
+
+      expect(readFileSpy).toHaveBeenCalledWith("/root/.codex/auth.json", "utf-8");
+    });
+  });
 });
