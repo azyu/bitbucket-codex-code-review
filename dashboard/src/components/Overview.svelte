@@ -100,6 +100,7 @@
         <thead>
           <tr>
             <th>Repository</th>
+            <th>Status</th>
             <th class="num">Runs</th>
             <th class="num">Success</th>
             <th class="num">Codex avg</th>
@@ -114,15 +115,28 @@
               <td class="mono">
                 {repoLabel(repo.workspaceSlug, repo.repoSlug)}
               </td>
+              <!-- Recent reviews does not stand in for this: at the default
+                   limit its ten rows came from two of the 31 repositories, so
+                   a queued or failed run on any of the other 29 would appear
+                   nowhere on the page. -->
+              <td>
+                {#if repo.latestReview !== null}
+                  <StatusBadge status={repo.latestReview.reviewStatus} />
+                {:else}
+                  <span class="dim">—</span>
+                {/if}
+              </td>
               <td class="num">{count(repo.counts.total)}</td>
-              <!-- The failed and superseded counts have no column of their
-                   own, so they ride along here rather than being dropped. -->
-              <td
-                class="num"
-                title="{repo.counts.completed} completed, {repo.counts
-                  .failed} failed, {repo.counts.superseded} superseded"
-              >
+              <!-- The failed and superseded counts have no column of their own.
+                   A title would carry them only to a mouse — a td takes no
+                   focus and a touch screen has no hover — so they ride along
+                   as text the cell's accessible name includes. -->
+              <td class="num">
                 {percent(repo.counts.completed, repo.counts.total)}
+                <span class="sr-only">
+                  {repo.counts.completed} completed, {repo.counts.failed} failed,
+                  {repo.counts.superseded} superseded
+                </span>
               </td>
               <td class="num">{duration(repo.durations.codexAvgMs)}</td>
               <td class="num">{duration(repo.durations.reviewAvgMs)}</td>
@@ -309,6 +323,17 @@
   th.num,
   td.num {
     text-align: right;
+  }
+
+  /* Reaches a screen reader without reaching the layout. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
 
   .empty {
