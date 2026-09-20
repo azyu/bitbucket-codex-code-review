@@ -50,7 +50,7 @@
     "@opentelemetry/winston-transport": "^0.32.0",
     "bullmq": "^6.3.6",
     "helmet": "^8.3.0",
-    "ioredis": "^5.11.1",
+    "ioredis": "^6.0.0",
     "joi": "^18.2.9",
     "mysql2": "^3.24.3",
     "reflect-metadata": "^0.2.2",
