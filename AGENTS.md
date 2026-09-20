@@ -57,6 +57,14 @@ PR을 열면 `chatgpt-codex-connector`가 리뷰를 남긴다. 결과는 즉시 
 
 Renovate PR의 CI green은 타입 호환성만 증명한다. 테스트가 실제 Redis/MySQL을 띄우지 않으므로 런타임 동작 변경은 통과한다. major 범프는 릴리스 노트의 BREAKING 항목을 코드에 직접 대조할 것.
 
+그 green은 브랜치가 만들어진 시점의 main 기준이기도 하다. main이 움직여도 충돌만 없으면 Renovate는 리베이스하지 않는다 — #110·#92·#73·#68·#67·#55에 리베이스 체크박스를 찍었으나 다음 주기에 체크만 해제되고 브랜치는 그대로였으며, 이틀 뒤에도 `packageManager`가 `pnpm@10.34.5`였다. 충돌 상태였던 #94만 리베이스됐다. `gh run rerun`은 원래 이벤트의 SHA를 다시 쓰므로 낡은 병합 커밋을 재검증할 뿐이다. 오래된 Renovate PR은 병합 트리를 직접 만들어 확인할 것:
+
+```bash
+t=$(git merge-tree --write-tree origin/main origin/<branch> | head -1)
+git archive "$t" | tar -x -C <dir>
+cd <dir> && pnpm install --frozen-lockfile && pnpm build && pnpm lint && pnpm test
+```
+
 peer dependency가 optional로 강등되는 변경은 lockfile이 이전 트리의 잔재를 유지해 정상으로 보인다. `package.json`만 빈 디렉터리에 복사해 `pnpm install --lockfile-only`로 재해석하고 패키지가 살아남는지 확인할 것 (bullmq v6 → ioredis 유실, PR #90).
 
 CI가 빌드하는 이미지 레이어는 `--target deps`까지다. build·runtime stage에서만 깨지는 변경은 CI 전 항목 green으로 main에 들어가고 publish 잡에서야 터진다. Dockerfile이나 툴체인을 건드렸으면 `docker build .`를 직접 한 번 돌릴 것.
