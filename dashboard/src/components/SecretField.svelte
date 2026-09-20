@@ -32,9 +32,11 @@
     {:else if status.source === "global"}
       <span class="tag warn">{t("secret.status.inherited")}</span>
     {:else}
-      <span class="tag ok">
-        {t("secret.status.setOn", { source: status.source })}
-      </span>
+      <!-- Reached only on a repository pane for a locally stored secret:
+           runtime-settings.service.ts sets source to the row's own scope, and
+           the global pane's own scope is the branch above. Interpolating the
+           source would put the raw `repository` enum into the Korean label. -->
+      <span class="tag ok">{t("secret.status.setOnRepository")}</span>
     {/if}
   </div>
 
