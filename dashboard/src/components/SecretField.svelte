@@ -1,5 +1,6 @@
 <script lang="ts">
   import { SECRET_LABELS } from "../lib/fields";
+  import { t } from "../lib/i18n.svelte";
   import type { SecretDraft } from "../lib/store.svelte";
 
   let {
@@ -18,34 +19,36 @@
   } = $props();
 
   let id = $derived(`secret-${name}`);
-  let label = $derived(SECRET_LABELS[name] ?? name);
+  let label = $derived(t(SECRET_LABELS[name] ?? name));
 </script>
 
 <div class="secret">
   <div class="head">
     <label for={id}>{label}</label>
     {#if status === undefined}
-      <span class="tag mute">unknown</span>
+      <span class="tag mute">{t("secret.status.unknown")}</span>
     {:else if !status.configured}
-      <span class="tag mute">not configured</span>
+      <span class="tag mute">{t("secret.status.notConfigured")}</span>
     {:else if status.source === "global"}
-      <span class="tag warn">inherited from global</span>
+      <span class="tag warn">{t("secret.status.inherited")}</span>
     {:else}
-      <span class="tag ok">set on {status.source}</span>
+      <span class="tag ok">
+        {t("secret.status.setOn", { source: status.source })}
+      </span>
     {/if}
   </div>
 
   <div class="row">
     <select
-      aria-label="{label} action"
+      aria-label={t("secret.actionAria", { label })}
       bind:value={draft.operation}
       onchange={() => {
         if (draft.operation !== "replace") draft.value = "";
       }}
     >
-      <option value="keep">leave unchanged</option>
-      <option value="replace">replace</option>
-      <option value="clear">clear</option>
+      <option value="keep">{t("op.keep")}</option>
+      <option value="replace">{t("op.replace")}</option>
+      <option value="clear">{t("op.clear")}</option>
     </select>
     <input
       {id}
@@ -53,8 +56,8 @@
       autocomplete="off"
       spellcheck="false"
       placeholder={draft.operation === "replace"
-        ? "new value"
-        : "no value sent"}
+        ? t("secret.placeholder.new")
+        : t("secret.placeholder.none")}
       disabled={draft.operation !== "replace"}
       bind:value={draft.value}
     />

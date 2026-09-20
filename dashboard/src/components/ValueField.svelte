@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fieldSpec } from "../lib/fields";
+  import { t } from "../lib/i18n.svelte";
 
   let {
     name,
@@ -20,13 +21,13 @@
 <div class="field" class:wide={spec.kind === "textarea"}>
   <div class="head">
     <label for={id}>
-      {spec.label}
-      {#if spec.hint}<span class="dim">({spec.hint})</span>{/if}
+      {t(spec.label)}
+      {#if spec.hint}<span class="dim">({t(spec.hint)})</span>{/if}
     </label>
     {#if inherit !== undefined}
       <label class="inherit">
         <input type="checkbox" bind:checked={inherit} />
-        inherit
+        {t("field.inherit")}
       </label>
     {/if}
   </div>
@@ -34,7 +35,7 @@
   {#if spec.kind === "select"}
     <select {id} bind:value {disabled}>
       {#each spec.options as option (option)}
-        <option value={option}>{option === "" ? "(unset)" : option}</option>
+        <option value={option}>{option === "" ? t("field.unset") : option}</option>
       {/each}
     </select>
   {:else if spec.kind === "integer"}
@@ -52,7 +53,7 @@
   {:else if spec.kind === "textarea"}
     <textarea {id} maxlength={spec.maxLength} bind:value {disabled}></textarea>
     <span class="dim bounds">
-      {value.length} / {spec.maxLength} characters
+      {t("field.chars", { length: value.length, max: spec.maxLength })}
     </span>
   {:else}
     <input

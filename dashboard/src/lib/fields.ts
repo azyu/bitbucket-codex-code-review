@@ -38,74 +38,80 @@ export type FieldSpec =
       pattern?: string;
     };
 
+/**
+ * `label` and `hint` are i18n keys, not display text: the form renders them
+ * through `t()` so a locale switch relabels the fields without a reload.
+ */
+
 export const FIELD_SPECS: Record<string, FieldSpec> = {
   model: {
     kind: "text",
-    label: "Codex model",
+    label: "field.model",
     maxLength: MAX_MODEL_CHARS,
     pattern: MODEL_PATTERN.source,
   },
   reasoningEffort: {
     kind: "select",
-    label: "Reasoning effort",
-    hint: "empty = unset",
+    label: "field.reasoningEffort",
+    hint: "field.reasoningEffort.hint",
     options: REASONING_EFFORT_VALUES,
   },
   timeoutMs: {
     kind: "integer",
-    label: "Codex timeout",
-    hint: "ms",
+    label: "field.timeoutMs",
+    hint: "field.hint.ms",
     min: 1,
     max: MAX_TIMER_MS,
   },
   customPrompt: {
     kind: "textarea",
-    label: "Custom review prompt",
+    label: "field.customPrompt",
     maxLength: MAX_CUSTOM_PROMPT_CHARS,
   },
   openaiBaseUrl: {
     kind: "url",
-    label: "OpenAI base URL",
-    hint: "HTTPS only; empty = default",
+    label: "field.openaiBaseUrl",
+    hint: "field.openaiBaseUrl.hint",
     maxLength: MAX_OPENAI_BASE_URL_BYTES,
   },
   triggerMode: {
     kind: "select",
-    label: "Trigger mode",
+    label: "field.triggerMode",
     options: TRIGGER_MODE_VALUES,
   },
   retryAttempts: {
     kind: "integer",
-    label: "Retry attempts",
+    label: "field.retryAttempts",
     min: 1,
     max: MAX_QUEUE_RETRY_ATTEMPTS,
   },
   retryDelay: {
     kind: "integer",
-    label: "Retry delay",
-    hint: "ms; 0 allowed",
+    label: "field.retryDelay",
+    hint: "field.retryDelay.hint",
     min: 0,
     max: MAX_TIMER_MS,
   },
   workerConcurrency: {
     kind: "integer",
-    label: "Worker concurrency",
+    label: "field.workerConcurrency",
     min: 1,
     max: MAX_WORKER_CONCURRENCY,
   },
   cloneTimeoutMs: {
     kind: "integer",
-    label: "Git clone timeout",
-    hint: "ms",
+    label: "field.cloneTimeoutMs",
+    hint: "field.hint.ms",
     min: 1,
     max: MAX_TIMER_MS,
   },
 };
 
+/** i18n keys, like FieldSpec.label. */
 export const SECRET_LABELS: Record<string, string> = {
-  openaiApiKey: "OpenAI API key",
-  bitbucketApiToken: "Bitbucket API token",
-  webhookSecret: "Webhook secret",
+  openaiApiKey: "secret.openaiApiKey",
+  bitbucketApiToken: "secret.bitbucketApiToken",
+  webhookSecret: "secret.webhookSecret",
 };
 
 export function fieldSpec(key: string): FieldSpec {

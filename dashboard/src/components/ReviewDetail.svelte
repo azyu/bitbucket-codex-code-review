@@ -1,5 +1,6 @@
 <script lang="ts">
   import { absoluteTime, count, duration, shortSha, tokens } from "../lib/format";
+  import { t } from "../lib/i18n.svelte";
   import { store } from "../lib/store.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
@@ -14,7 +15,7 @@
 
 <div class="scrim" role="presentation" onclick={() => store.closeReview()}></div>
 
-<aside aria-label="Review run detail">
+<aside aria-label={t("detail.aria")}>
   <header>
     <div>
       {#if detail !== null}
@@ -23,70 +24,117 @@
           {detail.workspaceSlug}/{detail.repositorySlug} #{detail.pullRequestId}
         </span>
       {:else}
-        <span class="title">Review run</span>
+        <span class="title">{t("detail.title")}</span>
       {/if}
     </div>
-    <button onclick={() => store.closeReview()} aria-label="Close">Close</button>
+    <button onclick={() => store.closeReview()} aria-label={t("action.close")}>
+      {t("action.close")}
+    </button>
   </header>
 
   <div class="body">
     {#if store.detailLoading}
-      <p class="dim">Loading…</p>
+      <p class="dim">{t("common.loading")}</p>
     {:else if store.detailError !== null}
       <p class="error" role="alert">{store.detailError}</p>
     {:else if detail !== null}
       <dl>
-        <div><dt>Run id</dt><dd class="mono">{detail.id}</dd></div>
-        <div><dt>Started</dt><dd>{absoluteTime(detail.createdAt)}</dd></div>
-        <div><dt>Updated</dt><dd>{absoluteTime(detail.updatedAt)}</dd></div>
-        <div><dt>Trigger</dt><dd>{detail.triggerType}</dd></div>
+        <div><dt>{t("detail.runId")}</dt><dd class="mono">{detail.id}</dd></div>
         <div>
-          <dt>Branch</dt>
+          <dt>{t("detail.started")}</dt>
+          <dd>{absoluteTime(detail.createdAt)}</dd>
+        </div>
+        <div>
+          <dt>{t("detail.updated")}</dt>
+          <dd>{absoluteTime(detail.updatedAt)}</dd>
+        </div>
+        <div><dt>{t("detail.trigger")}</dt><dd>{detail.triggerType}</dd></div>
+        <div>
+          <dt>{t("detail.branch")}</dt>
           <dd class="mono">{detail.headBranch} → {detail.baseBranch}</dd>
         </div>
         <div>
-          <dt>Commits</dt>
+          <dt>{t("detail.commits")}</dt>
           <dd class="mono">
             {shortSha(detail.headCommitHash)} / {shortSha(detail.baseCommitHash)}
           </dd>
         </div>
-        <div><dt>Codex model</dt><dd>{detail.codexModel || "—"}</dd></div>
-        <div><dt>Effort</dt><dd>{detail.codexReasoningEffort || "—"}</dd></div>
-        <div><dt>Codex time</dt><dd>{duration(detail.durationMs)}</dd></div>
-        <div><dt>Total time</dt><dd>{duration(detail.totalDurationMs)}</dd></div>
-        <div><dt>Input tokens</dt><dd>{tokens(detail.inputTokens)}</dd></div>
-        <div><dt>Cached input</dt><dd>{tokens(detail.cachedInputTokens)}</dd></div>
-        <div><dt>Output tokens</dt><dd>{tokens(detail.outputTokens)}</dd></div>
         <div>
-          <dt>Result comment</dt>
+          <dt>{t("detail.codexModel")}</dt>
+          <dd>{detail.codexModel || "—"}</dd>
+        </div>
+        <div>
+          <dt>{t("detail.effort")}</dt>
+          <dd>{detail.codexReasoningEffort || "—"}</dd>
+        </div>
+        <div>
+          <dt>{t("detail.codexTime")}</dt>
+          <dd>{duration(detail.durationMs)}</dd>
+        </div>
+        <div>
+          <dt>{t("detail.totalTime")}</dt>
+          <dd>{duration(detail.totalDurationMs)}</dd>
+        </div>
+        <div>
+          <dt>{t("detail.inputTokens")}</dt>
+          <dd>{tokens(detail.inputTokens)}</dd>
+        </div>
+        <div>
+          <dt>{t("detail.cachedInput")}</dt>
+          <dd>{tokens(detail.cachedInputTokens)}</dd>
+        </div>
+        <div>
+          <dt>{t("detail.outputTokens")}</dt>
+          <dd>{tokens(detail.outputTokens)}</dd>
+        </div>
+        <div>
+          <dt>{t("detail.resultComment")}</dt>
           <dd class="mono">{count(detail.resultCommentId)}</dd>
         </div>
       </dl>
 
       {#if detail.errorMessage}
         <section>
-          <h3>Error</h3>
+          <h3>{t("detail.error")}</h3>
           <pre class="error">{detail.errorMessage}</pre>
         </section>
       {/if}
 
       {#if detail.settingsSnapshot !== null}
         <section>
-          <h3>Settings at run time</h3>
+          <h3>{t("detail.snapshot")}</h3>
           <dl>
-            <div><dt>Revision</dt><dd class="mono">{detail.settingsSnapshot.revision}</dd></div>
-            <div><dt>Model</dt><dd>{detail.settingsSnapshot.model}</dd></div>
-            <div><dt>Effort</dt><dd>{detail.settingsSnapshot.reasoningEffort || "—"}</dd></div>
-            <div><dt>Timeout</dt><dd>{duration(detail.settingsSnapshot.timeoutMs)}</dd></div>
-            <div><dt>Trigger mode</dt><dd>{detail.settingsSnapshot.triggerMode}</dd></div>
-            <div><dt>Retries</dt><dd>{detail.settingsSnapshot.retryAttempts}</dd></div>
+            <div>
+              <dt>{t("detail.revision")}</dt>
+              <dd class="mono">{detail.settingsSnapshot.revision}</dd>
+            </div>
+            <div>
+              <dt>{t("detail.model")}</dt>
+              <dd>{detail.settingsSnapshot.model}</dd>
+            </div>
+            <div>
+              <dt>{t("detail.effort")}</dt>
+              <dd>{detail.settingsSnapshot.reasoningEffort || "—"}</dd>
+            </div>
+            <div>
+              <dt>{t("detail.timeout")}</dt>
+              <dd>{duration(detail.settingsSnapshot.timeoutMs)}</dd>
+            </div>
+            <div>
+              <dt>{t("detail.triggerMode")}</dt>
+              <dd>{detail.settingsSnapshot.triggerMode}</dd>
+            </div>
+            <div>
+              <dt>{t("detail.retries")}</dt>
+              <dd>{detail.settingsSnapshot.retryAttempts}</dd>
+            </div>
           </dl>
         </section>
       {/if}
 
       {#if detail.reviewOutput}
         <section>
-          <h3>Published review</h3>
+          <h3>{t("detail.published")}</h3>
           <pre>{detail.reviewOutput}</pre>
         </section>
       {/if}

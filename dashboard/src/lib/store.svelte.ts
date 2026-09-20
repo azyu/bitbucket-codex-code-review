@@ -6,6 +6,7 @@ import {
   coerceValue,
   valueToInput,
 } from "./fields";
+import { t } from "./i18n.svelte";
 import type {
   RecentReview,
   RepoStats,
@@ -83,7 +84,7 @@ function emptyRepositoryDraft() {
 function describe(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
-  return "Request failed.";
+  return t("error.request");
 }
 
 async function readError(response: Response): Promise<string> {
@@ -195,7 +196,7 @@ export class DashboardStore {
     );
 
     if (response.status === 401) {
-      this.lock("Key rejected. Enter it again.");
+      this.lock(t("error.keyRejected"));
       throw new StaleSessionError();
     }
 
@@ -261,7 +262,7 @@ export class DashboardStore {
 
   async unlock(key: string): Promise<void> {
     if (key === "") {
-      this.authError = "Enter the dashboard key.";
+      this.authError = t("error.keyRequired");
       return;
     }
     this.#clear();
@@ -348,7 +349,7 @@ export class DashboardStore {
       const detail = await this.#request<ReviewDetail | null>(`/reviews/${id}`);
       if (generation !== this.#detailRequest) return;
       this.detail = detail;
-      if (detail === null) this.detailError = "Review run not found.";
+      if (detail === null) this.detailError = t("error.reviewNotFound");
     } catch (error) {
       if (error instanceof StaleSessionError) return;
       if (generation !== this.#detailRequest) return;
@@ -489,7 +490,7 @@ export class DashboardStore {
     if (this.repositoryDraftStale) {
       this.repositoryNotice = {
         kind: "error",
-        text: "Repository changed since load. Load it again before saving.",
+        text: t("error.repoChanged"),
       };
       return;
     }
@@ -534,7 +535,10 @@ export class DashboardStore {
       });
       this.#settingsWrites += 1;
       this.#applyScope(scope);
-      report({ kind: "ok", text: `Saved at revision ${scope.revision}.` });
+      report({
+        kind: "ok",
+        text: t("notice.saved", { revision: scope.revision }),
+      });
       // The PATCH answers with the saved scope only, but a repository's secret
       // status is computed against the global secrets, so every stored
       // repository document is stale the moment a global secret changes.
@@ -560,11 +564,11 @@ export class DashboardStore {
           reloaded
             ? {
                 kind: "conflict",
-                text: "Not saved — changed elsewhere since load. Reloaded; re-apply your edits.",
+                text: t("notice.conflictReloaded"),
               }
             : {
                 kind: "error",
-                text: "Not saved — changed elsewhere since load, and reloading the current values failed. Refresh before trying again.",
+                text: t("notice.conflictReloadFailed"),
               },
         );
         return;

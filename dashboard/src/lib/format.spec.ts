@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   absoluteTime,
   count,
@@ -8,6 +8,7 @@ import {
   shortSha,
   tokens,
 } from "./format";
+import { setLocale } from "./i18n.svelte";
 
 // These read as trivial, but every one of them has a unit boundary that flips
 // the displayed magnitude. A wrong boundary makes a 59-second review read as
@@ -72,12 +73,21 @@ describe("percent", () => {
 describe("relativeTime", () => {
   const now = Date.parse("2026-09-15T12:00:00.000Z");
 
+  afterEach(() => setLocale("ko"));
+
   it("switches unit at a minute, an hour and a day", () => {
+    expect(relativeTime("2026-09-15T11:59:30.000Z", now)).toBe("방금 전");
+    expect(relativeTime("2026-09-15T11:59:00.000Z", now)).toBe("1분 전");
+    expect(relativeTime("2026-09-15T11:00:00.000Z", now)).toBe("1시간 전");
+    expect(relativeTime("2026-09-14T12:00:00.000Z", now)).toBe("1일 전");
+    expect(relativeTime("2026-08-15T12:00:00.000Z", now)).toBe("31일 전");
+  });
+
+  it("follows the active locale", () => {
+    setLocale("en");
+
     expect(relativeTime("2026-09-15T11:59:30.000Z", now)).toBe("just now");
-    expect(relativeTime("2026-09-15T11:59:00.000Z", now)).toBe("1m ago");
     expect(relativeTime("2026-09-15T11:00:00.000Z", now)).toBe("1h ago");
-    expect(relativeTime("2026-09-14T12:00:00.000Z", now)).toBe("1d ago");
-    expect(relativeTime("2026-08-15T12:00:00.000Z", now)).toBe("31d ago");
   });
 
   it("does not render Invalid Date", () => {
