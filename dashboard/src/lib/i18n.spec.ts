@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  LOCALES,
+  MESSAGES,
   applyStoredLocale,
   getLocale,
   resolve,
@@ -52,6 +54,18 @@ describe("i18n", () => {
 
     expect(t("notice.saved", { revision: 7 })).toBe("Saved at revision 7.");
     expect(t("overview.superseded", {})).toBe("{count} superseded");
+  });
+
+  // A key present in one locale and not the other falls back to English and
+  // renders silently in the wrong language — the failure this whole module
+  // exists to prevent, and the one an added label is most likely to cause.
+  it("defines the same keys in every locale", () => {
+    const [first, ...rest] = LOCALES.map((locale) =>
+      Object.keys(MESSAGES[locale]).sort(),
+    );
+
+    expect(first?.length).toBeGreaterThan(0);
+    for (const keys of rest) expect(keys).toEqual(first);
   });
 
   // A gap has to be visible in the UI, not rendered as an empty label.

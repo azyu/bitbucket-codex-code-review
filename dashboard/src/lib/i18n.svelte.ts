@@ -8,7 +8,7 @@ const STORAGE_KEY = "dashboard-locale";
 export const LOCALES = ["ko", "en"] as const;
 export type Locale = (typeof LOCALES)[number];
 
-const MESSAGES: Record<Locale, Record<string, string>> = {
+export const MESSAGES: Record<Locale, Record<string, string>> = {
   ko: {
     "app.title": "코드 리뷰 운영",
     "nav.overview": "개요",
