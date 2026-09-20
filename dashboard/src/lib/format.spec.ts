@@ -28,7 +28,7 @@ describe("duration", () => {
     expect(duration(59_999)).toBe("60.0s");
     expect(duration(60_000)).toBe("1m 00s");
     expect(duration(61_500)).toBe("1m 02s");
-    expect(duration(3_600_000)).toBe("60m 00s");
+    expect(duration(3_600_000)).toBe("1h 00m");
   });
 
   it("zero-pads the seconds so minute values stay column-aligned", () => {
@@ -118,5 +118,44 @@ describe("duration carries rounded seconds into the minute", () => {
     expect(duration(59_500 + 60_000)).toBe("2m 00s");
     expect(duration(89_400)).toBe("1m 29s");
     expect(duration(60_000)).toBe("1m 00s");
+  });
+});
+
+describe("duration and tokens keep large ops figures readable", () => {
+  it("rolls minutes into hours instead of printing 4653m", () => {
+    // The overview's "Review time" tile sums every run in the window, which
+    // is tens of hours once a repository has been reviewed for a week.
+    expect(duration(279_214_000)).toBe("77h 34m");
+    expect(duration(3_660_000)).toBe("1h 01m");
+    expect(duration(3_599_000)).toBe("59m 59s");
+  });
+
+  it("zero-pads the minutes so hour values stay column-aligned", () => {
+    expect(duration(7_200_000)).toBe("2h 00m");
+    expect(duration(7_500_000)).toBe("2h 05m");
+  });
+
+  it("carries rounded minutes into the hour", () => {
+    // Same trap as "1m 60s": rounding the remainder would print "1h 60m".
+    expect(duration(7_199_000)).toBe("2h 00m");
+  });
+
+  it("switches to billions instead of printing 1222.59M", () => {
+    expect(tokens(999_999_999)).toBe("1000.00M");
+    expect(tokens(1_000_000_000)).toBe("1.00B");
+    expect(tokens(1_222_590_000)).toBe("1.22B");
+  });
+});
+
+describe("percent does not round a failure away", () => {
+  it("keeps 100% for a genuinely complete ratio", () => {
+    expect(percent(1608, 1608)).toBe("100%");
+    expect(percent(0, 5)).toBe("0%");
+  });
+
+  it("drops to a tenth when rounding would claim 100%", () => {
+    // 1601 of 1608 completed: six failures and a supersede read as "100%".
+    expect(percent(1601, 1608)).toBe("99.5%");
+    expect(percent(9999, 10_000)).toBe("99.9%");
   });
 });
