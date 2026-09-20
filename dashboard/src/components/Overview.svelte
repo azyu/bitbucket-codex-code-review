@@ -27,6 +27,23 @@
     return seed;
   });
 
+  // Every row of both tables carries the same "locomotivelabs/" otherwise. The
+  // prefix comes back the moment a second workspace shows up, so nothing is
+  // lost when the deployment stops being single-tenant. Both lists feed the
+  // check: recent is not a strict subset of repoStats — the two are separate
+  // responses, so a repository could reach one before the other.
+  let sharedWorkspace = $derived.by(() => {
+    const all = new Set([
+      ...store.repoStats.map((r) => r.workspaceSlug),
+      ...store.recent.map((r) => r.workspaceSlug),
+    ]);
+    return all.size === 1 ? [...all][0] : null;
+  });
+
+  function repoLabel(workspaceSlug: string, repoSlug: string): string {
+    return sharedWorkspace === null ? `${workspaceSlug}/${repoSlug}` : repoSlug;
+  }
+
   let ranked = $derived(
     [...store.repoStats].sort((a, b) => b.counts.total - a.counts.total),
   );
@@ -70,63 +87,76 @@
 </section>
 
 <section>
-  <h2>Repositories</h2>
+  <h2>
+    Repositories
+    {#if sharedWorkspace !== null}<span class="ws mono">{sharedWorkspace}</span
+      >{/if}
+  </h2>
   {#if ranked.length === 0}
     <p class="card empty dim">No review runs recorded yet.</p>
   {:else}
-    <div class="repos">
-      {#each ranked as repo (repo.workspaceSlug + "/" + repo.repoSlug)}
-        <article class="card repo">
-          <header>
-            <span class="mono">{repo.workspaceSlug}/{repo.repoSlug}</span>
-            {#if repo.latestReview !== null}
-              <StatusBadge status={repo.latestReview.reviewStatus} />
-            {/if}
-          </header>
-
-          <div
-            class="bar"
-            role="img"
-            aria-label="{repo.counts.completed} completed, {repo.counts.failed} failed, {repo.counts.superseded} superseded"
-          >
-            <span class="seg ok" style:flex={repo.counts.completed || 0}></span>
-            <span class="seg bad" style:flex={repo.counts.failed || 0}></span>
-            <span class="seg mute" style:flex={repo.counts.superseded || 0}></span>
-          </div>
-
-          <dl>
-            <div><dt>Runs</dt><dd>{count(repo.counts.total)}</dd></div>
-            <div>
-              <dt>Success</dt>
-              <dd>{percent(repo.counts.completed, repo.counts.total)}</dd>
-            </div>
-            <div><dt>Codex avg</dt><dd>{duration(repo.durations.codexAvgMs)}</dd></div>
-            <div><dt>Review avg</dt><dd>{duration(repo.durations.reviewAvgMs)}</dd></div>
-            <div><dt>Tokens</dt><dd>{tokens(repo.tokens.totalTokens)}</dd></div>
-            <div>
-              <dt>Cached in</dt>
-              <dd>{tokens(repo.tokens.cachedInputTokens)}</dd>
-            </div>
-          </dl>
-
-          {#if repo.latestReview !== null}
-            <footer class="dim">
-              Latest PR
-              <button class="link" onclick={() => store.openReview(repo.latestReview!.id)}>
-                #{repo.latestReview.pullRequestId}
-              </button>
-              · {relativeTime(repo.latestReview.createdAt)}
-            </footer>
-          {/if}
-        </article>
-      {/each}
+    <div class="card scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Repository</th>
+            <th class="num">Runs</th>
+            <th class="num">Success</th>
+            <th class="num">Codex avg</th>
+            <th class="num">Review avg</th>
+            <th class="num">Tokens</th>
+            <th>Latest PR</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each ranked as repo (repo.workspaceSlug + "/" + repo.repoSlug)}
+            <tr>
+              <td class="mono">
+                {repoLabel(repo.workspaceSlug, repo.repoSlug)}
+              </td>
+              <td class="num">{count(repo.counts.total)}</td>
+              <!-- The failed and superseded counts have no column of their
+                   own, so they ride along here rather than being dropped. -->
+              <td
+                class="num"
+                title="{repo.counts.completed} completed, {repo.counts
+                  .failed} failed, {repo.counts.superseded} superseded"
+              >
+                {percent(repo.counts.completed, repo.counts.total)}
+              </td>
+              <td class="num">{duration(repo.durations.codexAvgMs)}</td>
+              <td class="num">{duration(repo.durations.reviewAvgMs)}</td>
+              <td class="num">{tokens(repo.tokens.totalTokens)}</td>
+              <td>
+                {#if repo.latestReview !== null}
+                  <button
+                    class="link"
+                    onclick={() => store.openReview(repo.latestReview!.id)}
+                  >
+                    #{repo.latestReview.pullRequestId}
+                  </button>
+                  <span class="dim">
+                    · {relativeTime(repo.latestReview.createdAt)}
+                  </span>
+                {:else}
+                  <span class="dim">—</span>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
     </div>
   {/if}
 </section>
 
 <section>
   <div class="section-head">
-    <h2>Recent reviews</h2>
+    <h2>
+      Recent reviews
+      {#if sharedWorkspace !== null}<span class="ws mono">{sharedWorkspace}</span
+        >{/if}
+    </h2>
     <div class="limits">
       {#each LIMITS as limit (limit)}
         <button
@@ -162,7 +192,9 @@
           {#each store.recent as review (review.id)}
             <tr>
               <td><StatusBadge status={review.reviewStatus} /></td>
-              <td class="mono">{review.workspaceSlug}/{review.repositorySlug}</td>
+              <td class="mono">
+                {repoLabel(review.workspaceSlug, review.repositorySlug)}
+              </td>
               <td>#{review.pullRequestId}</td>
               <td class="mono dim">{shortSha(review.headCommitHash)}</td>
               <td class="dim">{review.triggerType}</td>
@@ -265,76 +297,18 @@
     color: var(--bad);
   }
 
-  .repos {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-    gap: 12px;
+  /* The workspace slug lives beside the heading instead of on every row, so
+     it must opt out of the heading's uppercase tracking. */
+  .ws {
+    margin-left: 8px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
   }
 
-  .repo {
-    padding: 14px 16px;
-    display: grid;
-    gap: 11px;
-  }
-
-  .repo > header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .bar {
-    display: flex;
-    height: 5px;
-    border-radius: 999px;
-    overflow: hidden;
-    background: var(--surface-2);
-  }
-
-  .seg {
-    min-width: 0;
-  }
-
-  .seg.ok {
-    background: var(--ok);
-  }
-
-  .seg.bad {
-    background: var(--bad);
-  }
-
-  .seg.mute {
-    background: var(--mute);
-  }
-
-  dl {
-    margin: 0;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px 14px;
-  }
-
-  dl div {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    font-size: 12.5px;
-  }
-
-  dt {
-    color: var(--text-dim);
-  }
-
-  dd {
-    margin: 0;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .repo footer {
-    font-size: 12px;
-    border-top: 1px solid var(--border);
-    padding-top: 9px;
+  th.num,
+  td.num {
+    text-align: right;
   }
 
   .empty {
