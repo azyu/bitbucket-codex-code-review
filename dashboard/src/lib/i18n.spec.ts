@@ -49,6 +49,29 @@ describe("i18n", () => {
     expect(localStorage.getItem("dashboard-locale")).toBe("en");
   });
 
+  // The stored preference is read once, at module import, so no sequence of
+  // setLocale() calls reaches that path: the whole restore path stayed green
+  // with `stored()` deleted from the initialiser. Re-importing with the value
+  // already in storage is the only shape that fails when it breaks.
+  it("boots in the stored locale", async () => {
+    localStorage.setItem("dashboard-locale", "en");
+    vi.resetModules();
+
+    const booted = await import("./i18n.svelte");
+
+    expect(booted.getLocale()).toBe("en");
+    expect(booted.applyStoredLocale()).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    expect(document.title).toBe("Code review operations");
+  });
+
+  it("falls back to Korean when the stored value is not a locale", async () => {
+    localStorage.setItem("dashboard-locale", "de");
+    vi.resetModules();
+
+    expect((await import("./i18n.svelte")).getLocale()).toBe("ko");
+  });
+
   it("interpolates named parameters and leaves unknown ones in place", () => {
     setLocale("en");
 
@@ -88,6 +111,15 @@ describe("i18n", () => {
     // A server message has no key to translate to, so it is shown as received.
     expect(resolve("500 Internal Server Error")).toBe("500 Internal Server Error");
     expect(resolve(null)).toBeNull();
+  });
+
+  it("boots in the default when reading storage throws", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    vi.resetModules();
+
+    expect((await import("./i18n.svelte")).getLocale()).toBe("ko");
   });
 
   it("still switches the language when writing storage throws", () => {
