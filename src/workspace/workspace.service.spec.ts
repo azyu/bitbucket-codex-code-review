@@ -342,13 +342,44 @@ describe("WorkspaceService", () => {
     });
 
     /**
-     * 진행 중인 prepareWorktree가 fetch까지 도달할 시간을 준다. fetch 전에 실제
-     * fs 작업(mkdir/writeFile)을 await하므로 setImmediate 턴으로는 스레드풀을 기다리지
-     * 못한다 — 느린 러너에서 0건으로 관측되는 위양성이 나온다. 시간 기반이라
-     * "직렬화가 없으면 이 안에 초과 fetch가 쌓인다"도 그대로 성립한다.
+     * 실제 fs 왕복 한 번 + 이벤트 루프 한 바퀴. 벽시계와 달리 러너가 느려지면 tick도 같이
+     * 느려지므로 "몇 tick"은 부하와 무관하게 대략 일정한 진행량을 뜻한다. 순서 보장은 없다 —
+     * 정확성은 pendingFetches.length 폴링에서 나오고 tick은 진행시킬 뿐이다.
      */
-    const settle = (): Promise<void> =>
-      new Promise((resolve) => setTimeout(resolve, 50));
+    const tick = async (): Promise<void> => {
+      await stat(basePath).catch(() => {});
+      await new Promise((resolve) => setImmediate(resolve));
+    };
+
+    /**
+     * pendingFetches가 n건이 될 때까지 기다린다 — 시간이 아니라 상태다. 반환값은 소요 tick 수로,
+     * 이 러너에서 job 하나가 fetch까지 가는 비용이다. 직렬화 가드의 대기량을 여기서 파생시킨다.
+     * 도달하지 못하면 toHaveLength가 그대로 실패한다. 정상 경로에서는 상한 전에 빠져나가므로
+     * 상한 비용은 실제 실패 때만 든다.
+     */
+    const awaitFetches = async (n: number): Promise<number> => {
+      let ticks = 0;
+      while (pendingFetches.length < n && ticks < 2_000) {
+        await tick();
+        ticks += 1;
+      }
+      expect(pendingFetches).toHaveLength(n);
+      return ticks;
+    };
+
+    /**
+     * 직렬화 가드. 막혀 있지 않았다면 fetch까지 갔을 만큼 돌린 뒤에도 n건에 머무는지 본다.
+     * 고정 ms였다면 느린 러너에서 가드가 조용히 무력해지므로, 대기량은 같은 러너에서 방금
+     * 측정한 budget에서 뽑는다.
+     */
+    const expectNoFurtherFetch = async (
+      n: number,
+      budget: number,
+    ): Promise<void> => {
+      const grace = Math.max(500, budget * 20);
+      for (let i = 0; i < grace; i += 1) await tick();
+      expect(pendingFetches).toHaveLength(n);
+    };
 
     beforeEach(() => {
       pendingFetches.length = 0;
@@ -362,19 +393,16 @@ describe("WorkspaceService", () => {
       gateFetchCalls();
 
       const first = service.prepareWorktree(params("repo-a", "aaaaaaaa1111"));
-      await settle();
+      const budget = await awaitFetches(1);
       const second = service.prepareWorktree(params("repo-a", "bbbbbbbb2222"));
-      await settle();
-
-      expect(pendingFetches).toHaveLength(1);
+      await expectNoFurtherFetch(1, budget);
 
       pendingFetches[0]!();
       await expect(first).resolves.toMatchObject({
         worktreePath: join(basePath, "worktrees", "workspace", "repo-a", "1"),
       });
-      await settle();
+      await awaitFetches(2);
 
-      expect(pendingFetches).toHaveLength(2);
       pendingFetches[1]!();
       await expect(second).resolves.toMatchObject({
         worktreePath: join(basePath, "worktrees", "workspace", "repo-a", "2"),
@@ -385,11 +413,9 @@ describe("WorkspaceService", () => {
       gateFetchCalls();
 
       const first = service.prepareWorktree(params("repo-a", "aaaaaaaa1111"));
-      await settle();
+      await awaitFetches(1);
       const second = service.prepareWorktree(params("repo-b", "bbbbbbbb2222"));
-      await settle();
-
-      expect(pendingFetches).toHaveLength(2);
+      await awaitFetches(2);
 
       pendingFetches[0]!();
       pendingFetches[1]!();
@@ -404,9 +430,9 @@ describe("WorkspaceService", () => {
       gateFetchCalls();
 
       const first = service.prepareWorktree(params("repo-a", "aaaaaaaa1111"));
-      await settle();
+      await awaitFetches(1);
       const second = service.prepareWorktree(params("repo-b", "bbbbbbbb2222"));
-      await settle();
+      await awaitFetches(2);
 
       const askpassPaths = execFileMock.mock.calls
         .filter((call) => (call[1] as string[])[0] === "clone")
@@ -431,15 +457,14 @@ describe("WorkspaceService", () => {
       const first = service
         .prepareWorktree(params("repo-a", "aaaaaaaa1111"))
         .catch((err: Error) => err.message);
-      await settle();
+      const budget = await awaitFetches(1);
       const second = service.prepareWorktree(params("repo-a", "bbbbbbbb2222"));
-      await settle();
+      await expectNoFurtherFetch(1, budget);
 
       pendingFetches[0]!();
       await expect(first).resolves.toContain("cannot lock ref");
-      await settle();
+      await awaitFetches(2);
 
-      expect(pendingFetches).toHaveLength(2);
       pendingFetches[1]!();
       await expect(second).resolves.toMatchObject({
         worktreePath: join(basePath, "worktrees", "workspace", "repo-a", "2"),
