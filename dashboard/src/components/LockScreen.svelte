@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { resolve, t } from "../lib/i18n.svelte";
+  import LocaleToggle from "./LocaleToggle.svelte";
   import { store } from "../lib/store.svelte";
 
   let key = $state("");
@@ -15,13 +17,13 @@
 
 <main>
   <form class="card" onsubmit={submit}>
-    <h1>Code review operations</h1>
-    <p class="dim">
-      This console is key-gated. The key is held in memory for this tab only —
-      a reload, a lock, or a rejected request returns here.
-    </p>
+    <div class="head">
+      <h1>{t("app.title")}</h1>
+      <LocaleToggle />
+    </div>
+    <p class="dim">{t("lock.intro")}</p>
 
-    <label for="dashboard-key">Dashboard key</label>
+    <label for="dashboard-key">{t("lock.keyLabel")}</label>
     <input
       id="dashboard-key"
       type="password"
@@ -33,11 +35,11 @@
     />
 
     {#if store.authError !== null}
-      <p class="error" role="alert">{store.authError}</p>
+      <p class="error" role="alert">{resolve(store.authError)}</p>
     {/if}
 
     <button class="primary" type="submit" disabled={store.unlocking}>
-      {store.unlocking ? "Unlocking…" : "Unlock"}
+      {store.unlocking ? t("lock.unlocking") : t("lock.unlock")}
     </button>
   </form>
 </main>
@@ -56,6 +58,13 @@
     padding: 28px;
     display: grid;
     gap: 14px;
+  }
+
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
   }
 
   h1 {

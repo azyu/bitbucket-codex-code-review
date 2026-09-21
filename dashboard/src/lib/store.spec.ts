@@ -331,7 +331,7 @@ describe("invariant 6 — CAS on every write, never a silent retry", () => {
 
     expect(patches).toBe(1);
     expect(store.globalNotice?.kind).toBe("conflict");
-    expect(store.globalNotice?.text).toContain("Not saved");
+    expect(store.globalNotice?.text).toEqual({ key: "notice.conflictReloaded" });
     expect(store.settings).not.toBeNull();
   });
 
@@ -373,7 +373,7 @@ describe("repository draft is bound to the identity it was loaded for", () => {
 
     expect(fetchMock.mock.calls.length).toBe(before);
     expect(store.repositoryNotice?.kind).toBe("error");
-    expect(store.repositoryNotice?.text).toContain("Load it again");
+    expect(store.repositoryNotice?.text).toEqual({ key: "error.repoChanged" });
   });
 
   it("loads an unconfigured repository as fully inherited", async () => {
@@ -396,7 +396,7 @@ describe("error paths that are not 401", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(store.locked).toBe(true);
-    expect(store.authError).toBe("Enter the dashboard key.");
+    expect(store.authError).toEqual({ key: "error.keyRequired" });
   });
 
   it("returns to the lock screen with the reason when unlock fails on a 500", async () => {
@@ -516,7 +516,7 @@ describe("review detail", () => {
     await store.openReview(9999);
 
     expect(store.detail).toBeNull();
-    expect(store.detailError).toBe("Review run not found.");
+    expect(store.detailError).toEqual({ key: "error.reviewNotFound" });
   });
 });
 
@@ -587,7 +587,7 @@ describe("invariant 6 — the conflict notice survives its own reload", () => {
     // loadRepository() resets the notice, so reporting before the reload left
     // the fields silently reverted with nothing on screen to explain it.
     expect(store.repositoryNotice?.kind).toBe("conflict");
-    expect(store.repositoryNotice?.text).toContain("Not saved");
+    expect(store.repositoryNotice?.text).toEqual({ key: "notice.conflictReloaded" });
   });
 });
 
@@ -710,8 +710,9 @@ describe("invariant 6 — the conflict notice only claims what happened", () => 
     // conflict again.
     expect(store.settings?.global.revision).toBe(revisionBefore);
     expect(store.globalNotice?.kind).toBe("error");
-    expect(store.globalNotice?.text).toContain("Refresh");
-    expect(store.globalNotice?.text).not.toContain("Reloaded;");
+    expect(store.globalNotice?.text).toEqual({
+      key: "notice.conflictReloadFailed",
+    });
   });
 });
 

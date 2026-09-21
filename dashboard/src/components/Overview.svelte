@@ -1,5 +1,6 @@
 <script lang="ts">
   import { count, duration, percent, relativeTime, shortSha, tokens } from "../lib/format";
+  import { t, tEnum } from "../lib/i18n.svelte";
   import { store } from "../lib/store.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
@@ -51,62 +52,72 @@
 
 <section class="tiles">
   <div class="card tile">
-    <span class="dim">Review runs</span>
+    <span class="dim">{t("overview.runs")}</span>
     <strong>{count(totals.total)}</strong>
-    <span class="dim">{store.repoStats.length} repositories</span>
+    <span class="dim">
+      {t("overview.repositories", { count: store.repoStats.length })}
+    </span>
   </div>
   <div class="card tile">
-    <span class="dim">Completed</span>
+    <span class="dim">{t("overview.completed")}</span>
     <strong class="ok">{count(totals.completed)}</strong>
-    <span class="dim">{percent(totals.completed, totals.total)} of runs</span>
+    <span class="dim">
+      {t("overview.ofRuns", {
+        percent: percent(totals.completed, totals.total),
+      })}
+    </span>
   </div>
   <div class="card tile">
-    <span class="dim">Failed</span>
+    <span class="dim">{t("overview.failed")}</span>
     <strong class:bad={totals.failed > 0}>{count(totals.failed)}</strong>
-    <span class="dim">{count(totals.superseded)} superseded</span>
+    <span class="dim">
+      {t("overview.superseded", { count: count(totals.superseded) })}
+    </span>
   </div>
   <div class="card tile">
-    <span class="dim">Review time</span>
+    <span class="dim">{t("overview.reviewTime")}</span>
     <strong>{duration(totals.reviewTotalMs)}</strong>
     <span class="dim">
       <!-- Divided by the runs that actually reported a duration, which is
            what the backend's AVG(totalDurationMs) counts. Using counts.total
            would understate the average while runs are queued or running. -->
-      {duration(
-        totals.reviewSampleCount > 0
-          ? totals.reviewTotalMs / totals.reviewSampleCount
-          : 0,
-      )} avg
+      {t("overview.average", {
+        duration: duration(
+          totals.reviewSampleCount > 0
+            ? totals.reviewTotalMs / totals.reviewSampleCount
+            : 0,
+        ),
+      })}
     </span>
   </div>
   <div class="card tile">
-    <span class="dim">Tokens</span>
+    <span class="dim">{t("overview.tokens")}</span>
     <strong>{tokens(totals.totalTokens)}</strong>
-    <span class="dim">input + output</span>
+    <span class="dim">{t("overview.inputOutput")}</span>
   </div>
 </section>
 
 <section>
   <h2>
-    Repositories
+    {t("overview.reposHeading")}
     {#if sharedWorkspace !== null}<span class="ws mono">{sharedWorkspace}</span
       >{/if}
   </h2>
   {#if ranked.length === 0}
-    <p class="card empty dim">No review runs recorded yet.</p>
+    <p class="card empty dim">{t("overview.noRuns")}</p>
   {:else}
     <div class="card scroll">
       <table>
         <thead>
           <tr>
-            <th>Repository</th>
-            <th>Status</th>
-            <th class="num">Runs</th>
-            <th class="num">Success</th>
-            <th class="num">Codex avg</th>
-            <th class="num">Review avg</th>
-            <th class="num">Tokens</th>
-            <th>Latest PR</th>
+            <th>{t("column.repository")}</th>
+            <th>{t("column.status")}</th>
+            <th class="num">{t("overview.runCount")}</th>
+            <th class="num">{t("overview.success")}</th>
+            <th class="num">{t("overview.codexAvg")}</th>
+            <th class="num">{t("overview.reviewAvg")}</th>
+            <th class="num">{t("column.tokens")}</th>
+            <th>{t("overview.latestPr")}</th>
           </tr>
         </thead>
         <tbody>
@@ -134,8 +145,11 @@
               <td class="num">
                 {percent(repo.counts.completed, repo.counts.total)}
                 <span class="sr-only">
-                  {repo.counts.completed} completed, {repo.counts.failed} failed,
-                  {repo.counts.superseded} superseded
+                  {t("overview.breakdown", {
+                    completed: repo.counts.completed,
+                    failed: repo.counts.failed,
+                    superseded: repo.counts.superseded,
+                  })}
                 </span>
               </td>
               <td class="num">{duration(repo.durations.codexAvgMs)}</td>
@@ -167,7 +181,7 @@
 <section>
   <div class="section-head">
     <h2>
-      Recent reviews
+      {t("overview.recent")}
       {#if sharedWorkspace !== null}<span class="ws mono">{sharedWorkspace}</span
         >{/if}
     </h2>
@@ -183,22 +197,22 @@
   </div>
 
   {#if store.recent.length === 0}
-    <p class="card empty dim">Nothing yet.</p>
+    <p class="card empty dim">{t("overview.nothingYet")}</p>
   {:else}
     <div class="card scroll">
       <table>
         <thead>
           <tr>
-            <th>Status</th>
-            <th>Repository</th>
-            <th>PR</th>
-            <th>Head</th>
-            <th>Trigger</th>
-            <th>Model</th>
-            <th>Codex</th>
-            <th>Total</th>
-            <th>Tokens</th>
-            <th>When</th>
+            <th>{t("column.status")}</th>
+            <th>{t("column.repository")}</th>
+            <th>{t("column.pr")}</th>
+            <th>{t("column.head")}</th>
+            <th>{t("column.trigger")}</th>
+            <th>{t("column.model")}</th>
+            <th>{t("column.codex")}</th>
+            <th>{t("column.total")}</th>
+            <th>{t("column.tokens")}</th>
+            <th>{t("column.when")}</th>
             <th></th>
           </tr>
         </thead>
@@ -211,7 +225,7 @@
               </td>
               <td>#{review.pullRequestId}</td>
               <td class="mono dim">{shortSha(review.headCommitHash)}</td>
-              <td class="dim">{review.triggerType}</td>
+              <td class="dim">{tEnum("trigger", review.triggerType)}</td>
               <td class="dim">
                 {review.codexModel ?? "—"}{review.codexReasoningEffort
                   ? ` / ${review.codexReasoningEffort}`
@@ -222,7 +236,7 @@
               <!-- input + output, the definition review.service.ts uses for
                    totalTokens. cachedInputTokens is the cached share of
                    inputTokens, so adding it counts those tokens twice. -->
-              <td title="input + output">
+              <td title={t("overview.inputOutput")}>
                 {tokens((review.inputTokens ?? 0) + (review.outputTokens ?? 0))}
               </td>
               <td class="dim" title={review.createdAt}>
@@ -230,7 +244,7 @@
               </td>
               <td>
                 <button class="link" onclick={() => store.openReview(review.id)}>
-                  Open
+                  {t("action.open")}
                 </button>
               </td>
             </tr>

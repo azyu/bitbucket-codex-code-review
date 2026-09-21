@@ -1,3 +1,5 @@
+import { t } from "./i18n.svelte";
+
 const DECIMAL = new Intl.NumberFormat("en-US");
 
 export function count(value: number | null | undefined): string {
@@ -48,10 +50,12 @@ export function relativeTime(
   const at = new Date(iso).getTime();
   if (Number.isNaN(at)) return "—";
   const seconds = Math.round((now - at) / 1000);
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
-  return `${Math.floor(seconds / 86_400)}d ago`;
+  if (seconds < 60) return t("time.justNow");
+  if (seconds < 3600)
+    return t("time.minutesAgo", { count: Math.floor(seconds / 60) });
+  if (seconds < 86_400)
+    return t("time.hoursAgo", { count: Math.floor(seconds / 3600) });
+  return t("time.daysAgo", { count: Math.floor(seconds / 86_400) });
 }
 
 export function shortSha(sha: string | null | undefined): string {

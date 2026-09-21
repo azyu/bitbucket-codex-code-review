@@ -1,6 +1,7 @@
-import { mount, unmount } from "svelte";
+import { mount, tick, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App.svelte";
+import { setLocale } from "./i18n.svelte";
 import { store } from "./store.svelte";
 
 /**
@@ -26,6 +27,7 @@ describe("invariant 8 — the lock screen is the public shell", () => {
     unmount(app);
     target.remove();
     vi.unstubAllGlobals();
+    setLocale("ko");
   });
 
   it("renders the lock form and nothing else", () => {
@@ -53,6 +55,46 @@ describe("invariant 8 — the lock screen is the public shell", () => {
     ]) {
       expect(text.toLowerCase()).not.toContain(leak.toLowerCase());
     }
+  });
+
+  // The locale defaults to Korean rather than to a system preference, so a
+  // toggle reachable only after unlocking would leave an English reader unable
+  // to read the screen that asks for the key.
+  it("offers the language toggle before unlock", async () => {
+    const toggle = target.querySelector<HTMLButtonElement>(
+      'button[aria-label="언어 전환"]',
+    );
+    expect(toggle).not.toBeNull();
+    expect(target.querySelector("h1")?.textContent?.trim()).toBe("코드 리뷰 운영");
+
+    toggle?.click();
+    await tick();
+
+    expect(target.querySelector("h1")?.textContent?.trim()).toBe(
+      "Code review operations",
+    );
+    // The toggle sits inside the key form, where a button with no explicit
+    // type submits it: switching language must not attempt an unlock.
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // The reviewer's scenario: an error raised in one language must not stay in
+  // it while the rest of the lock screen switches.
+  it("re-translates an error already on screen when the language changes", async () => {
+    target.querySelector<HTMLFormElement>("form")?.requestSubmit();
+    await tick();
+    await tick();
+
+    const error = () => target.querySelector('[role="alert"]')?.textContent?.trim();
+    expect(error()).toBe("대시보드 키를 입력하세요.");
+
+    target
+      .querySelector<HTMLButtonElement>('button[aria-label="언어 전환"]')
+      ?.click();
+    await tick();
+
+    expect(error()).toBe("Enter the dashboard key.");
   });
 
   it("uses a password input, so the key is never rendered as text", () => {

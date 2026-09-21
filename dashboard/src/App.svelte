@@ -1,8 +1,10 @@
 <script lang="ts">
+  import LocaleToggle from "./components/LocaleToggle.svelte";
   import LockScreen from "./components/LockScreen.svelte";
   import Overview from "./components/Overview.svelte";
   import ReviewDetail from "./components/ReviewDetail.svelte";
   import Settings from "./components/Settings.svelte";
+  import { resolve, t } from "./lib/i18n.svelte";
   import { store } from "./lib/store.svelte";
   import { applyStoredTheme, setTheme, type Theme } from "./lib/theme";
 
@@ -19,32 +21,33 @@
 {:else}
   <header>
     <div class="brand">
-      <strong>Code review operations</strong>
+      <strong>{t("app.title")}</strong>
       <nav>
         <button
           class:on={store.view === "overview"}
-          onclick={() => (store.view = "overview")}>Overview</button
+          onclick={() => (store.view = "overview")}>{t("nav.overview")}</button
         >
         <button
           class:on={store.view === "settings"}
-          onclick={() => (store.view = "settings")}>Settings</button
+          onclick={() => (store.view = "settings")}>{t("nav.settings")}</button
         >
       </nav>
     </div>
     <div class="tools">
       <button onclick={() => store.refreshView()} disabled={store.loading}>
-        {store.loading ? "Refreshing…" : "Refresh"}
+        {store.loading ? t("action.refreshing") : t("action.refresh")}
       </button>
-      <button onclick={toggleTheme} aria-label="Toggle colour theme">
-        {theme === "dark" ? "Light" : "Dark"}
+      <LocaleToggle />
+      <button onclick={toggleTheme} aria-label={t("theme.toggle")}>
+        {theme === "dark" ? t("theme.light") : t("theme.dark")}
       </button>
-      <button onclick={() => store.lock()}>Lock</button>
+      <button onclick={() => store.lock()}>{t("action.lock")}</button>
     </div>
   </header>
 
   <main>
     {#if store.loadError !== null}
-      <p class="banner" role="alert">{store.loadError}</p>
+      <p class="banner" role="alert">{resolve(store.loadError)}</p>
     {/if}
 
     {#if store.view === "overview"}

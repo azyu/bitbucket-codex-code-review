@@ -6,6 +6,7 @@
     REPOSITORY_VALUE_KEYS,
   } from "../lib/fields";
   import { absoluteTime } from "../lib/format";
+  import { resolve, t } from "../lib/i18n.svelte";
   import { store } from "../lib/store.svelte";
   import SecretField from "./SecretField.svelte";
   import ValueField from "./ValueField.svelte";
@@ -25,16 +26,17 @@
 </script>
 
 {#if globalScope === undefined}
-  <p class="card empty dim">Settings are not loaded.</p>
+  <p class="card empty dim">{t("settings.notLoaded")}</p>
 {:else}
   <section class="card pane">
     <header>
       <div>
-        <h2>Global</h2>
+        <h2>{t("settings.global")}</h2>
         <span class="dim">
-          revision {globalScope.revision} · updated {absoluteTime(
-            globalScope.updatedAt,
-          )}
+          {t("settings.meta", {
+            revision: globalScope.revision,
+            updatedAt: absoluteTime(globalScope.updatedAt),
+          })}
         </span>
       </div>
       <button
@@ -42,13 +44,13 @@
         disabled={saving}
         onclick={() => save(() => store.saveGlobal())}
       >
-        {saving ? "Saving…" : "Save global"}
+        {saving ? t("common.saving") : t("settings.saveGlobal")}
       </button>
     </header>
 
     {#if store.globalNotice !== null}
       <p class="notice" data-kind={store.globalNotice.kind} role="status">
-        {store.globalNotice.text}
+        {resolve(store.globalNotice.text)}
       </p>
     {/if}
 
@@ -58,11 +60,8 @@
       {/each}
     </div>
 
-    <h3>Secrets</h3>
-    <p class="dim note">
-      Stored encrypted; the API reports only whether a value is configured and
-      where it came from. Values are write-only.
-    </p>
+    <h3>{t("settings.secrets")}</h3>
+    <p class="dim note">{t("settings.secretsNote")}</p>
     <div class="grid">
       {#each GLOBAL_SECRET_KEYS as key (key)}
         <SecretField
@@ -73,24 +72,24 @@
       {/each}
     </div>
 
-    <h3>Bitbucket basic credential</h3>
+    <h3>{t("settings.basicCredential")}</h3>
     <p class="dim note">
-      Global only — the repository route rejects it.
+      {t("settings.basicNote")}
       {globalScope.basicCredentialConfigured
-        ? "Currently configured."
-        : "Not configured."}
+        ? t("settings.basicConfigured")
+        : t("settings.basicNotConfigured")}
     </p>
     <div class="grid">
       <div class="field">
-        <label for="basic-operation">Action</label>
+        <label for="basic-operation">{t("settings.action")}</label>
         <select id="basic-operation" bind:value={store.globalDraft.basicOperation}>
-          <option value="keep">leave unchanged</option>
-          <option value="replace">replace</option>
-          <option value="clear">clear</option>
+          <option value="keep">{t("op.keep")}</option>
+          <option value="replace">{t("op.replace")}</option>
+          <option value="clear">{t("op.clear")}</option>
         </select>
       </div>
       <div class="field">
-        <label for="basic-username">Username</label>
+        <label for="basic-username">{t("settings.username")}</label>
         <input
           id="basic-username"
           autocomplete="off"
@@ -99,7 +98,7 @@
         />
       </div>
       <div class="field">
-        <label for="basic-password">App password</label>
+        <label for="basic-password">{t("settings.appPassword")}</label>
         <input
           id="basic-password"
           type="password"
@@ -114,11 +113,8 @@
   <section class="card pane">
     <header>
       <div>
-        <h2>Repository override</h2>
-        <span class="dim">
-          Unchecked fields are stored on the repository; inherited fields fall
-          back to global.
-        </span>
+        <h2>{t("settings.repoOverride")}</h2>
+        <span class="dim">{t("settings.repoOverrideNote")}</span>
       </div>
       <button
         class="primary"
@@ -127,19 +123,19 @@
           store.repositoryDraft.repositorySlug === ""}
         onclick={() => save(() => store.saveRepository())}
       >
-        {saving ? "Saving…" : "Save repository"}
+        {saving ? t("common.saving") : t("settings.saveRepository")}
       </button>
     </header>
 
     {#if store.repositoryNotice !== null}
       <p class="notice" data-kind={store.repositoryNotice.kind} role="status">
-        {store.repositoryNotice.text}
+        {resolve(store.repositoryNotice.text)}
       </p>
     {/if}
 
     <div class="identity">
       <div class="field">
-        <label for="repo-workspace">Workspace slug</label>
+        <label for="repo-workspace">{t("settings.workspaceSlug")}</label>
         <input
           id="repo-workspace"
           autocomplete="off"
@@ -147,7 +143,7 @@
         />
       </div>
       <div class="field">
-        <label for="repo-slug">Repository slug</label>
+        <label for="repo-slug">{t("settings.repositorySlug")}</label>
         <input
           id="repo-slug"
           autocomplete="off"
@@ -163,13 +159,13 @@
             store.repositoryDraft.repositorySlug,
           )}
       >
-        Load
+        {t("action.load")}
       </button>
     </div>
 
     {#if repositories.length > 0}
       <div class="known">
-        <span class="dim">Configured:</span>
+        <span class="dim">{t("settings.configured")}</span>
         {#each repositories as scope (scope.workspaceSlug + "/" + scope.repositorySlug)}
           <button
             class="chip mono"
@@ -183,19 +179,13 @@
     {/if}
 
     {#if store.repositoryLoadedIdentity === null}
-      <p class="hint dim">Load a repository to edit its override.</p>
+      <p class="hint dim">{t("settings.loadHint")}</p>
     {:else if store.repositoryDraftStale}
       <p class="notice" data-kind="conflict" role="alert">
-        The identity fields changed since load. Load
-        <code
-          >{store.repositoryDraft.workspaceSlug}/{store.repositoryDraft
-            .repositorySlug}</code
-        >
-        again before saving — this draft belongs to
-        <code
-          >{store.repositoryLoadedIdentity.workspaceSlug}/{store
-            .repositoryLoadedIdentity.repositorySlug}</code
-        >.
+        {t("settings.staleIdentity", {
+          current: `${store.repositoryDraft.workspaceSlug}/${store.repositoryDraft.repositorySlug}`,
+          loaded: `${store.repositoryLoadedIdentity.workspaceSlug}/${store.repositoryLoadedIdentity.repositorySlug}`,
+        })}
       </p>
     {:else}
       <div class="grid">
@@ -208,7 +198,7 @@
         {/each}
       </div>
 
-      <h3>Secrets</h3>
+      <h3>{t("settings.secrets")}</h3>
       <div class="grid">
         {#each REPOSITORY_SECRET_KEYS as key (key)}
           <SecretField
