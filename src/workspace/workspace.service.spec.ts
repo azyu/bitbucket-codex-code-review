@@ -342,9 +342,12 @@ describe("WorkspaceService", () => {
     });
 
     /**
-     * 실제 fs 왕복 한 번 + 이벤트 루프 한 바퀴. 벽시계와 달리 러너가 느려지면 tick도 같이
-     * 느려지므로 "몇 tick"은 부하와 무관하게 대략 일정한 진행량을 뜻한다. 순서 보장은 없다 —
-     * 정확성은 pendingFetches.length 폴링에서 나오고 tick은 진행시킬 뿐이다.
+     * 실제 fs 왕복 한 번 + 이벤트 루프 한 바퀴. 폴링의 setImmediate와 job의 continuation이 같은
+     * JS 스레드를 나눠 쓰므로 CPU·이벤트 루프 경합은 tick도 같이 느리게 만든다 — 그 범위에서만
+     * "몇 tick"이 부하와 무관하게 대략 일정한 진행량이다. 스토리지 지연은 추적하지 못한다:
+     * 캐시된 inode의 stat은 저널을 건드리지 않는데 job의 open(O_CREAT)/write/mkdir은 건드려서,
+     * job이 멈춰 있어도 tick은 계속 빨리 돈다 — 그쪽은 awaitFetches의 벽시계 deadline이 맡는다.
+     * 순서 보장은 없다 — 정확성은 pendingFetches.length 폴링에서 나오고 tick은 진행시킬 뿐이다.
      */
     const tick = async (): Promise<void> => {
       await stat(basePath).catch(() => {});
@@ -352,14 +355,32 @@ describe("WorkspaceService", () => {
     };
 
     /**
+     * 정지를 실패로 바꾸는 용도뿐이므로 넉넉해야 한다. tick 수로 세면 tick 하나가 12~16µs인 탓에
+     * 2000회가 25ms 상한이 되어 대체한 setTimeout(50)보다 오히려 빡빡해진다.
+     */
+    const FETCH_DEADLINE_MS = 2_000;
+
+    /**
      * pendingFetches가 n건이 될 때까지 기다린다 — 시간이 아니라 상태다. 반환값은 소요 tick 수로,
      * 이 러너에서 job 하나가 fetch까지 가는 비용이다. 직렬화 가드의 대기량을 여기서 파생시킨다.
-     * 도달하지 못하면 toHaveLength가 그대로 실패한다. 정상 경로에서는 상한 전에 빠져나가므로
-     * 상한 비용은 실제 실패 때만 든다.
+     * 시계는 performance.now()여야 한다 — askpass 테스트가 Date.now를 상수로 고정해 두어 그걸로
+     * 재면 deadline이 영영 오지 않는다. 정상 경로는 deadline 한참 전에 빠져나가므로 비용은
+     * 실제로 막혔을 때만 든다.
      */
     const awaitFetches = async (n: number): Promise<number> => {
+      const startedAt = performance.now();
       let ticks = 0;
-      while (pendingFetches.length < n && ticks < 2_000) {
+      while (pendingFetches.length < n) {
+        const elapsed = performance.now() - startedAt;
+        if (elapsed >= FETCH_DEADLINE_MS) {
+          // toHaveLength의 "Expected 2, Received 1"은 "폴링이 포기했다"와 "job이 끝내 fetch에
+          // 가지 못했다"를 구분하지 못한다. CI 로그만 보는 사람이 전자를 직렬화 버그로
+          // 오독하지 않게 경과 시간·tick 수를 실어 따로 던진다.
+          throw new Error(
+            `fetch ${n}건을 ${FETCH_DEADLINE_MS}ms 안에 보지 못했다 — ` +
+              `관측 ${pendingFetches.length}건, ${ticks} tick, ${Math.round(elapsed)}ms 경과`,
+          );
+        }
         await tick();
         ticks += 1;
       }
