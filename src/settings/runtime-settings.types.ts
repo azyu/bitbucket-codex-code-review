@@ -52,7 +52,7 @@ export interface ISettingsPatch {
 
 export interface ISecretStatus {
   readonly configured: boolean;
-  readonly source: "repository" | "global" | "unconfigured";
+  readonly source: "repository" | "global" | "inherited" | "unconfigured";
 }
 
 export interface ISettingsScopeDocument {

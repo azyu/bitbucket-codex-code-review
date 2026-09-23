@@ -29,13 +29,15 @@
       <span class="tag mute">{t("secret.status.unknown")}</span>
     {:else if !status.configured}
       <span class="tag mute">{t("secret.status.notConfigured")}</span>
-    {:else if status.source === "global"}
+    {:else if status.source === "inherited"}
       <span class="tag warn">{t("secret.status.inherited")}</span>
+    {:else if status.source === "global"}
+      <span class="tag ok">{t("secret.status.setGlobally")}</span>
     {:else}
-      <!-- Reached only on a repository pane for a locally stored secret:
-           runtime-settings.service.ts sets source to the row's own scope, and
-           the global pane's own scope is the branch above. Interpolating the
-           source would put the raw `repository` enum into the Korean label. -->
+      <!-- Reached only for a secret stored on a repository row:
+           runtime-settings.service.ts sets source to the row's own scope, so
+           the remaining value is `repository`. Interpolating the source would
+           put the raw enum into the Korean label. -->
       <span class="tag ok">{t("secret.status.setOnRepository")}</span>
     {/if}
   </div>
