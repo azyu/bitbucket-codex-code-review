@@ -191,6 +191,33 @@ describe("RuntimeSettingsService", () => {
     });
   });
 
+  it("reports a secret's own scope when stored there and inherited only on a repository fallback", async () => {
+    const { service } = createService();
+    await service.onApplicationBootstrap();
+    await service.updateRepository(
+      { workspaceSlug: "workspace-a", repositorySlug: "shared" },
+      {
+        expectedRevision: 0,
+        secrets: {
+          bitbucketApiToken: { operation: "replace", value: "workspace-a-token" },
+        },
+      },
+    );
+
+    const document = await service.getSettingsDocument();
+
+    // A global secret is stored on the global row; the global pane must not
+    // read it back as inherited from itself.
+    expect(document.global.secrets.webhookSecret).toEqual({
+      configured: true,
+      source: "global",
+    });
+    expect(document.repositories[0].secrets).toEqual({
+      bitbucketApiToken: { configured: true, source: "repository" },
+      webhookSecret: { configured: true, source: "inherited" },
+    });
+  });
+
   it("allows exactly one concurrent update for a revision", async () => {
     const { service } = createService();
     await service.onApplicationBootstrap();
