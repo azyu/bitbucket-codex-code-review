@@ -408,6 +408,24 @@ describe("CodexService", () => {
     );
   });
 
+  it.each([
+    "You\u2019ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro) or try again at 3:45 PM.",
+    "Quota exceeded. Check your plan and billing details.",
+  ])("should publish the Codex usage limit error %#", async (message) => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockRejectedValue(new Error("ENOENT"));
+
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
+
+    child.stdout.emit("data", `${JSON.stringify({ type: "error", message })}\n`);
+    child.emit("close", 1, null);
+
+    const result = await promise;
+
+    expect(result.rawOutput).toBe(`Codex run failed (exit 1): ${message}`);
+  });
+
   it("should not publish unrecognized structured error messages", async () => {
     const child = createMockChild();
     spawnSpy.mockReturnValue(child);

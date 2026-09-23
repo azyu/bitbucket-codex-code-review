@@ -20,8 +20,13 @@ import {
 } from "../settings/runtime-settings.types";
 
 const MAX_STDERR_BYTES = 64 * 1024;
-const CAPACITY_ERROR_MESSAGE =
-  "Selected model is at capacity. Please try a different model.";
+// Codex CLI's own fixed wording, safe to publish. Anything else may echo
+// server bodies or credentials, so it stays in worker logs only.
+const PUBLIC_CODEX_ERRORS = [
+  /^Selected model is at capacity\. Please try a different model\.$/,
+  /^You.ve hit your usage limit\b/,
+  /^Quota exceeded\. Check your plan and billing details\.$/,
+];
 const TIMEOUT_EXIT_CODE = 124;
 const AUTH_FILE_NAME = "auth.json";
 const CHATGPT_AUTH_MODE = "chatgpt";
@@ -392,7 +397,7 @@ export class CodexService {
           throw new Error("Codex output file could not be read");
         }
         const publicError =
-          result.codexError === CAPACITY_ERROR_MESSAGE
+          PUBLIC_CODEX_ERRORS.some((re) => re.test(result.codexError))
             ? result.codexError
             : result.stderr;
         rawOutput = publicError
