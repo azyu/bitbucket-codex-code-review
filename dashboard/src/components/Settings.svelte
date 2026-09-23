@@ -10,6 +10,21 @@
   import { store } from "../lib/store.svelte";
   import SecretField from "./SecretField.svelte";
   import ValueField from "./ValueField.svelte";
+  import { fieldLabel, primaryButton, TONE_CLASS } from "../lib/ui";
+
+  const pane = "grid content-start gap-3.5 rounded-lg border border-border bg-surface px-5 py-4.5";
+  const paneHeader = "flex flex-wrap items-start justify-between gap-3.5";
+  const subheading =
+    "border-t border-border pt-3.5 text-[11.5px] tracking-[0.06em] text-fg-dim uppercase";
+  const note = "text-xs text-fg-dim";
+  const grid = "grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-x-4 gap-y-3.25";
+  const field = "grid content-start gap-1.25";
+  const notice = "rounded-md px-3 py-2.25 text-code";
+  const NOTICE_CLASS = {
+    ok: TONE_CLASS.ok,
+    conflict: TONE_CLASS.warn,
+    error: TONE_CLASS.bad,
+  } as const;
 
   let globalScope = $derived(store.settings?.global);
   let repositories = $derived(store.settings?.repositories ?? []);
@@ -26,13 +41,13 @@
 </script>
 
 {#if globalScope === undefined}
-  <p class="card empty dim">{t("settings.notLoaded")}</p>
+  <p class="rounded-lg border border-border bg-surface p-5.5 text-center text-fg-dim">{t("settings.notLoaded")}</p>
 {:else}
-  <section class="card pane">
-    <header>
-      <div>
-        <h2>{t("settings.global")}</h2>
-        <span class="dim">
+  <section class={pane}>
+    <header class={paneHeader}>
+      <div class="grid max-w-[60ch] gap-0.75">
+        <h2 class="text-[15px]">{t("settings.global")}</h2>
+        <span class={note}>
           {t("settings.meta", {
             revision: globalScope.revision,
             updatedAt: absoluteTime(globalScope.updatedAt),
@@ -40,7 +55,7 @@
         </span>
       </div>
       <button
-        class="primary"
+        class={primaryButton}
         disabled={saving}
         onclick={() => save(() => store.saveGlobal())}
       >
@@ -49,20 +64,20 @@
     </header>
 
     {#if store.globalNotice !== null}
-      <p class="notice" data-kind={store.globalNotice.kind} role="status">
+      <p class={[notice, NOTICE_CLASS[store.globalNotice.kind]]} role="status">
         {resolve(store.globalNotice.text)}
       </p>
     {/if}
 
-    <div class="grid">
+    <div class={grid}>
       {#each GLOBAL_VALUE_KEYS as key (key)}
         <ValueField name={key} bind:value={store.globalDraft.values[key]} />
       {/each}
     </div>
 
-    <h3>{t("settings.secrets")}</h3>
-    <p class="dim note">{t("settings.secretsNote")}</p>
-    <div class="grid">
+    <h3 class={subheading}>{t("settings.secrets")}</h3>
+    <p class={note}>{t("settings.secretsNote")}</p>
+    <div class={grid}>
       {#each GLOBAL_SECRET_KEYS as key (key)}
         <SecretField
           name={key}
@@ -72,24 +87,24 @@
       {/each}
     </div>
 
-    <h3>{t("settings.basicCredential")}</h3>
-    <p class="dim note">
+    <h3 class={subheading}>{t("settings.basicCredential")}</h3>
+    <p class={note}>
       {t("settings.basicNote")}
       {globalScope.basicCredentialConfigured
         ? t("settings.basicConfigured")
         : t("settings.basicNotConfigured")}
     </p>
-    <div class="grid">
-      <div class="field">
-        <label for="basic-operation">{t("settings.action")}</label>
+    <div class={grid}>
+      <div class={field}>
+        <label for="basic-operation" class={fieldLabel}>{t("settings.action")}</label>
         <select id="basic-operation" bind:value={store.globalDraft.basicOperation}>
           <option value="keep">{t("op.keep")}</option>
           <option value="replace">{t("op.replace")}</option>
           <option value="clear">{t("op.clear")}</option>
         </select>
       </div>
-      <div class="field">
-        <label for="basic-username">{t("settings.username")}</label>
+      <div class={field}>
+        <label for="basic-username" class={fieldLabel}>{t("settings.username")}</label>
         <input
           id="basic-username"
           autocomplete="off"
@@ -97,8 +112,8 @@
           bind:value={store.globalDraft.basicUsername}
         />
       </div>
-      <div class="field">
-        <label for="basic-password">{t("settings.appPassword")}</label>
+      <div class={field}>
+        <label for="basic-password" class={fieldLabel}>{t("settings.appPassword")}</label>
         <input
           id="basic-password"
           type="password"
@@ -110,14 +125,14 @@
     </div>
   </section>
 
-  <section class="card pane">
-    <header>
-      <div>
-        <h2>{t("settings.repoOverride")}</h2>
-        <span class="dim">{t("settings.repoOverrideNote")}</span>
+  <section class={pane}>
+    <header class={paneHeader}>
+      <div class="grid max-w-[60ch] gap-0.75">
+        <h2 class="text-[15px]">{t("settings.repoOverride")}</h2>
+        <span class={note}>{t("settings.repoOverrideNote")}</span>
       </div>
       <button
-        class="primary"
+        class={primaryButton}
         disabled={saving ||
           store.repositoryDraftStale ||
           store.repositoryDraft.repositorySlug === ""}
@@ -128,22 +143,22 @@
     </header>
 
     {#if store.repositoryNotice !== null}
-      <p class="notice" data-kind={store.repositoryNotice.kind} role="status">
+      <p class={[notice, NOTICE_CLASS[store.repositoryNotice.kind]]} role="status">
         {resolve(store.repositoryNotice.text)}
       </p>
     {/if}
 
-    <div class="identity">
-      <div class="field">
-        <label for="repo-workspace">{t("settings.workspaceSlug")}</label>
+    <div class="grid grid-cols-[1fr_1fr_auto] items-end gap-2.5">
+      <div class={field}>
+        <label for="repo-workspace" class={fieldLabel}>{t("settings.workspaceSlug")}</label>
         <input
           id="repo-workspace"
           autocomplete="off"
           bind:value={store.repositoryDraft.workspaceSlug}
         />
       </div>
-      <div class="field">
-        <label for="repo-slug">{t("settings.repositorySlug")}</label>
+      <div class={field}>
+        <label for="repo-slug" class={fieldLabel}>{t("settings.repositorySlug")}</label>
         <input
           id="repo-slug"
           autocomplete="off"
@@ -164,11 +179,11 @@
     </div>
 
     {#if repositories.length > 0}
-      <div class="known">
-        <span class="dim">{t("settings.configured")}</span>
+      <div class="flex flex-wrap items-center gap-1.5 text-xs">
+        <span class="text-fg-dim">{t("settings.configured")}</span>
         {#each repositories as scope (scope.workspaceSlug + "/" + scope.repositorySlug)}
           <button
-            class="chip mono"
+            class="rounded-full bg-surface-2 px-2.25 py-0.5 font-mono text-code"
             onclick={() =>
               store.loadRepository(scope.workspaceSlug, scope.repositorySlug)}
           >
@@ -179,16 +194,16 @@
     {/if}
 
     {#if store.repositoryLoadedIdentity === null}
-      <p class="hint dim">{t("settings.loadHint")}</p>
+      <p class={note}>{t("settings.loadHint")}</p>
     {:else if store.repositoryDraftStale}
-      <p class="notice" data-kind="conflict" role="alert">
+      <p class={[notice, NOTICE_CLASS.conflict]} role="alert">
         {t("settings.staleIdentity", {
           current: `${store.repositoryDraft.workspaceSlug}/${store.repositoryDraft.repositorySlug}`,
           loaded: `${store.repositoryLoadedIdentity.workspaceSlug}/${store.repositoryLoadedIdentity.repositorySlug}`,
         })}
       </p>
     {:else}
-      <div class="grid">
+      <div class={grid}>
         {#each REPOSITORY_VALUE_KEYS as key (key)}
           <ValueField
             name={key}
@@ -198,8 +213,8 @@
         {/each}
       </div>
 
-      <h3>{t("settings.secrets")}</h3>
-      <div class="grid">
+      <h3 class={subheading}>{t("settings.secrets")}</h3>
+      <div class={grid}>
         {#each REPOSITORY_SECRET_KEYS as key (key)}
           <SecretField
             name={key}
@@ -217,116 +232,3 @@
     {/if}
   </section>
 {/if}
-
-<style>
-  .pane {
-    padding: 18px 20px;
-    display: grid;
-    gap: 14px;
-    align-content: start;
-  }
-
-  .pane > header {
-    display: flex;
-    align-items: start;
-    justify-content: space-between;
-    gap: 14px;
-    flex-wrap: wrap;
-  }
-
-  .pane > header > div {
-    display: grid;
-    gap: 3px;
-    max-width: 60ch;
-  }
-
-  h2 {
-    font-size: 15px;
-  }
-
-  h3 {
-    font-size: 11.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-dim);
-    border-top: 1px solid var(--border);
-    padding-top: 14px;
-  }
-
-  span.dim {
-    font-size: 12px;
-  }
-
-  .note,
-  .hint {
-    margin: 0;
-    font-size: 12px;
-  }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 13px 16px;
-  }
-
-  .field {
-    display: grid;
-    gap: 5px;
-    align-content: start;
-  }
-
-  label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-dim);
-  }
-
-  .identity {
-    display: grid;
-    grid-template-columns: 1fr 1fr auto;
-    gap: 10px;
-    align-items: end;
-  }
-
-  .known {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-  }
-
-  .chip {
-    padding: 2px 9px;
-    border-radius: 999px;
-    background: var(--surface-2);
-  }
-
-  .notice {
-    margin: 0;
-    padding: 9px 12px;
-    border-radius: 6px;
-    font-size: 12.5px;
-  }
-
-  .notice[data-kind="ok"] {
-    color: var(--ok);
-    background: var(--ok-bg);
-  }
-
-  .notice[data-kind="conflict"] {
-    color: var(--warn);
-    background: var(--warn-bg);
-  }
-
-  .notice[data-kind="error"] {
-    color: var(--bad);
-    background: var(--bad-bg);
-  }
-
-  .empty {
-    padding: 22px;
-    text-align: center;
-    margin: 0;
-  }
-</style>

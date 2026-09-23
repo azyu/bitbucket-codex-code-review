@@ -2,6 +2,7 @@
   import { resolve, t } from "../lib/i18n.svelte";
   import LocaleToggle from "./LocaleToggle.svelte";
   import { store } from "../lib/store.svelte";
+  import { fieldLabel, primaryButton } from "../lib/ui";
 
   let key = $state("");
 
@@ -15,15 +16,20 @@
   }
 </script>
 
-<main>
-  <form class="card" onsubmit={submit}>
-    <div class="head">
-      <h1>{t("app.title")}</h1>
+<main class="grid min-h-screen place-items-center p-6">
+  <form
+    class="grid w-full max-w-105 gap-3.5 rounded-lg border border-border bg-surface p-7"
+    onsubmit={submit}
+  >
+    <div class="flex items-center justify-between gap-3">
+      <h1 class="text-[19px]">{t("app.title")}</h1>
       <LocaleToggle />
     </div>
-    <p class="dim">{t("lock.intro")}</p>
+    <p class="text-[13px] text-fg-dim">{t("lock.intro")}</p>
 
-    <label for="dashboard-key">{t("lock.keyLabel")}</label>
+    <label for="dashboard-key" class={fieldLabel}>
+      {t("lock.keyLabel")}
+    </label>
     <input
       id="dashboard-key"
       type="password"
@@ -35,57 +41,13 @@
     />
 
     {#if store.authError !== null}
-      <p class="error" role="alert">{resolve(store.authError)}</p>
+      <p class="rounded-md bg-bad-bg px-2.5 py-2 text-[13px] text-bad" role="alert">
+        {resolve(store.authError)}
+      </p>
     {/if}
 
-    <button class="primary" type="submit" disabled={store.unlocking}>
+    <button class={primaryButton} type="submit" disabled={store.unlocking}>
       {store.unlocking ? t("lock.unlocking") : t("lock.unlock")}
     </button>
   </form>
 </main>
-
-<style>
-  main {
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-  }
-
-  form {
-    width: 100%;
-    max-width: 420px;
-    padding: 28px;
-    display: grid;
-    gap: 14px;
-  }
-
-  .head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  h1 {
-    font-size: 19px;
-  }
-
-  p {
-    margin: 0;
-    font-size: 13px;
-  }
-
-  label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-dim);
-  }
-
-  .error {
-    color: var(--bad);
-    background: var(--bad-bg);
-    padding: 8px 10px;
-    border-radius: 6px;
-  }
-</style>

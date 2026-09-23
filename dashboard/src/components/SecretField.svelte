@@ -2,6 +2,9 @@
   import { SECRET_LABELS } from "../lib/fields";
   import { t } from "../lib/i18n.svelte";
   import type { SecretDraft } from "../lib/store.svelte";
+  import { fieldLabel, TONE_CLASS } from "../lib/ui";
+
+  const tag = "tag rounded-full px-1.75 py-px text-2xs font-semibold whitespace-nowrap";
 
   let {
     name,
@@ -22,25 +25,25 @@
   let label = $derived(t(SECRET_LABELS[name] ?? name));
 </script>
 
-<div class="secret">
-  <div class="head">
-    <label for={id}>{label}</label>
+<div class="grid gap-1.25">
+  <div class="flex items-baseline justify-between gap-2.5">
+    <label for={id} class={fieldLabel}>{label}</label>
     {#if status === undefined}
-      <span class="tag mute">{t("secret.status.unknown")}</span>
+      <span class={[tag, TONE_CLASS.mute]}>{t("secret.status.unknown")}</span>
     {:else if !status.configured}
-      <span class="tag mute">{t("secret.status.notConfigured")}</span>
+      <span class={[tag, TONE_CLASS.mute]}>{t("secret.status.notConfigured")}</span>
     {:else if status.source === "global"}
-      <span class="tag warn">{t("secret.status.inherited")}</span>
+      <span class={[tag, TONE_CLASS.warn]}>{t("secret.status.inherited")}</span>
     {:else}
       <!-- Reached only on a repository pane for a locally stored secret:
            runtime-settings.service.ts sets source to the row's own scope, and
            the global pane's own scope is the branch above. Interpolating the
            source would put the raw `repository` enum into the Korean label. -->
-      <span class="tag ok">{t("secret.status.setOnRepository")}</span>
+      <span class={[tag, TONE_CLASS.ok]}>{t("secret.status.setOnRepository")}</span>
     {/if}
   </div>
 
-  <div class="row">
+  <div class="grid grid-cols-[150px_1fr] gap-2">
     <select
       aria-label={t("secret.actionAria", { label })}
       bind:value={draft.operation}
@@ -65,52 +68,3 @@
     />
   </div>
 </div>
-
-<style>
-  .secret {
-    display: grid;
-    gap: 5px;
-  }
-
-  .head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-  }
-
-  label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-dim);
-  }
-
-  .row {
-    display: grid;
-    grid-template-columns: 150px 1fr;
-    gap: 8px;
-  }
-
-  .tag {
-    font-size: 11px;
-    font-weight: 600;
-    padding: 1px 7px;
-    border-radius: 999px;
-    white-space: nowrap;
-  }
-
-  .tag.ok {
-    color: var(--ok);
-    background: var(--ok-bg);
-  }
-
-  .tag.warn {
-    color: var(--warn);
-    background: var(--warn-bg);
-  }
-
-  .tag.mute {
-    color: var(--mute);
-    background: var(--mute-bg);
-  }
-</style>

@@ -14,26 +14,34 @@
     theme = theme === "dark" ? "light" : "dark";
     setTheme(theme);
   }
+
+  // Whole strings per state: two utilities for one property on the same
+  // element resolve by stylesheet order, not by class order.
+  const navButton = "px-2.75 py-1.25";
+  const navIdle = `${navButton} border-transparent bg-transparent text-fg-dim hover:bg-surface-2`;
+  const navActive = `${navButton} border-border bg-surface-2 font-semibold text-fg`;
 </script>
 
 {#if store.locked}
   <LockScreen />
 {:else}
-  <header>
-    <div class="brand">
-      <strong>{t("app.title")}</strong>
-      <nav>
+  <header
+    class="sticky top-0 z-5 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-5 py-3"
+  >
+    <div class="flex flex-wrap items-center gap-5">
+      <strong class="text-[14.5px] tracking-[-0.01em]">{t("app.title")}</strong>
+      <nav class="flex gap-1">
         <button
-          class:on={store.view === "overview"}
+          class={store.view === "overview" ? navActive : navIdle}
           onclick={() => (store.view = "overview")}>{t("nav.overview")}</button
         >
         <button
-          class:on={store.view === "settings"}
+          class={store.view === "settings" ? navActive : navIdle}
           onclick={() => (store.view = "settings")}>{t("nav.settings")}</button
         >
       </nav>
     </div>
-    <div class="tools">
+    <div class="flex gap-2">
       <button onclick={() => store.refreshView()} disabled={store.loading}>
         {store.loading ? t("action.refreshing") : t("action.refresh")}
       </button>
@@ -45,9 +53,11 @@
     </div>
   </header>
 
-  <main>
+  <main class="mx-auto grid max-w-7xl gap-5 p-5">
     {#if store.loadError !== null}
-      <p class="banner" role="alert">{resolve(store.loadError)}</p>
+      <p class="rounded-md bg-bad-bg px-3 py-2.5 text-bad" role="alert">
+        {resolve(store.loadError)}
+      </p>
     {/if}
 
     {#if store.view === "overview"}
@@ -61,71 +71,3 @@
     <ReviewDetail />
   {/if}
 {/if}
-
-<style>
-  header {
-    position: sticky;
-    top: 0;
-    z-index: 5;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 20px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    flex-wrap: wrap;
-  }
-
-  strong {
-    font-size: 14.5px;
-    letter-spacing: -0.01em;
-  }
-
-  nav {
-    display: flex;
-    gap: 4px;
-  }
-
-  nav button {
-    border-color: transparent;
-    background: transparent;
-    color: var(--text-dim);
-    padding: 5px 11px;
-  }
-
-  nav button.on {
-    background: var(--surface-2);
-    border-color: var(--border);
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  .tools {
-    display: flex;
-    gap: 8px;
-  }
-
-  main {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 20px;
-    display: grid;
-    gap: 20px;
-  }
-
-  .banner {
-    margin: 0;
-    padding: 10px 12px;
-    border-radius: 6px;
-    color: var(--bad);
-    background: var(--bad-bg);
-  }
-</style>

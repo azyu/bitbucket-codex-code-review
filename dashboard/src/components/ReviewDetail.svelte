@@ -4,6 +4,16 @@
   import { store } from "../lib/store.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
+  const heading = "mb-2 text-[11.5px] tracking-[0.06em] text-fg-dim uppercase";
+  const grid = "grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-x-4.5 gap-y-1.5";
+  const row = "flex justify-between gap-2.5 border-b border-border pb-1.25 text-code";
+  // Both variants spell out their own box so no two utilities for the same
+  // property meet on one element — which one wins would be stylesheet order.
+  const pre =
+    "max-h-[60vh] overflow-y-auto border font-mono text-xs leading-[1.6] break-words whitespace-pre-wrap";
+  const preNormal = `${pre} rounded-lg border-border bg-surface px-3.5 py-3`;
+  const preError = `${pre} rounded-md border-bad-bg bg-bad-bg px-3 py-2.5 text-bad`;
+
   let detail = $derived(store.detail);
 
   function onKeydown(event: KeyboardEvent): void {
@@ -13,18 +23,23 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="scrim" role="presentation" onclick={() => store.closeReview()}></div>
+<div class="fixed inset-0 z-10 bg-black/40" role="presentation" onclick={() => store.closeReview()}></div>
 
-<aside aria-label={t("detail.aria")}>
-  <header>
-    <div>
+<aside
+  aria-label={t("detail.aria")}
+  class="fixed inset-y-0 right-0 z-11 flex w-[min(680px,100%)] flex-col border-l border-border bg-bg"
+>
+  <header
+    class="flex items-center justify-between gap-3 border-b border-border bg-surface px-4.5 py-3.25"
+  >
+    <div class="flex min-w-0 items-center gap-2.25">
       {#if detail !== null}
         <StatusBadge status={detail.reviewStatus} />
-        <span class="mono title">
+        <span class="truncate font-mono text-code font-semibold">
           {detail.workspaceSlug}/{detail.repositorySlug} #{detail.pullRequestId}
         </span>
       {:else}
-        <span class="title">{t("detail.title")}</span>
+        <span class="truncate font-semibold">{t("detail.title")}</span>
       {/if}
     </div>
     <button onclick={() => store.closeReview()} aria-label={t("action.close")}>
@@ -32,104 +47,104 @@
     </button>
   </header>
 
-  <div class="body">
+  <div class="grid content-start gap-4.5 overflow-y-auto p-4.5">
     {#if store.detailLoading}
-      <p class="dim">{t("common.loading")}</p>
+      <p class="text-fg-dim">{t("common.loading")}</p>
     {:else if store.detailError !== null}
-      <p class="error" role="alert">{resolve(store.detailError)}</p>
+      <p class="rounded-md bg-bad-bg px-3 py-2.5 text-bad" role="alert">{resolve(store.detailError)}</p>
     {:else if detail !== null}
-      <dl>
-        <div><dt>{t("detail.runId")}</dt><dd class="mono">{detail.id}</dd></div>
-        <div>
-          <dt>{t("detail.started")}</dt>
-          <dd>{absoluteTime(detail.createdAt)}</dd>
+      <dl class={grid}>
+        <div class={row}><dt class="text-fg-dim">{t("detail.runId")}</dt><dd class="text-right font-mono tabular-nums">{detail.id}</dd></div>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.started")}</dt>
+          <dd class="text-right tabular-nums">{absoluteTime(detail.createdAt)}</dd>
         </div>
-        <div>
-          <dt>{t("detail.updated")}</dt>
-          <dd>{absoluteTime(detail.updatedAt)}</dd>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.updated")}</dt>
+          <dd class="text-right tabular-nums">{absoluteTime(detail.updatedAt)}</dd>
         </div>
-        <div>
-          <dt>{t("detail.trigger")}</dt>
-          <dd>{tEnum("trigger", detail.triggerType)}</dd>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.trigger")}</dt>
+          <dd class="text-right tabular-nums">{tEnum("trigger", detail.triggerType)}</dd>
         </div>
-        <div>
-          <dt>{t("detail.branch")}</dt>
-          <dd class="mono">{detail.headBranch} → {detail.baseBranch}</dd>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.branch")}</dt>
+          <dd class="text-right font-mono tabular-nums">{detail.headBranch} → {detail.baseBranch}</dd>
         </div>
-        <div>
-          <dt>{t("detail.commits")}</dt>
-          <dd class="mono">
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.commits")}</dt>
+          <dd class="text-right font-mono tabular-nums">
             {shortSha(detail.headCommitHash)} / {shortSha(detail.baseCommitHash)}
           </dd>
         </div>
-        <div>
-          <dt>{t("detail.codexModel")}</dt>
-          <dd>{detail.codexModel || "—"}</dd>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.codexModel")}</dt>
+          <dd class="text-right tabular-nums">{detail.codexModel || "—"}</dd>
         </div>
-        <div>
-          <dt>{t("detail.effort")}</dt>
-          <dd>{detail.codexReasoningEffort || "—"}</dd>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.effort")}</dt>
+          <dd class="text-right tabular-nums">{detail.codexReasoningEffort || "—"}</dd>
         </div>
-        <div>
-          <dt>{t("detail.codexTime")}</dt>
-          <dd>{duration(detail.durationMs)}</dd>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.codexTime")}</dt>
+          <dd class="text-right tabular-nums">{duration(detail.durationMs)}</dd>
         </div>
-        <div>
-          <dt>{t("detail.totalTime")}</dt>
-          <dd>{duration(detail.totalDurationMs)}</dd>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.totalTime")}</dt>
+          <dd class="text-right tabular-nums">{duration(detail.totalDurationMs)}</dd>
         </div>
-        <div>
-          <dt>{t("detail.inputTokens")}</dt>
-          <dd>{tokens(detail.inputTokens)}</dd>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.inputTokens")}</dt>
+          <dd class="text-right tabular-nums">{tokens(detail.inputTokens)}</dd>
         </div>
-        <div>
-          <dt>{t("detail.cachedInput")}</dt>
-          <dd>{tokens(detail.cachedInputTokens)}</dd>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.cachedInput")}</dt>
+          <dd class="text-right tabular-nums">{tokens(detail.cachedInputTokens)}</dd>
         </div>
-        <div>
-          <dt>{t("detail.outputTokens")}</dt>
-          <dd>{tokens(detail.outputTokens)}</dd>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.outputTokens")}</dt>
+          <dd class="text-right tabular-nums">{tokens(detail.outputTokens)}</dd>
         </div>
-        <div>
-          <dt>{t("detail.resultComment")}</dt>
-          <dd class="mono">{count(detail.resultCommentId)}</dd>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.resultComment")}</dt>
+          <dd class="text-right font-mono tabular-nums">{count(detail.resultCommentId)}</dd>
         </div>
       </dl>
 
       {#if detail.errorMessage}
         <section>
-          <h3>{t("detail.error")}</h3>
-          <pre class="error">{detail.errorMessage}</pre>
+          <h3 class={heading}>{t("detail.error")}</h3>
+          <pre class={preError}>{detail.errorMessage}</pre>
         </section>
       {/if}
 
       {#if detail.settingsSnapshot !== null}
         <section>
-          <h3>{t("detail.snapshot")}</h3>
-          <dl>
-            <div>
-              <dt>{t("detail.revision")}</dt>
-              <dd class="mono">{detail.settingsSnapshot.revision}</dd>
+          <h3 class={heading}>{t("detail.snapshot")}</h3>
+          <dl class={grid}>
+            <div class={row}>
+              <dt class="text-fg-dim">{t("detail.revision")}</dt>
+              <dd class="text-right font-mono tabular-nums">{detail.settingsSnapshot.revision}</dd>
             </div>
-            <div>
-              <dt>{t("detail.model")}</dt>
-              <dd>{detail.settingsSnapshot.model}</dd>
+            <div class={row}>
+              <dt class="text-fg-dim">{t("detail.model")}</dt>
+              <dd class="text-right tabular-nums">{detail.settingsSnapshot.model}</dd>
             </div>
-            <div>
-              <dt>{t("detail.effort")}</dt>
-              <dd>{detail.settingsSnapshot.reasoningEffort || "—"}</dd>
+            <div class={row}>
+              <dt class="text-fg-dim">{t("detail.effort")}</dt>
+              <dd class="text-right tabular-nums">{detail.settingsSnapshot.reasoningEffort || "—"}</dd>
             </div>
-            <div>
-              <dt>{t("detail.timeout")}</dt>
-              <dd>{duration(detail.settingsSnapshot.timeoutMs)}</dd>
+            <div class={row}>
+              <dt class="text-fg-dim">{t("detail.timeout")}</dt>
+              <dd class="text-right tabular-nums">{duration(detail.settingsSnapshot.timeoutMs)}</dd>
             </div>
-            <div>
-              <dt>{t("detail.triggerMode")}</dt>
-              <dd>{detail.settingsSnapshot.triggerMode}</dd>
+            <div class={row}>
+              <dt class="text-fg-dim">{t("detail.triggerMode")}</dt>
+              <dd class="text-right tabular-nums">{detail.settingsSnapshot.triggerMode}</dd>
             </div>
-            <div>
-              <dt>{t("detail.retries")}</dt>
-              <dd>{detail.settingsSnapshot.retryAttempts}</dd>
+            <div class={row}>
+              <dt class="text-fg-dim">{t("detail.retries")}</dt>
+              <dd class="text-right tabular-nums">{detail.settingsSnapshot.retryAttempts}</dd>
             </div>
           </dl>
         </section>
@@ -137,122 +152,10 @@
 
       {#if detail.reviewOutput}
         <section>
-          <h3>{t("detail.published")}</h3>
-          <pre>{detail.reviewOutput}</pre>
+          <h3 class={heading}>{t("detail.published")}</h3>
+          <pre class={preNormal}>{detail.reviewOutput}</pre>
         </section>
       {/if}
     {/if}
   </div>
 </aside>
-
-<style>
-  .scrim {
-    position: fixed;
-    inset: 0;
-    background: rgb(0 0 0 / 40%);
-    z-index: 10;
-  }
-
-  aside {
-    position: fixed;
-    inset: 0 0 0 auto;
-    width: min(680px, 100%);
-    z-index: 11;
-    display: flex;
-    flex-direction: column;
-    background: var(--bg);
-    border-left: 1px solid var(--border);
-  }
-
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 13px 18px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-  }
-
-  header > div {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    min-width: 0;
-  }
-
-  .title {
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .body {
-    padding: 18px;
-    overflow-y: auto;
-    display: grid;
-    gap: 18px;
-    align-content: start;
-  }
-
-  h3 {
-    font-size: 11.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-dim);
-    margin-bottom: 8px;
-  }
-
-  dl {
-    margin: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 6px 18px;
-  }
-
-  dl div {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    font-size: 12.5px;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 5px;
-  }
-
-  dt {
-    color: var(--text-dim);
-  }
-
-  dd {
-    margin: 0;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-
-  pre {
-    margin: 0;
-    padding: 12px 14px;
-    border-radius: var(--radius);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    font-family: var(--mono);
-    font-size: 12px;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 60vh;
-    overflow-y: auto;
-  }
-
-  p {
-    margin: 0;
-  }
-
-  .error {
-    color: var(--bad);
-    background: var(--bad-bg);
-    border-color: var(--bad-bg);
-    padding: 10px 12px;
-    border-radius: 6px;
-  }
-</style>

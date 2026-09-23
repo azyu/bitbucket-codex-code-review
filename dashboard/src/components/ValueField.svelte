@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fieldSpec } from "../lib/fields";
   import { t } from "../lib/i18n.svelte";
+  import { fieldLabel } from "../lib/ui";
 
   let {
     name,
@@ -18,15 +19,17 @@
   let disabled = $derived(inherit === true);
 </script>
 
-<div class="field" class:wide={spec.kind === "textarea"}>
-  <div class="head">
-    <label for={id}>
+<div class={["grid content-start gap-1.25", spec.kind === "textarea" && "col-span-full"]}>
+  <div class="flex items-baseline justify-between gap-2.5">
+    <label for={id} class={fieldLabel}>
       {t(spec.label)}
-      {#if spec.hint}<span class="dim">({t(spec.hint)})</span>{/if}
+      {#if spec.hint}<span class="text-fg-dim">({t(spec.hint)})</span>{/if}
     </label>
     {#if inherit !== undefined}
-      <label class="inherit">
-        <input type="checkbox" bind:checked={inherit} />
+      <label
+        class="flex items-center gap-1.25 text-xs font-medium whitespace-nowrap text-fg-dim"
+      >
+        <input type="checkbox" class="m-0 w-auto" bind:checked={inherit} />
         {t("field.inherit")}
       </label>
     {/if}
@@ -49,10 +52,10 @@
       bind:value
       {disabled}
     />
-    <span class="dim bounds">{spec.min} – {spec.max}</span>
+    <span class="text-2xs text-fg-dim">{spec.min} – {spec.max}</span>
   {:else if spec.kind === "textarea"}
     <textarea {id} maxlength={spec.maxLength} bind:value {disabled}></textarea>
-    <span class="dim bounds">
+    <span class="text-2xs text-fg-dim">
       {t("field.chars", { length: value.length, max: spec.maxLength })}
     </span>
   {:else}
@@ -66,45 +69,3 @@
     />
   {/if}
 </div>
-
-<style>
-  .field {
-    display: grid;
-    gap: 5px;
-    align-content: start;
-  }
-
-  .wide {
-    grid-column: 1 / -1;
-  }
-
-  .head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-  }
-
-  label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-dim);
-  }
-
-  .inherit {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-weight: 500;
-    white-space: nowrap;
-  }
-
-  .inherit input {
-    width: auto;
-    margin: 0;
-  }
-
-  .bounds {
-    font-size: 11px;
-  }
-</style>
