@@ -41,12 +41,28 @@ describe("SecretField status", () => {
     expect(label).not.toContain("repository");
   });
 
-  it("keeps the other statuses in the active locale too", () => {
-    expect(render({ configured: true, source: "global" })).toBe("전역에서 상속");
+  function rerender(status: { configured: boolean; source: string }) {
     unmount(app!);
     app = null;
     target.remove();
+    return render(status);
+  }
 
-    expect(render({ configured: false, source: "unconfigured" })).toBe("설정 안 됨");
+  it("keeps the other statuses in the active locale too", () => {
+    expect(render({ configured: true, source: "inherited" })).toBe("전역에서 상속");
+    expect(rerender({ configured: true, source: "global" })).toBe("전역에 설정됨");
+    expect(rerender({ configured: false, source: "unconfigured" })).toBe("설정 안 됨");
+  });
+
+  it("does not call a secret stored on the global pane inherited", () => {
+    setLocale("en");
+
+    expect(render({ configured: true, source: "global" })).toBe("set globally");
+    expect(rerender({ configured: true, source: "inherited" })).toBe(
+      "inherited from global",
+    );
+    expect(rerender({ configured: true, source: "repository" })).toBe(
+      "set on this repository",
+    );
   });
 });

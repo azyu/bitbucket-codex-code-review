@@ -548,7 +548,7 @@ export class RuntimeSettingsService implements OnApplicationBootstrap {
       const inherited = row.scope === "repository" && Boolean(globalSecrets[key as keyof SecretValues]);
       statuses[key] = {
         configured: local || inherited,
-        source: local ? row.scope : inherited ? "global" : "unconfigured",
+        source: local ? row.scope : inherited ? "inherited" : "unconfigured",
       };
     }
     return {
