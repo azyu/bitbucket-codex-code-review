@@ -364,7 +364,6 @@ describe("CodexService", () => {
     const result = await promise;
 
     expect(result.exitCode).toBe(124);
-    expect(result.rawOutput).toContain("exit 124");
   });
 
   it("should return sanitized output on non-zero exit", async () => {
@@ -404,7 +403,7 @@ describe("CodexService", () => {
     const result = await promise;
 
     expect(result.rawOutput).toBe(
-      "Codex run failed (exit 1): Selected model is at capacity. Please try a different model.",
+      "Selected model is at capacity. Please try a different model.",
     );
   });
 
@@ -423,7 +422,7 @@ describe("CodexService", () => {
 
     const result = await promise;
 
-    expect(result.rawOutput).toBe(`Codex run failed (exit 1): ${message}`);
+    expect(result.rawOutput).toBe(message);
   });
 
   it("should not publish unrecognized structured error messages", async () => {
@@ -442,7 +441,7 @@ describe("CodexService", () => {
     const result = await promise;
 
     expect(result.rawOutput).toBe(
-      "Codex run failed (exit 1). Check worker logs for details.",
+      "Check worker logs for details.",
     );
   });
 
@@ -506,7 +505,6 @@ describe("CodexService", () => {
     const result = await promise;
 
     expect(result.exitCode).toBe(124);
-    expect(result.rawOutput).toContain("exit 124");
   });
 
   it("should preserve spawn ENOENT error message when stderr is empty", async () => {

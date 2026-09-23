@@ -1648,8 +1648,7 @@ describe("ReviewProcessor error handling", () => {
     });
     mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
     mockCodexService.executeCodex.mockResolvedValue({
-      rawOutput:
-        "Codex run failed (exit 2): Selected model is at capacity. Please try a different model.",
+      rawOutput: "Selected model is at capacity. Please try a different model.",
       exitCode: 2,
       durationMs: 2200,
       inputTokens: 1500,
@@ -1659,7 +1658,11 @@ describe("ReviewProcessor error handling", () => {
 
     const job = { data: baseJobData } as never;
 
-    await expect(processor.process(job)).rejects.toThrow("Codex run failed");
+    await expect(processor.process(job)).rejects.toThrow(
+      new Error(
+        "Codex run failed (exit 2): Selected model is at capacity. Please try a different model.",
+      ),
+    );
 
     expect(mockReviewService.claimFailure).toHaveBeenCalledWith(
       1,

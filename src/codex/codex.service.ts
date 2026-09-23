@@ -400,9 +400,10 @@ export class CodexService {
           PUBLIC_CODEX_ERRORS.some((re) => re.test(result.codexError))
             ? result.codexError
             : result.stderr;
+        // The caller prefixes "Codex run failed (exit N):" — don't repeat it.
         rawOutput = publicError
-          ? `Codex run failed (exit ${result.code}): ${publicError.trim()}`
-          : `Codex run failed (exit ${result.code}). Check worker logs for details.`;
+          ? publicError.trim()
+          : "Check worker logs for details.";
       }
 
       return {
