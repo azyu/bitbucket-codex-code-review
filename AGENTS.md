@@ -75,6 +75,12 @@ pnpm 메이저를 올릴 때는 corepack부터 확인할 것. pnpm은 npm 패키
 
 `package.json`의 `pnpm` 필드는 pnpm 12부터 읽히지 않는다. `overrides`·`allowBuilds` 같은 설정은 `pnpm-workspace.yaml`에만 있다. 경고 한 줄만 찍고 install은 성공하므로 무시된 것을 눈치채기 어렵다.
 
+## 대시보드 스타일 (Tailwind v4)
+
+- 같은 속성을 건드리는 유틸리티 두 개(`bg-transparent`와 `bg-surface-2`, `text-fg-dim`와 `text-fg`)를 한 요소에 같이 두면, 이기는 쪽은 class 순서가 아니라 생성된 CSS의 순서로 정해진다. `class={[base, active && on]}` 패턴으로는 활성 상태가 조용히 사라진다(#133에서 nav 활성 배경이 없어졌다). 상태별로 완성된 문자열을 삼항으로 고를 것.
+- 토큰은 `@theme inline`이 아니라 plain `@theme`에 둔다. inline으로 두면 유틸리티에 라이트 값이 박혀서 `data-theme="dark"` 오버라이드가 먹지 않는다.
+- 화면에 영향을 주는 변경은 이전 커밋과 스크린샷을 나란히 비교해 확인할 것. #133에서 나온 줄높이 2px 차이(Tailwind `text-xs`의 기본 line-height), Preflight가 바꾼 placeholder 색, 사라진 활성 상태는 build·lint·test를 모두 통과한 뒤 스크린샷 비교에서만 드러났다.
+
 ## 프로젝트 개요
 
 Bitbucket PR webhook → Codex CLI 코드 리뷰 → PR 코멘트 게시하는 NestJS 워커 서비스.

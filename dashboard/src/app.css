@@ -1,172 +1,181 @@
 /*
  * Self-hosted-by-omission: a system font stack and no external stylesheet, so
  * the dashboard CSP needs no jsdelivr, fonts.googleapis or fonts.gstatic
- * origin. (Spec invariant 7.)
+ * origin. (Spec invariant 7.) Tailwind compiles into the one bundled
+ * stylesheet, so it does not change that.
  */
 
-:root {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --border: #dfe3e8;
-  --text: #1a1d21;
-  --text-dim: #5c6570;
-  --accent: #2f6feb;
-  --accent-contrast: #ffffff;
-  --ok: #1a7f46;
-  --ok-bg: #e4f4ea;
-  --warn: #9a6400;
-  --warn-bg: #fdf1d9;
-  --bad: #c0392f;
-  --bad-bg: #fbe9e7;
-  --mute: #5c6570;
-  --mute-bg: #eceef1;
-  --radius: 8px;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+@import "tailwindcss";
 
+/*
+ * Plain @theme, not @theme inline: utilities must compile to var(--color-*)
+ * so the data-theme="dark" block below can swap the values at runtime.
+ * Inlined values would freeze every utility at the light palette.
+ */
+@theme {
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-surface-2: #f0f2f5;
+  --color-border: #dfe3e8;
+  --color-fg: #1a1d21;
+  --color-fg-dim: #5c6570;
+  --color-accent: #2f6feb;
+  --color-accent-contrast: #ffffff;
+  --color-ok: #1a7f46;
+  --color-ok-bg: #e4f4ea;
+  --color-warn: #9a6400;
+  --color-warn-bg: #fdf1d9;
+  --color-bad: #c0392f;
+  --color-bad-bg: #fbe9e7;
+  --color-mute: #5c6570;
+  --color-mute-bg: #eceef1;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    monospace;
+
+  /*
+   * Text keeps the body's 1.5 line height at every size, as it did before
+   * Tailwind; its default xs/2xl line heights would shift rows by pixels.
+   */
+  --text-xs--line-height: 1.5;
+  --text-2xl--line-height: 1.5;
+  --text-2xs: 11px;
+  --text-code: 12.5px;
+}
+
+:root {
   color-scheme: light;
 }
 
+/* theme.ts sets data-theme on <html>; the utilities follow through var(). */
 :root[data-theme="dark"] {
-  --bg: #14171a;
-  --surface: #1c2023;
-  --surface-2: #23282c;
-  --border: #32383d;
-  --text: #e8eaed;
-  --text-dim: #9aa4ae;
-  --accent: #5b91f5;
-  --accent-contrast: #0f1113;
-  --ok: #56d68a;
-  --ok-bg: #16311f;
-  --warn: #e2b04a;
-  --warn-bg: #33270e;
-  --bad: #f08479;
-  --bad-bg: #351d1a;
-  --mute: #9aa4ae;
-  --mute-bg: #262b2f;
+  --color-bg: #14171a;
+  --color-surface: #1c2023;
+  --color-surface-2: #23282c;
+  --color-border: #32383d;
+  --color-fg: #e8eaed;
+  --color-fg-dim: #9aa4ae;
+  --color-accent: #5b91f5;
+  --color-accent-contrast: #0f1113;
+  --color-ok: #56d68a;
+  --color-ok-bg: #16311f;
+  --color-warn: #e2b04a;
+  --color-warn-bg: #33270e;
+  --color-bad: #f08479;
+  --color-bad-bg: #351d1a;
+  --color-mute: #9aa4ae;
+  --color-mute-bg: #262b2f;
 
   color-scheme: dark;
 }
 
-* {
-  box-sizing: border-box;
-}
+/*
+ * Element defaults every view shares. They sit in the base layer so a utility
+ * on the element (a primary button, a borderless link button) still wins.
+ */
+@layer base {
+  /* Preflight defaults borders to currentColor; every border here is the token. */
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-border);
+  }
 
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
 
-h1,
-h2,
-h3 {
-  margin: 0;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
+  h1,
+  h2,
+  h3 {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
 
-button {
-  font: inherit;
-  cursor: pointer;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-  padding: 7px 13px;
-}
+  button {
+    cursor: pointer;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    padding: 7px 13px;
+  }
 
-button:hover:not(:disabled) {
-  background: var(--surface-2);
-}
+  button:hover:not(:disabled) {
+    background: var(--color-surface-2);
+  }
 
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-contrast);
-}
+  input,
+  select,
+  textarea {
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
 
-button.primary:hover:not(:disabled) {
-  filter: brightness(1.08);
-}
+  /* Preflight dims placeholders to half of currentColor; keep the UA color. */
+  ::placeholder {
+    color: revert;
+  }
 
-input,
-select,
-textarea {
-  font: inherit;
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-}
+  input:disabled,
+  textarea:disabled {
+    background: var(--color-surface-2);
+    color: var(--color-fg-dim);
+  }
 
-input:disabled,
-textarea:disabled {
-  background: var(--surface-2);
-  color: var(--text-dim);
-}
+  textarea {
+    min-height: 140px;
+    font-family: var(--font-mono);
+    font-size: var(--text-code);
+    resize: vertical;
+  }
 
-textarea {
-  min-height: 140px;
-  font-family: var(--mono);
-  font-size: 12.5px;
-  resize: vertical;
-}
+  :is(input, select, textarea, button):focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
 
-:is(input, select, textarea, button):focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
+  code {
+    font-family: var(--font-mono);
+    font-size: var(--text-code);
+  }
 
-code,
-.mono {
-  font-family: var(--mono);
-  font-size: 12.5px;
-}
+  table {
+    width: 100%;
+  }
 
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
+  th {
+    text-align: left;
+    font-size: var(--text-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-fg-dim);
+    font-weight: 600;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
 
-.dim {
-  color: var(--text-dim);
-}
+  td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: middle;
+  }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th {
-  text-align: left;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-dim);
-  font-weight: 600;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-
-td {
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-
-tr:last-child td {
-  border-bottom: none;
+  tr:last-child td {
+    border-bottom: none;
+  }
 }

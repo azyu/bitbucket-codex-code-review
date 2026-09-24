@@ -1,10 +1,11 @@
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import tailwindcss from "@tailwindcss/vite";
 // vitest/config's defineConfig is vite's plus the `test` block, so build and
 // test configuration stay in one file.
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [tailwindcss(), svelte()],
   // Assets resolve under /dashboard/ so main.ts's single static mount and the
   // relaxed-CSP path predicate can both match on one prefix.
   base: "/dashboard/",
