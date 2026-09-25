@@ -239,7 +239,8 @@ pnpm start          # 프로덕션 실행
 pnpm start:dev      # 개발 서버 (watch)
 pnpm test           # 테스트 실행
 pnpm test:cov       # 커버리지 포함 테스트
-pnpm lint           # ESLint
+pnpm lint           # ESLint + svelte-check (검사만, 수정 안 함)
+pnpm lint:fix       # ESLint 자동 수정
 ```
 
 ## Internal API

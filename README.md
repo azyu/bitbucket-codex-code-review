@@ -247,7 +247,8 @@ pnpm start          # production run
 pnpm start:dev      # dev server (watch)
 pnpm test           # run tests
 pnpm test:cov       # tests with coverage
-pnpm lint           # ESLint
+pnpm lint           # ESLint + svelte-check (report only, no fixes)
+pnpm lint:fix       # ESLint with --fix
 ```
 
 ## Internal API
