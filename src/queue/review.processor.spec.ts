@@ -13,7 +13,10 @@ import { buildReviewPrompt, resolveReviewPrompt } from "./review.prompt";
 import { ReviewProcessor } from "./review.processor";
 import type { ICodexReviewResult } from "../codex/interfaces/codex.interfaces";
 import { TriggerType } from "../entities/review-run.entity";
-import { IReviewJobData } from "./interfaces/queue.interfaces";
+import {
+  IReviewAttemptUsage,
+  IReviewJobData,
+} from "./interfaces/queue.interfaces";
 import { UnrecoverableError } from "bullmq";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -1068,7 +1071,7 @@ describe("ReviewProcessor publish results", () => {
             outputTokens: number | null;
           },
           commentId: number | undefined,
-          totalDurationMs: number,
+          usage: IReviewAttemptUsage,
         ) => Promise<void>;
       }
     ).markCompleted(
@@ -1082,7 +1085,13 @@ describe("ReviewProcessor publish results", () => {
         outputTokens: 80,
       },
       100,
-      1500,
+      {
+        durationMs: 1200,
+        totalDurationMs: 1500,
+        inputTokens: 900,
+        cachedInputTokens: 200,
+        outputTokens: 80,
+      },
     );
 
     expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
@@ -1779,6 +1788,162 @@ describe("ReviewProcessor error handling", () => {
     expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
       body: expect.stringContaining("Code Review 실패"),
     }), expect.anything());
+  });
+
+  describe("usage across retries", () => {
+    // 재시도는 같은 review_runs 행을 쓰므로 마지막 시도분만 저장하면 토큰·소요시간이 과소집계된다(#30).
+    const priorAttemptsUsage = {
+      durationMs: 4000,
+      totalDurationMs: 5000,
+      inputTokens: 1000,
+      cachedInputTokens: 200,
+      outputTokens: 300,
+    };
+
+    beforeEach(() => {
+      mockWorkspaceService.prepareWorktree.mockResolvedValue({
+        worktreePath: "/tmp/worktree",
+        bareRepoPath: "/tmp/bare",
+      });
+      mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    });
+
+    function totalDurationArg(call: unknown[]): number {
+      return (call[call.length - 1] as { totalDurationMs: number })
+        .totalDurationMs;
+    }
+
+    it("carries a failed attempt's Codex usage to the next attempt", async () => {
+      mockCodexService.executeCodex.mockResolvedValue({
+        rawOutput: "boom",
+        exitCode: 1,
+        durationMs: 700,
+        inputTokens: 50,
+        cachedInputTokens: 10,
+        outputTokens: 5,
+      });
+      const updateData = jest.fn().mockResolvedValue(undefined);
+      const job = {
+        data: { ...baseJobData, priorAttemptsUsage },
+        attemptsMade: 1,
+        opts: { attempts: 3 },
+        updateData,
+      } as never;
+
+      await expect(processor.process(job)).rejects.toThrow("Codex run failed");
+
+      expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
+      expect(updateData).toHaveBeenCalledWith({
+        ...baseJobData,
+        priorAttemptsUsage: {
+          durationMs: 4700,
+          totalDurationMs: expect.any(Number),
+          inputTokens: 1050,
+          cachedInputTokens: 210,
+          outputTokens: 305,
+        },
+      });
+      expect(
+        updateData.mock.calls[0][0].priorAttemptsUsage.totalDurationMs,
+      ).toBeGreaterThanOrEqual(5000);
+    });
+
+    it("carries elapsed time even when the attempt never reached Codex", async () => {
+      mockWorkspaceService.prepareWorktree.mockRejectedValue(
+        new Error("Git clone failed"),
+      );
+      const updateData = jest.fn().mockResolvedValue(undefined);
+      const job = {
+        data: baseJobData,
+        attemptsMade: 0,
+        opts: { attempts: 3 },
+        updateData,
+      } as never;
+
+      await expect(processor.process(job)).rejects.toThrow("Git clone failed");
+
+      const carried = updateData.mock.calls[0][0].priorAttemptsUsage;
+      expect(carried.totalDurationMs).toEqual(expect.any(Number));
+      expect(carried.durationMs).toBeUndefined();
+      expect(carried.inputTokens).toBeUndefined();
+    });
+
+    it("still retries when carrying usage fails", async () => {
+      mockWorkspaceService.prepareWorktree.mockRejectedValue(
+        new Error("Git clone failed"),
+      );
+      const job = {
+        data: baseJobData,
+        attemptsMade: 0,
+        opts: { attempts: 3 },
+        updateData: jest.fn().mockRejectedValue(new Error("redis down")),
+      } as never;
+
+      const rejection = await processor.process(job).catch((error) => error);
+
+      expect(rejection).not.toBeInstanceOf(UnrecoverableError);
+      expect((rejection as Error).message).toBe("Git clone failed");
+      expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
+    });
+
+    it("adds prior attempts' usage when the retry completes", async () => {
+      mockCodexService.executeCodex.mockResolvedValue({
+        rawOutput:
+          '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+        exitCode: 0,
+        durationMs: 600,
+        inputTokens: 80,
+        cachedInputTokens: 20,
+        outputTokens: 8,
+      });
+      const job = {
+        data: { ...baseJobData, priorAttemptsUsage },
+        attemptsMade: 1,
+        opts: { attempts: 3 },
+      } as never;
+
+      await expect(processor.process(job)).resolves.toBeUndefined();
+
+      expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+        1,
+        "completed",
+        expect.objectContaining({
+          durationMs: 4600,
+          inputTokens: 1080,
+          cachedInputTokens: 220,
+          outputTokens: 308,
+        }),
+      );
+      expect(
+        totalDurationArg(mockReviewService.updateStatus.mock.calls[0]),
+      ).toBeGreaterThanOrEqual(5000);
+    });
+
+    it("adds prior attempts' usage when the last attempt fails", async () => {
+      mockWorkspaceService.prepareWorktree.mockRejectedValue(
+        new Error("Git clone failed"),
+      );
+      const job = {
+        data: { ...baseJobData, priorAttemptsUsage },
+        attemptsMade: 2,
+        opts: { attempts: 3 },
+      } as never;
+
+      await expect(processor.process(job)).rejects.toThrow("Git clone failed");
+
+      expect(mockReviewService.claimFailure).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          durationMs: 4000,
+          inputTokens: 1000,
+          cachedInputTokens: 200,
+          outputTokens: 300,
+        }),
+      );
+      expect(
+        totalDurationArg(mockReviewService.claimFailure.mock.calls[0]),
+      ).toBeGreaterThanOrEqual(5000);
+    });
   });
 
   it("preserves the comment ID in FAILED metadata when markCompleted fails", async () => {

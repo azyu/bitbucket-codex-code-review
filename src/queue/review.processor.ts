@@ -7,7 +7,10 @@ import { Job, UnrecoverableError } from "bullmq";
 import { metrics } from "@opentelemetry/api";
 import { ServiceLogger } from "@lib/logger";
 import { REVIEW_QUEUE_NAME } from "../constants/queue.constants";
-import { IReviewJobData } from "./interfaces/queue.interfaces";
+import {
+  IReviewAttemptUsage,
+  IReviewJobData,
+} from "./interfaces/queue.interfaces";
 import { ReviewRunStatus } from "../entities/review-run.entity";
 import { ReviewService } from "../review/review.service";
 import { WorkspaceService } from "../workspace/workspace.service";
@@ -46,6 +49,32 @@ function authenticationFailureStage(error: Error): "api" | "git" | null {
     return "git";
   }
   return null;
+}
+
+function addUsage(
+  prior: number | undefined,
+  current: number | null | undefined,
+): number | undefined {
+  if (prior === undefined && current == null) return undefined;
+  return (prior ?? 0) + (current ?? 0);
+}
+
+/** 이전 시도들의 합계에 이번 시도분을 더한다 — 재시도가 같은 행을 쓰므로 덮어쓰면 과소집계된다. */
+function accumulateUsage(
+  prior: IReviewAttemptUsage | undefined,
+  codexResult: ICodexReviewResult | undefined,
+  totalDurationMs: number,
+): IReviewAttemptUsage {
+  return {
+    durationMs: addUsage(prior?.durationMs, codexResult?.durationMs),
+    totalDurationMs: addUsage(prior?.totalDurationMs, totalDurationMs),
+    inputTokens: addUsage(prior?.inputTokens, codexResult?.inputTokens),
+    cachedInputTokens: addUsage(
+      prior?.cachedInputTokens,
+      codexResult?.cachedInputTokens,
+    ),
+    outputTokens: addUsage(prior?.outputTokens, codexResult?.outputTokens),
+  };
 }
 
 @Processor(REVIEW_QUEUE_NAME)
@@ -211,13 +240,22 @@ export class ReviewProcessor
         data,
         codexResult,
         commentId,
-        Date.now() - processStartTime,
+        accumulateUsage(
+          data.priorAttemptsUsage,
+          codexResult,
+          Date.now() - processStartTime,
+        ),
       );
     } catch (err) {
       const error = err as Error;
       const failedCodexResult =
         codexResult ||
         (err as Error & { codexResult?: ICodexReviewResult }).codexResult;
+      const usage = accumulateUsage(
+        data.priorAttemptsUsage,
+        failedCodexResult,
+        Date.now() - processStartTime,
+      );
       this.logger.error(`Review failed: ${error.message}`);
       const authFailureStage = authenticationFailureStage(error);
       if (authFailureStage) {
@@ -237,6 +275,17 @@ export class ReviewProcessor
         !authFailureStage &&
         job.attemptsMade + 1 < (job.opts?.attempts ?? 1)
       ) {
+        // 다음 시도는 Redis에서 job data를 다시 읽으므로 이번 시도분을 넘겨 둔다.
+        // 행에 바로 쓰지 않는 이유: 진행 중인 런에 totalDurationMs가 생기면
+        // queryRepoAggregates의 reviewSampleCount 분모에 섞인다.
+        // 저장 실패는 통계 누락일 뿐이므로 재시도 판단을 바꾸지 않는다.
+        try {
+          await job.updateData({ ...data, priorAttemptsUsage: usage });
+        } catch (usageErr) {
+          this.logger.error(
+            `Failed to carry attempt usage to retry: ${(usageErr as Error).message}`,
+          );
+        }
         throw err;
       }
 
@@ -251,11 +300,7 @@ export class ReviewProcessor
           {
             reviewOutput: failedCodexResult?.rawOutput,
             resultCommentId,
-            durationMs: failedCodexResult?.durationMs,
-            totalDurationMs: Date.now() - processStartTime,
-            inputTokens: failedCodexResult?.inputTokens ?? undefined,
-            cachedInputTokens: failedCodexResult?.cachedInputTokens ?? undefined,
-            outputTokens: failedCodexResult?.outputTokens ?? undefined,
+            ...usage,
             codexModel: failedCodexResult?.model,
             codexReasoningEffort: failedCodexResult?.reasoningEffort ?? undefined,
             errorMessage: error.message.substring(0, 2000),
@@ -628,7 +673,7 @@ export class ReviewProcessor
     data: IReviewJobData,
     codexResult: ICodexReviewResult,
     commentId: number | undefined,
-    totalDurationMs: number,
+    usage: IReviewAttemptUsage,
   ): Promise<void> {
     await this.reviewService.updateStatus(
       data.reviewRunId,
@@ -636,11 +681,7 @@ export class ReviewProcessor
       {
         reviewOutput: codexResult.rawOutput,
         resultCommentId: commentId!,
-        durationMs: codexResult.durationMs,
-        totalDurationMs,
-        inputTokens: codexResult.inputTokens ?? undefined,
-        cachedInputTokens: codexResult.cachedInputTokens ?? undefined,
-        outputTokens: codexResult.outputTokens ?? undefined,
+        ...usage,
         codexModel: codexResult.model,
         codexReasoningEffort: codexResult.reasoningEffort ?? undefined,
       },
