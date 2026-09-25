@@ -5,7 +5,8 @@
 - 작업 시작 전 `.context/STEERING.md`를 읽을 것
 - GitHub Issues의 open + `backlog` 라벨을 유일한 작업 큐로 사용할 것
 - 지정된 이슈는 `gh issue view <번호> --comments`로 읽고, 지정이 없으면 `gh issue list --state open --label backlog`에서 선택할 것
-- **작업이 정상적으로 끝나면 커밋 승인을 요청할 것** (빌드 성공 확인 후). 승인 없이 커밋하지 않는다
+- **DoD를 모두 확인했으면 승인을 묻지 말고 커밋 → push → PR 생성까지 진행할 것.** 작업 브랜치에서만 하고 `main`에 직접 push하지 않는다
+- DoD 중 확인하지 못한 항목이 있으면 커밋 전에 멈추고, 무엇을 왜 확인하지 못했는지 보고한 뒤 결정을 받는다
 
 ## Task Coordination (GitHub Issues)
 
@@ -51,7 +52,7 @@ PR을 열면 `chatgpt-codex-connector`가 리뷰를 남긴다. 결과는 즉시 
 - [ ] 테스트 커버리지 80% 이상
 - [ ] 보안 체크리스트 통과 (하드코딩 시크릿, 입력 검증, 에러 누출 없음)
 - [ ] GitHub Issue에 검증 결과와 상태 업데이트 완료
-- [ ] 커밋 승인 요청 → 승인 후 커밋 완료 (conventional commit 형식)
+- [ ] 위 항목이 모두 확인되면 커밋(conventional commit 형식) → push → PR 생성 (승인 요청 없이)
 
 ## 의존성 업데이트 (Renovate)
 
