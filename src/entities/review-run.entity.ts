@@ -90,4 +90,18 @@ export class ReviewRunEntity
 
   @Column({ type: "text", nullable: true })
   errorMessage: string;
+
+  // Codex에 stdin으로 넘긴 최종 프롬프트. 최대 90만 자라 TEXT(64KB)로는 strict
+  // sql_mode에서 update가 실패한다. 수 MB가 될 수 있어 기본 조회에서 빼고
+  // ReviewService.findPromptById로만 읽는다.
+  @Column({ type: "mediumtext", nullable: true, select: false })
+  reviewPrompt: string | null;
+
+  // 시스템 프롬프트·도구 정의가 CLI 버전마다 달라지므로 재현 조건으로 남긴다.
+  @Column({ type: "varchar", length: 64, nullable: true })
+  codexCliVersion: string | null;
+
+  // 실제 diff 기준. baseCommitHash는 webhook 시점의 base tip이라 이것과 다를 수 있다.
+  @Column({ type: "varchar", length: 40, nullable: true })
+  reviewMergeBase: string | null;
 }

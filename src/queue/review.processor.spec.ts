@@ -784,6 +784,7 @@ describe("ReviewProcessor publish results", () => {
     claimStatus: jest.fn(),
     claimFailure: jest.fn(),
     claimCompletion: jest.fn(),
+    recordReviewInput: jest.fn(),
   };
   const mockWorkspaceService = {
     prepareWorktree: jest.fn(),
@@ -792,6 +793,7 @@ describe("ReviewProcessor publish results", () => {
   };
   const mockCodexService = {
     executeCodex: jest.fn(),
+    getCliVersion: jest.fn(),
   };
   const mockBitbucketService = {
     createComment: jest.fn().mockResolvedValue({ id: 100 }),
@@ -812,6 +814,7 @@ describe("ReviewProcessor publish results", () => {
       excludedChangedFiles: readonly string[] | null,
       settings: typeof TEST_SETTINGS,
       connection: Record<string, never>,
+      onPromptResolved: (prompt: string) => Promise<void>,
     ): Promise<ICodexReviewResult>;
   };
 
@@ -840,8 +843,11 @@ describe("ReviewProcessor publish results", () => {
     mockReviewService.claimStatus.mockResolvedValue(true);
     mockReviewService.claimFailure.mockResolvedValue(true);
     mockReviewService.claimCompletion.mockResolvedValue(true);
+    mockReviewService.recordReviewInput.mockResolvedValue(undefined);
+    mockCodexService.getCliVersion.mockResolvedValue("codex-cli 0.155.1");
     mockWorkspaceService.createReviewDiff.mockResolvedValue({
       diff: "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
+      mergeBase: "mergebase123",
       excludedChangedFiles: [],
     });
     processor = new ReviewProcessor(
@@ -894,6 +900,7 @@ describe("ReviewProcessor publish results", () => {
         [],
         TEST_SETTINGS,
         {},
+        jest.fn().mockResolvedValue(undefined),
       );
 
       const prompt = mockCodexService.executeCodex.mock.calls[0][2];
@@ -941,6 +948,7 @@ describe("ReviewProcessor publish results", () => {
         [],
         { ...TEST_SETTINGS, model: "gpt-6-astra" },
         {},
+        jest.fn().mockResolvedValue(undefined),
       );
 
       expect(mockCodexService.executeCodex.mock.calls[0][3].model).toBe(
@@ -977,6 +985,7 @@ describe("ReviewProcessor publish results", () => {
           customPrompt: `REPOSITORY_GUIDELINE\n${"A".repeat(950_000)}`,
         },
         {},
+        jest.fn().mockResolvedValue(undefined),
       );
 
       const prompt = mockCodexService.executeCodex.mock.calls[0][2];
@@ -1057,6 +1066,92 @@ describe("ReviewProcessor publish results", () => {
     expect(mockCodexService.executeCodex.mock.calls[0][2]).toContain(
       "- M pnpm-lock.yaml",
     );
+  });
+
+  describe("review input recording", () => {
+    const approveOutput = {
+      rawOutput: '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 1,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    };
+
+    beforeEach(() => {
+      mockWorkspaceService.prepareWorktree.mockResolvedValue({
+        worktreePath: "/worktree",
+        bareRepoPath: "/bare",
+      });
+      mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+      mockCodexService.executeCodex.mockResolvedValue(approveOutput);
+    });
+
+    it("should record the exact prompt, CLI version and merge-base before running Codex", async () => {
+      await processor.process({ data: baseJobData } as never);
+
+      const sentPrompt = mockCodexService.executeCodex.mock.calls[0][2];
+      expect(mockReviewService.recordReviewInput).toHaveBeenCalledWith(1, {
+        reviewPrompt: sentPrompt,
+        codexCliVersion: "codex-cli 0.155.1",
+        reviewMergeBase: "mergebase123",
+      });
+      expect(
+        mockReviewService.recordReviewInput.mock.invocationCallOrder[0],
+      ).toBeLessThan(mockCodexService.executeCodex.mock.invocationCallOrder[0]);
+    });
+
+    it("should record the branch-diff prompt when the diff is too large to inline", async () => {
+      const onPromptResolved = jest.fn().mockResolvedValue(undefined);
+      const reviewDiff = "x".repeat(900_001);
+
+      await (
+        processor as unknown as ReviewProcessorWithExecuteReview
+      ).executeReview(
+        "/worktree",
+        "main",
+        reviewDiff,
+        [],
+        TEST_SETTINGS,
+        {},
+        onPromptResolved,
+      );
+
+      const sentPrompt = mockCodexService.executeCodex.mock.calls[0][2];
+      expect(onPromptResolved).toHaveBeenCalledWith(sentPrompt);
+      expect(sentPrompt).not.toContain(reviewDiff);
+    });
+
+    it("should record a null CLI version when it cannot be read", async () => {
+      mockCodexService.getCliVersion.mockResolvedValue(null);
+
+      await processor.process({ data: baseJobData } as never);
+
+      expect(mockReviewService.recordReviewInput).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ codexCliVersion: null }),
+      );
+    });
+
+    it("should complete the review when recording the input fails, without logging the prompt", async () => {
+      mockReviewService.recordReviewInput.mockRejectedValue(
+        new Error("Data too long for column 'reviewPrompt'"),
+      );
+
+      await processor.process({ data: baseJobData } as never);
+
+      expect(mockCodexService.executeCodex).toHaveBeenCalled();
+      expect(mockReviewService.claimCompletion).toHaveBeenCalledWith(
+        1,
+        expect.anything(),
+      );
+      const sentPrompt = mockCodexService.executeCodex.mock.calls[0][2];
+      const logged = mockLoggerError.mock.calls.map(([message]) => message);
+      expect(logged).toContainEqual(
+        expect.stringContaining("Failed to record review input for run 1"),
+      );
+      expect(logged.some((message) => message.includes(sentPrompt))).toBe(false);
+    });
   });
 
   it("should store duration and token metrics when marking completed", async () => {
@@ -1535,6 +1630,7 @@ describe("ReviewProcessor error handling", () => {
     claimFailure: jest.fn(),
     claimCompletion: jest.fn(),
     findById: jest.fn(),
+    recordReviewInput: jest.fn(),
   };
   const mockWorkspaceService = {
     prepareWorktree: jest.fn(),
@@ -1543,6 +1639,7 @@ describe("ReviewProcessor error handling", () => {
   };
   const mockCodexService = {
     executeCodex: jest.fn(),
+    getCliVersion: jest.fn(),
   };
   const mockBitbucketService = {
     createComment: jest.fn().mockResolvedValue({ id: 100 }),
@@ -1581,6 +1678,8 @@ describe("ReviewProcessor error handling", () => {
     mockReviewService.claimCompletion.mockResolvedValue(true);
     mockReviewService.updateStatus.mockResolvedValue(undefined);
     mockReviewService.updateResultCommentId.mockResolvedValue(undefined);
+    mockReviewService.recordReviewInput.mockResolvedValue(undefined);
+    mockCodexService.getCliVersion.mockResolvedValue("codex-cli 0.155.1");
     // 클레임 거부 시의 진단용 조회 — 기본값은 흔한 "대체됨" 경우.
     mockReviewService.findById.mockResolvedValue({
       id: 1,
@@ -1588,6 +1687,7 @@ describe("ReviewProcessor error handling", () => {
     });
     mockWorkspaceService.createReviewDiff.mockResolvedValue({
       diff: "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
+      mergeBase: "mergebase123",
       excludedChangedFiles: [],
     });
     processor = new ReviewProcessor(
@@ -1733,6 +1833,38 @@ describe("ReviewProcessor error handling", () => {
       expect(failureBody()).toContain("Bitbucket authentication failed (git)");
       expect(failureBody()).not.toContain("git fetch origin");
     });
+  });
+
+  it("should keep the recorded prompt when Codex fails", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput: "Codex run failed (exit 124): timeout",
+      exitCode: 124,
+      durationMs: 300_000,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+    });
+
+    await expect(
+      processor.process({ data: baseJobData } as never),
+    ).rejects.toThrow("Codex run failed");
+
+    expect(mockReviewService.recordReviewInput).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        reviewPrompt: mockCodexService.executeCodex.mock.calls[0][2],
+      }),
+    );
+    // 실패 기록이 입력을 덮어쓰지 않는다 — 프롬프트는 별도 update로만 쓴다.
+    expect(mockReviewService.claimFailure).toHaveBeenCalledWith(
+      1,
+      expect.not.objectContaining({ reviewPrompt: expect.anything() }),
+    );
   });
 
   it("should store available codex metrics on failure", async () => {

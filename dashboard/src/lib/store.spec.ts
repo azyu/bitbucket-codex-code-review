@@ -509,14 +509,93 @@ describe("review detail", () => {
     expect(store.detail?.id).toBe(42);
   });
 
+  it("keeps other request failures as they are", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockResolvedValue(json({ message: "db down" }, 500));
+    await store.openReview(42);
+
+    expect(store.detailError).toBe("db down");
+  });
+
   it("reports a missing run instead of rendering an empty panel", async () => {
     const store = await unlocked();
 
-    fetchMock.mockResolvedValue(json(null));
+    fetchMock.mockResolvedValue(json({ message: "Review run not found", error: "Not Found", statusCode: 404 }, 404));
     await store.openReview(9999);
 
     expect(store.detail).toBeNull();
     expect(store.detailError).toEqual({ key: "error.reviewNotFound" });
+  });
+});
+
+describe("review prompt", () => {
+  it("is not requested with the detail, only on an explicit expand", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockResolvedValue(json({ id: 42, reviewStatus: "completed" }));
+    await store.openReview(42);
+    expect(store.prompt).toBeNull();
+    const before = fetchMock.mock.calls.length;
+
+    fetchMock.mockResolvedValue(json({ reviewPrompt: "## 리뷰 대상 PR diff" }));
+    await store.loadPrompt(42);
+
+    expect(fetchMock.mock.calls.length).toBe(before + 1);
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe(
+      "/api/internal/reviews/42/prompt",
+    );
+    expect(store.prompt?.reviewPrompt).toBe("## 리뷰 대상 PR diff");
+    expect(store.promptLoading).toBe(false);
+  });
+
+  it("drops the loaded prompt when another run is opened", async () => {
+    const store = await unlocked();
+    fetchMock.mockResolvedValue(json({ reviewPrompt: "old" }));
+    await store.loadPrompt(1);
+
+    fetchMock.mockResolvedValue(json({ id: 2, reviewStatus: "completed" }));
+    await store.openReview(2);
+
+    expect(store.prompt).toBeNull();
+  });
+
+  it("ignores a prompt that arrives after the drawer was closed", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "",
+      json: async () => {
+        store.closeReview();
+        return { reviewPrompt: "late" };
+      },
+    } as unknown as Response);
+    await store.loadPrompt(42);
+
+    expect(store.prompt).toBeNull();
+    expect(store.promptLoading).toBe(false);
+  });
+
+  it("reports a missing run", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockResolvedValue(json({ message: "Review run not found", error: "Not Found", statusCode: 404 }, 404));
+    await store.loadPrompt(9999);
+
+    expect(store.prompt).toBeNull();
+    expect(store.promptError).toEqual({ key: "error.reviewNotFound" });
+  });
+
+  it("is cleared by lock", async () => {
+    const store = await unlocked();
+    fetchMock.mockResolvedValue(json({ reviewPrompt: "secret diff" }));
+    await store.loadPrompt(1);
+
+    store.lock();
+
+    expect(store.prompt).toBeNull();
   });
 });
 

@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ServiceLogger } from "@lib/logger";
-import { spawn } from "child_process";
+import { execFile, spawn } from "child_process";
 import { readFile, rm } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
@@ -35,6 +35,7 @@ const USAGE_LIMIT_RESET_TIME =
 const TIMEOUT_EXIT_CODE = 124;
 const AUTH_FILE_NAME = "auth.json";
 const CHATGPT_AUTH_MODE = "chatgpt";
+const CLI_VERSION_TIMEOUT_MS = 10_000;
 const CODEX_ENV_ALLOWLIST = [
   "PATH",
   "HOME",
@@ -120,9 +121,38 @@ interface ISpawnResult {
 export class CodexService {
   private readonly logger = new ServiceLogger(CodexService.name);
   private readonly binaryPath: string;
+  private cliVersion: string | null = null;
 
   constructor(private readonly configService: ConfigService) {
     this.binaryPath = this.configService.getOrThrow<string>("codex.binaryPath");
+  }
+
+  /**
+   * `codex --version` 출력. 이미지 수명 동안 바뀌지 않으므로 성공값만 캐시하고,
+   * 실패하면 null을 돌려 다음 호출에서 다시 읽는다. 리뷰 재현 조건 기록용이라
+   * 실패가 리뷰를 막으면 안 된다.
+   */
+  async getCliVersion(): Promise<string | null> {
+    if (this.cliVersion) return this.cliVersion;
+    try {
+      const stdout = await new Promise<string>((resolve, reject) => {
+        execFile(
+          this.binaryPath,
+          ["--version"],
+          { env: this.buildCodexEnv({}), timeout: CLI_VERSION_TIMEOUT_MS },
+          (error, out) => (error ? reject(error) : resolve(String(out))),
+        );
+      });
+      const version = stdout.trim().split("\n")[0]?.trim().slice(0, 64);
+      if (!version) return null;
+      this.cliVersion = version;
+      return version;
+    } catch (err) {
+      this.logger.error(
+        `Failed to read codex CLI version: ${(err as Error).message}`,
+      );
+      return null;
+    }
   }
 
   private buildCodexArgs(

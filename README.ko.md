@@ -254,7 +254,8 @@ pnpm lint:fix       # ESLint 자동 수정
 | `PATCH` | `/api/internal/settings/global` | global 설정 CAS 갱신 |
 | `PATCH` | `/api/internal/settings/repositories/:workspaceSlug/:repoSlug` | repository override CAS 갱신 |
 | `GET` | `/api/internal/reviews/recent?limit=` | 최근 리뷰 목록 (limit 1..50, 기본 10) |
-| `GET` | `/api/internal/reviews/:id` | 리뷰 실행 1건 상세 조회 |
+| `GET` | `/api/internal/reviews/:id` | 리뷰 실행 1건 상세 조회 (입력 프롬프트 제외, 없으면 404) |
+| `GET` | `/api/internal/reviews/:id/prompt` | Codex에 전달한 입력 프롬프트 조회 (없으면 404) |
 | `GET` | `/api/internal/reviews/:workspaceSlug/:repoSlug/:prId/latest` | 특정 PR의 최신 리뷰 조회 |
 | `GET` | `/api/internal/stats/repos` | workspace/repo별 요약 통계 목록 |
 | `GET` | `/api/internal/stats/repos/:workspaceSlug/:repoSlug` | 특정 workspace/repo의 누적 요약 통계 |

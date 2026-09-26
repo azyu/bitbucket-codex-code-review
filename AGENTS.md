@@ -115,3 +115,5 @@ pnpm build          # nest build
 pnpm test           # jest
 pnpm lint           # eslint
 ```
+
+`pnpm test`는 jest 뒤에 `pnpm --filter dashboard test`(vitest)를 잇는다. 뒤에 붙인 인자는 마지막 명령으로 넘어가므로 `pnpm test --runInBand`는 jest가 통과한 뒤 vitest가 `Unknown option`으로 실패한다. jest 전용 플래그는 `pnpm test:cov --runInBand`나 `pnpm exec jest --runInBand`에 붙일 것.

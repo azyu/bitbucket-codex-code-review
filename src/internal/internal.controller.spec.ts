@@ -1,3 +1,4 @@
+import { NotFoundException } from "@nestjs/common";
 import { InternalController } from "./internal.controller";
 import { ReviewRunStatus } from "../entities/review-run.entity";
 
@@ -5,6 +6,7 @@ describe("InternalController", () => {
   const mockReviewService = {
     findLatestByPr: jest.fn(),
     findById: jest.fn(),
+    findPromptById: jest.fn(),
     getRepoStats: jest.fn(),
     listRepoStats: jest.fn(),
     listRecent: jest.fn(),
@@ -56,6 +58,26 @@ describe("InternalController", () => {
       42,
     );
   });
+
+  it("serves the review prompt only through its dedicated route", async () => {
+    const prompt = { reviewPrompt: "리뷰 프롬프트" };
+    mockReviewService.findPromptById.mockResolvedValue(prompt);
+
+    await expect(controller.getReviewPrompt(7)).resolves.toBe(prompt);
+    expect(mockReviewService.findPromptById).toHaveBeenCalledWith(7);
+  });
+
+  it.each([
+    ["detail", "findById", (id: number) => controller.getReviewById(id)],
+    ["prompt", "findPromptById", (id: number) => controller.getReviewPrompt(id)],
+  ] as const)(
+    "answers a missing run's %s with 404 rather than an empty 200 body",
+    async (_name, method, call) => {
+      mockReviewService[method].mockResolvedValue(null);
+
+      await expect(call(9999)).rejects.toBeInstanceOf(NotFoundException);
+    },
+  );
 
   it("should return stats for a single repo", async () => {
     mockReviewService.getRepoStats.mockResolvedValue({

@@ -11,6 +11,7 @@ import type {
   RecentReview,
   RepoStats,
   ReviewDetail,
+  ReviewPrompt,
   SettingsDocument,
   SettingsScope,
 } from "./wire";
@@ -87,6 +88,14 @@ function describe(error: unknown): Message {
   return { key: "error.request" };
 }
 
+/** Both review lookups answer a missing run with 404. */
+function describeReviewLookup(error: unknown): Message {
+  if (error instanceof ApiError && error.status === 404) {
+    return { key: "error.reviewNotFound" };
+  }
+  return describe(error);
+}
+
 async function readError(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { message?: unknown };
@@ -144,6 +153,11 @@ export class DashboardStore {
   detail = $state<ReviewDetail | null>(null);
   detailError = $state<Message | null>(null);
   detailLoading = $state(false);
+
+  /** The open run's input prompt. null until the operator expands it. */
+  prompt = $state<ReviewPrompt | null>(null);
+  promptError = $state<Message | null>(null);
+  promptLoading = $state(false);
 
   settings = $state<SettingsDocument | null>(null);
   globalDraft = $state(emptyGlobalDraft());
@@ -252,6 +266,7 @@ export class DashboardStore {
     this.detail = null;
     this.detailError = null;
     this.detailLoading = false;
+    this.hidePrompt();
     this.settings = null;
     this.globalDraft = emptyGlobalDraft();
     this.repositoryDraft = emptyRepositoryDraft();
@@ -340,20 +355,20 @@ export class DashboardStore {
     this.detail = null;
     this.detailError = null;
     this.detailLoading = true;
+    this.hidePrompt();
     const issued = this.#session;
     // Closing the drawer or picking another row happens inside one session, so
     // the session counter cannot order these: without its own generation an
     // in-flight response reopens a closed drawer or replaces a newer pick.
     const generation = ++this.#detailRequest;
     try {
-      const detail = await this.#request<ReviewDetail | null>(`/reviews/${id}`);
+      const detail = await this.#request<ReviewDetail>(`/reviews/${id}`);
       if (generation !== this.#detailRequest) return;
       this.detail = detail;
-      if (detail === null) this.detailError = { key: "error.reviewNotFound" };
     } catch (error) {
       if (error instanceof StaleSessionError) return;
       if (generation !== this.#detailRequest) return;
-      this.detailError = describe(error);
+      this.detailError = describeReviewLookup(error);
     } finally {
       if (issued === this.#session && generation === this.#detailRequest) {
         this.detailLoading = false;
@@ -366,6 +381,40 @@ export class DashboardStore {
     this.detail = null;
     this.detailError = null;
     this.detailLoading = false;
+    this.hidePrompt();
+  }
+
+  /**
+   * The prompt carries the whole PR diff and can be megabytes, so it is a
+   * separate request made only on an explicit expand — never with the detail.
+   * It shares the detail generation: closing the drawer or picking another
+   * run drops a prompt still in flight.
+   */
+  async loadPrompt(id: number): Promise<void> {
+    if (this.promptLoading) return;
+    this.promptError = null;
+    this.promptLoading = true;
+    const issued = this.#session;
+    const generation = this.#detailRequest;
+    try {
+      const prompt = await this.#request<ReviewPrompt>(`/reviews/${id}/prompt`);
+      if (generation !== this.#detailRequest) return;
+      this.prompt = prompt;
+    } catch (error) {
+      if (error instanceof StaleSessionError) return;
+      if (generation !== this.#detailRequest) return;
+      this.promptError = describeReviewLookup(error);
+    } finally {
+      if (issued === this.#session && generation === this.#detailRequest) {
+        this.promptLoading = false;
+      }
+    }
+  }
+
+  hidePrompt(): void {
+    this.prompt = null;
+    this.promptError = null;
+    this.promptLoading = false;
   }
 
   /**

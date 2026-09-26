@@ -715,3 +715,81 @@ describe("CodexService", () => {
     });
   });
 });
+
+describe("CodexService.getCliVersion", () => {
+  let execFileSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    execFileSpy = jest.spyOn(childProcess, "execFile");
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  function respond(error: Error | null, stdout = ""): void {
+    execFileSpy.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string) => void,
+      ) => {
+        callback(error, stdout);
+        return {} as never;
+      },
+    );
+  }
+
+  it("reads and caches the first line of codex --version", async () => {
+    const service = createService();
+    respond(null, "codex-cli 0.155.1\n");
+
+    await expect(service.getCliVersion()).resolves.toBe("codex-cli 0.155.1");
+    await expect(service.getCliVersion()).resolves.toBe("codex-cli 0.155.1");
+
+    expect(execFileSpy).toHaveBeenCalledTimes(1);
+    expect(execFileSpy).toHaveBeenCalledWith(
+      "/usr/bin/codex",
+      ["--version"],
+      expect.objectContaining({ timeout: 10_000 }),
+      expect.any(Function),
+    );
+  });
+
+  it("does not pass the OpenAI API key to the version probe", async () => {
+    process.env["OPENAI_API_KEY"] = "sk-should-not-leak";
+    try {
+      const service = createService();
+      respond(null, "codex-cli 0.155.1\n");
+
+      await service.getCliVersion();
+
+      const options = execFileSpy.mock.calls[0][2] as {
+        env: NodeJS.ProcessEnv;
+      };
+      expect(options.env["OPENAI_API_KEY"]).toBeUndefined();
+    } finally {
+      delete process.env["OPENAI_API_KEY"];
+    }
+  });
+
+  it("returns null on failure and retries on the next call", async () => {
+    const service = createService();
+    respond(new Error("spawn codex ENOENT"));
+    respond(null, "codex-cli 0.155.1\n");
+
+    await expect(service.getCliVersion()).resolves.toBeNull();
+    await expect(service.getCliVersion()).resolves.toBe("codex-cli 0.155.1");
+    expect(execFileSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns null for empty output and caps the stored length", async () => {
+    const service = createService();
+    respond(null, "  \n");
+    respond(null, `${"v".repeat(100)}\n`);
+
+    await expect(service.getCliVersion()).resolves.toBeNull();
+    await expect(service.getCliVersion()).resolves.toHaveLength(64);
+  });
+});
