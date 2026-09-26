@@ -1650,6 +1650,78 @@ describe("ReviewProcessor error handling", () => {
     expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
   });
 
+  describe("failure comment text", () => {
+    const failureBody = (): string =>
+      mockBitbucketService.replyToComment.mock.calls.at(-1)?.[0].body;
+
+    it("does not publish a Bitbucket API response body", async () => {
+      mockWorkspaceService.prepareWorktree.mockResolvedValue({
+        worktreePath: "/tmp/worktree",
+        bareRepoPath: "/tmp/bare",
+      });
+      mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+      mockCodexService.executeCodex.mockResolvedValue({
+        rawOutput: "not json",
+        exitCode: 0,
+        durationMs: 10,
+      });
+      mockBitbucketService.createComment.mockRejectedValueOnce(
+        new Error(
+          'Bitbucket API error 400: {"error":{"message":"token x-internal-7f3a rejected"}}',
+        ),
+      );
+
+      await expect(
+        processor.process({ data: baseJobData } as never),
+      ).rejects.toBeInstanceOf(UnrecoverableError);
+
+      expect(failureBody()).toContain("❌ Code Review 실패");
+      expect(failureBody()).not.toContain("x-internal-7f3a");
+      expect(failureBody()).not.toContain("Bitbucket API error");
+      expect(failureBody()).toContain("review run #1");
+      // 원문은 운영자용 경로(DB)에 그대로 남는다.
+      expect(mockReviewService.claimFailure).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          errorMessage: expect.stringContaining("x-internal-7f3a"),
+        }),
+      );
+    });
+
+    it("does not publish git stderr or workspace paths", async () => {
+      mockWorkspaceService.prepareWorktree.mockRejectedValue(
+        new Error(
+          'Git command failed: git ["merge-base","refs/heads/main","HEAD"]: fatal: Not a valid object name /tmp/code-review-workspaces/worktrees/my-workspace/my-repo/1',
+        ),
+      );
+      mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+      await expect(
+        processor.process({ data: baseJobData } as never),
+      ).rejects.toThrow("Git command failed");
+
+      expect(failureBody()).not.toContain("/tmp/code-review-workspaces");
+      expect(failureBody()).not.toContain("merge-base");
+      expect(failureBody()).toContain("Check worker logs");
+    });
+
+    it("names the stage but not the git output for an authentication failure", async () => {
+      mockWorkspaceService.prepareWorktree.mockRejectedValue(
+        new Error(
+          "Command failed: git fetch origin\nfatal: Authentication failed for 'https://bitbucket.org/my-workspace/my-repo.git/'",
+        ),
+      );
+      mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+
+      await expect(
+        processor.process({ data: baseJobData } as never),
+      ).rejects.toBeInstanceOf(UnrecoverableError);
+
+      expect(failureBody()).toContain("Bitbucket authentication failed (git)");
+      expect(failureBody()).not.toContain("git fetch origin");
+    });
+  });
+
   it("should store available codex metrics on failure", async () => {
     mockWorkspaceService.prepareWorktree.mockResolvedValue({
       worktreePath: "/tmp/worktree",
