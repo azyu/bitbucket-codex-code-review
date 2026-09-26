@@ -114,6 +114,7 @@ describe("CodexService", () => {
       outputTokens: 80,
       model: "o3",
       reasoningEffort: null,
+      publicError: null,
     });
     expect(rmSpy).toHaveBeenCalled();
   });
@@ -381,6 +382,8 @@ describe("CodexService", () => {
 
     expect(result.exitCode).toBe(2);
     expect(result.rawOutput).toContain("model rate limited");
+    // stderr는 rawOutput(DB)에는 남지만 PR에 실을 공개 문구는 아니다.
+    expect(result.publicError).toBeNull();
     expect(result.inputTokens).toBe(300);
   });
 
@@ -441,6 +444,7 @@ describe("CodexService", () => {
     const result = await promise;
 
     expect(result.rawOutput).toBe(expected);
+    expect(result.publicError).toBe(expected);
   });
 
   it("should not publish unrecognized structured error messages", async () => {

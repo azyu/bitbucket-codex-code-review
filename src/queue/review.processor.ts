@@ -51,6 +51,30 @@ function authenticationFailureStage(error: Error): "api" | "git" | null {
   return null;
 }
 
+/**
+ * 실패 댓글에 실을 문구. PR 댓글은 저장소를 읽을 수 있는 누구에게나 보이므로 에러 원문을
+ * 싣지 않는다 — Bitbucket 에러는 응답 본문을, git 에러는 argv·stderr·로컬 경로를 담는다.
+ * Codex 실패도 rawOutput(출력 파일·stderr 원문일 수 있다)이 아니라 CodexService가
+ * 공개용으로 고른 publicError만 싣는다. 원문은 워커 로그와 review_runs에 남는다.
+ */
+function publicFailureMessage(
+  error: Error & { codexResult?: ICodexReviewResult },
+  authFailureStage: "api" | "git" | null,
+  reviewRunId: number,
+): string {
+  const logsPointer = `Check worker logs for details (review run #${reviewRunId}).`;
+  if (error.codexResult) {
+    const { exitCode, publicError } = error.codexResult;
+    return publicError
+      ? `Codex run failed (exit ${exitCode}): ${publicError}`
+      : `Codex run failed (exit ${exitCode}). ${logsPointer}`;
+  }
+  if (authFailureStage) {
+    return `Bitbucket authentication failed (${authFailureStage}). Check the repository access token.`;
+  }
+  return logsPointer;
+}
+
 function addUsage(
   prior: number | undefined,
   current: number | null | undefined,
@@ -315,7 +339,7 @@ export class ReviewProcessor
       if (failureClaimed) {
         // Notify user about the failure. BitbucketService retries a repository
         // token 401 once with configured global credentials when available.
-        const errorBody = `❌ Code Review 실패\n\n\`\`\`\n${error.message.substring(0, 500)}\n\`\`\``;
+        const errorBody = `❌ Code Review 실패\n\n\`\`\`\n${publicFailureMessage(error, authFailureStage, data.reviewRunId)}\n\`\`\``;
         try {
           if (data.triggerCommentId) {
             await this.bitbucketService.replyToComment({
