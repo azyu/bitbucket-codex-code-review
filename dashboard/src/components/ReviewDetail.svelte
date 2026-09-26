@@ -4,7 +4,8 @@
   import { store } from "../lib/store.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
-  const heading = "mb-2 text-[11.5px] tracking-[0.06em] text-fg-dim uppercase";
+  const headingText = "text-[11.5px] tracking-[0.06em] text-fg-dim uppercase";
+  const heading = `mb-2 ${headingText}`;
   const grid = "grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-x-4.5 gap-y-1.5";
   const row = "flex justify-between gap-2.5 border-b border-border pb-1.25 text-code";
   // Both variants spell out their own box so no two utilities for the same
@@ -15,6 +16,16 @@
   const preError = `${pre} rounded-md border-bad-bg bg-bad-bg px-3 py-2.5 text-bad`;
 
   let detail = $derived(store.detail);
+  // Derived from the store alone: it drops the prompt whenever the open run
+  // changes, so a new run always starts collapsed.
+  let promptOpen = $derived(
+    store.prompt !== null || store.promptError !== null || store.promptLoading,
+  );
+
+  function togglePrompt(id: number): void {
+    if (promptOpen) store.hidePrompt();
+    else void store.loadPrompt(id);
+  }
 
   function onKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") store.closeReview();
@@ -86,6 +97,14 @@
           <dd class="text-right tabular-nums">{detail.codexReasoningEffort || "—"}</dd>
         </div>
         <div class={row}>
+          <dt class="text-fg-dim">{t("detail.cliVersion")}</dt>
+          <dd class="text-right font-mono tabular-nums">{detail.codexCliVersion || "—"}</dd>
+        </div>
+        <div class={row}>
+          <dt class="text-fg-dim">{t("detail.mergeBase")}</dt>
+          <dd class="text-right font-mono tabular-nums">{shortSha(detail.reviewMergeBase)}</dd>
+        </div>
+        <div class={row}>
           <dt class="text-fg-dim">{t("detail.codexTime")}</dt>
           <dd class="text-right tabular-nums">{duration(detail.durationMs)}</dd>
         </div>
@@ -149,6 +168,30 @@
           </dl>
         </section>
       {/if}
+
+      <section>
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <h3 class={headingText}>{t("detail.prompt")}</h3>
+          <button
+            aria-expanded={promptOpen}
+            disabled={store.promptLoading}
+            onclick={() => togglePrompt(detail.id)}
+          >
+            {promptOpen ? t("detail.promptHide") : t("detail.promptShow")}
+          </button>
+        </div>
+        {#if promptOpen}
+          {#if store.promptLoading}
+            <p class="text-fg-dim">{t("common.loading")}</p>
+          {:else if store.promptError !== null}
+            <p class="rounded-md bg-bad-bg px-3 py-2.5 text-bad" role="alert">{resolve(store.promptError)}</p>
+          {:else if store.prompt?.reviewPrompt}
+            <pre class={preNormal}>{store.prompt.reviewPrompt}</pre>
+          {:else if store.prompt !== null}
+            <p class="text-fg-dim">{t("detail.promptMissing")}</p>
+          {/if}
+        {/if}
+      </section>
 
       {#if detail.reviewOutput}
         <section>

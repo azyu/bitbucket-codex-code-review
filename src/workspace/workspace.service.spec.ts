@@ -646,6 +646,7 @@ describe("WorkspaceService", () => {
     const result = await service.createReviewDiff("/tmp/worktree", "main");
 
     expect(result.diff).toBe("diff --git a/file b/file");
+    expect(result.mergeBase).toBe("basecommit123");
     expect(result.excludedChangedFiles).toEqual([
       "M pnpm-lock.yaml",
       "R100 apps/web/yarn.lock",

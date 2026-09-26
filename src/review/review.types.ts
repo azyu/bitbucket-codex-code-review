@@ -129,4 +129,15 @@ export interface IReviewRunDetail {
   codexModel: string;
   codexReasoningEffort: string;
   errorMessage: string;
+  codexCliVersion: string | null;
+  reviewMergeBase: string | null;
+}
+
+/**
+ * `/api/internal/reviews/:id/prompt`. Kept out of `IReviewRunDetail` because
+ * the prompt can be megabytes and carries the whole PR diff — it is loaded
+ * only when the dashboard expands it.
+ */
+export interface IReviewPrompt {
+  readonly reviewPrompt: string | null;
 }

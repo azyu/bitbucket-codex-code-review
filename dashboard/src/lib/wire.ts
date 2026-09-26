@@ -2,6 +2,7 @@ import type {
   ILatestReviewStats,
   IRecentReview,
   IRepoStatsOverview,
+  IReviewPrompt,
   IReviewRunDetail,
 } from "../../../src/review/review.types";
 import type {
@@ -28,6 +29,7 @@ type Wire<T> = { -readonly [K in keyof T]: Stringify<T[K]> };
 export type RecentReview = Wire<IRecentReview>;
 export type LatestReviewStats = Wire<ILatestReviewStats>;
 export type ReviewDetail = Wire<IReviewRunDetail>;
+export type ReviewPrompt = Wire<IReviewPrompt>;
 export type SettingsScope = Wire<ISettingsScopeDocument>;
 
 /** Nested document fields are composed explicitly — `Wire` is shallow. */

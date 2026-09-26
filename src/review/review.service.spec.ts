@@ -1,4 +1,4 @@
-import { type FindOperator } from "typeorm";
+import { type FindOperator, getMetadataArgsStorage } from "typeorm";
 import {
   ReviewRunEntity,
   ReviewRunStatus,
@@ -395,13 +395,16 @@ describe("ReviewService.listRecent", () => {
   });
 
   it("does NOT include reviewOutput key in the response (whitelist regression)", async () => {
-    mockRepository.find.mockResolvedValueOnce([buildRow()]);
+    mockRepository.find.mockResolvedValueOnce([
+      buildRow({ reviewPrompt: "prompt-with-full-diff-should-not-leak" }),
+    ]);
 
     const result = await service.listRecent(10);
 
     expect(result).toHaveLength(1);
     for (const row of result) {
       expect(Object.keys(row)).not.toContain("reviewOutput");
+      expect(Object.keys(row)).not.toContain("reviewPrompt");
       expect(
         (row as unknown as Record<string, unknown>).reviewOutput,
       ).toBeUndefined();
@@ -616,5 +619,68 @@ describe("ReviewService conditional status transitions", () => {
     // Not(excludeId)이면 서로 다른 커밋의 두 웹훅이 상호 supersede해 아무도 게시하지 못한다.
     expect(criteria.id?.type).toBe("lessThan");
     expect(criteria.id?.value).toBe(11);
+  });
+});
+
+describe("ReviewService review input", () => {
+  const mockRepository = {
+    findOne: jest.fn(),
+    update: jest.fn(),
+  };
+
+  let service: ReviewService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new ReviewService(mockRepository as never);
+  });
+
+  it("keeps reviewPrompt out of default entity selects", () => {
+    // findById·findLatestByPr는 엔티티를 통째로 돌려준다 — 이 옵션이 빠지면
+    // 수 MB짜리 프롬프트가 상세 응답마다 실린다.
+    const column = getMetadataArgsStorage().columns.find(
+      (args) =>
+        args.target === ReviewRunEntity && args.propertyName === "reviewPrompt",
+    );
+
+    expect(column?.options).toMatchObject({ type: "mediumtext", select: false });
+  });
+
+  it("records the review input with a plain update", async () => {
+    const input = {
+      reviewPrompt: "prompt",
+      codexCliVersion: "codex-cli 0.155.1",
+      reviewMergeBase: "a".repeat(40),
+    };
+
+    await service.recordReviewInput(3, input);
+
+    expect(mockRepository.update).toHaveBeenCalledWith(3, input);
+  });
+
+  it("selects the hidden prompt column explicitly", async () => {
+    mockRepository.findOne.mockResolvedValueOnce({ id: 3, reviewPrompt: "p" });
+
+    await expect(service.findPromptById(3)).resolves.toEqual({
+      reviewPrompt: "p",
+    });
+    expect(mockRepository.findOne).toHaveBeenCalledWith({
+      where: { id: 3 },
+      select: { id: true, reviewPrompt: true },
+    });
+  });
+
+  it("returns a null prompt for runs recorded before the column existed", async () => {
+    mockRepository.findOne.mockResolvedValueOnce({ id: 3, reviewPrompt: null });
+
+    await expect(service.findPromptById(3)).resolves.toEqual({
+      reviewPrompt: null,
+    });
+  });
+
+  it("returns null for a missing run", async () => {
+    mockRepository.findOne.mockResolvedValueOnce(null);
+
+    await expect(service.findPromptById(3)).resolves.toBeNull();
   });
 });

@@ -236,7 +236,7 @@ export class WorkspaceService {
     this.logger.debug(
       `Review diff created from merge-base ${baseCommit.substring(0, 12)} against HEAD`,
     );
-    return { diff: stdout, excludedChangedFiles };
+    return { diff: stdout, mergeBase: baseCommit, excludedChangedFiles };
   }
 
   /**

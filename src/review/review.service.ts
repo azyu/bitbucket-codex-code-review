@@ -12,12 +12,18 @@ import {
   type ILatestReviewStats,
   type IRecentReview,
   type IRepoStatsOverview,
+  type IReviewPrompt,
 } from "./review.types";
 
 // Declared in ./review.types.ts so the dashboard can import them without
 // pulling Nest and TypeORM into the browser bundle. Re-exported because
 // internal.controller.ts reads them from this path.
-export type { ILatestReviewStats, IRecentReview, IRepoStatsOverview };
+export type {
+  ILatestReviewStats,
+  IRecentReview,
+  IRepoStatsOverview,
+  IReviewPrompt,
+};
 
 /** 중복으로 판정된 기존 run에서 웹훅 경로가 읽는 부분. */
 export interface IDuplicateReviewRun {
@@ -236,6 +242,29 @@ export class ReviewService {
   /** ID로 리뷰 조회 */
   async findById(id: number): Promise<ReviewRunEntity | null> {
     return this.reviewRunRepository.findOne({ where: { id } });
+  }
+
+  /**
+   * Codex에 실제로 넘긴 입력을 기록한다. 상태 전이와 분리한 무조건 update다 — 이 값은
+   * 게시 권한과 무관하고, 재시도하면 마지막 시도의 입력으로 덮어쓴다.
+   */
+  async recordReviewInput(
+    id: number,
+    input: Pick<
+      ReviewRunEntity,
+      "reviewPrompt" | "codexCliVersion" | "reviewMergeBase"
+    >,
+  ): Promise<void> {
+    await this.reviewRunRepository.update(id, input);
+  }
+
+  /** reviewPrompt는 `select: false`라 기본 조회에 없다 — 명시적으로 골라 읽는다. */
+  async findPromptById(id: number): Promise<IReviewPrompt | null> {
+    const row = await this.reviewRunRepository.findOne({
+      where: { id },
+      select: { id: true, reviewPrompt: true },
+    });
+    return row ? { reviewPrompt: row.reviewPrompt ?? null } : null;
   }
 
   /**

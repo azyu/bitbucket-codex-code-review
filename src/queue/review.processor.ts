@@ -201,7 +201,7 @@ export class ReviewProcessor
       });
       worktreePath = worktreeInfo.worktreePath;
       bareRepoPath = worktreeInfo.bareRepoPath;
-      const { diff, excludedChangedFiles } =
+      const { diff, mergeBase, excludedChangedFiles } =
         await this.workspaceService.createReviewDiff(
           worktreePath,
           data.baseBranch,
@@ -216,6 +216,7 @@ export class ReviewProcessor
         excludedChangedFiles,
         data.settings,
         credentials.openai,
+        (prompt) => this.recordReviewInput(data, prompt, mergeBase),
       );
 
       // Step 3: Publish results to Bitbucket
@@ -426,6 +427,29 @@ export class ReviewProcessor
     }
   }
 
+  /**
+   * Codex 실행 직전에 실제 입력을 남긴다. 완료·실패 기록과 분리하는 이유: 실패·타임아웃
+   * 런에도 입력이 남아야 하고, 이 저장이 실패해도 게시 이후 상태 기록을 막으면 안 된다.
+   * 그래서 예외를 삼키고, 로그에는 프롬프트 본문을 넣지 않는다.
+   */
+  private async recordReviewInput(
+    data: IReviewJobData,
+    prompt: string,
+    mergeBase: string,
+  ): Promise<void> {
+    try {
+      await this.reviewService.recordReviewInput(data.reviewRunId, {
+        reviewPrompt: prompt,
+        codexCliVersion: await this.codexService.getCliVersion(),
+        reviewMergeBase: mergeBase,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to record review input for run ${data.reviewRunId}: ${(err as Error).message}`,
+      );
+    }
+  }
+
   /** Step 2: 통합 프롬프트로 단일 Codex 호출 */
   private async executeReview(
     worktreePath: string,
@@ -434,6 +458,7 @@ export class ReviewProcessor
     excludedChangedFiles: readonly string[] | null,
     settings: IReviewSettingsSnapshot,
     connection: IOpenAiConnectionSnapshot,
+    onPromptResolved: (prompt: string) => Promise<void>,
   ): Promise<ICodexReviewResult> {
     const customPrompt = settings.customPrompt;
     let reviewPromptMode: ReviewPromptMode =
@@ -469,6 +494,7 @@ export class ReviewProcessor
       );
     }
 
+    await onPromptResolved(prompt);
     const result = await this.codexService.executeCodex(
       worktreePath,
       baseBranch,

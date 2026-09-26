@@ -5,6 +5,7 @@ describe("InternalController", () => {
   const mockReviewService = {
     findLatestByPr: jest.fn(),
     findById: jest.fn(),
+    findPromptById: jest.fn(),
     getRepoStats: jest.fn(),
     listRepoStats: jest.fn(),
     listRecent: jest.fn(),
@@ -55,6 +56,14 @@ describe("InternalController", () => {
       "shared",
       42,
     );
+  });
+
+  it("serves the review prompt only through its dedicated route", async () => {
+    const prompt = { reviewPrompt: "리뷰 프롬프트" };
+    mockReviewService.findPromptById.mockResolvedValue(prompt);
+
+    await expect(controller.getReviewPrompt(7)).resolves.toBe(prompt);
+    expect(mockReviewService.findPromptById).toHaveBeenCalledWith(7);
   });
 
   it("should return stats for a single repo", async () => {

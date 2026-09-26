@@ -14,6 +14,7 @@ import { ReviewRunEntity } from "../entities/review-run.entity";
 import {
   type IRecentReview,
   type IRepoStatsOverview,
+  type IReviewPrompt,
 } from "../review/review.service";
 import { DashboardAuthGuard } from "./dashboard-auth.guard";
 import { RuntimeSettingsService } from "../settings/runtime-settings.service";
@@ -83,6 +84,13 @@ export class InternalController {
     @Param("id", ParseIntPipe) id: number,
   ): Promise<ReviewRunEntity | null> {
     return this.reviewService.findById(id);
+  }
+
+  @Get("reviews/:id/prompt")
+  async getReviewPrompt(
+    @Param("id", ParseIntPipe) id: number,
+  ): Promise<IReviewPrompt | null> {
+    return this.reviewService.findPromptById(id);
   }
 
   @Get("stats/repos/:workspaceSlug/:repoSlug")

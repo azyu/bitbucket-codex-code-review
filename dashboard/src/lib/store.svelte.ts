@@ -11,6 +11,7 @@ import type {
   RecentReview,
   RepoStats,
   ReviewDetail,
+  ReviewPrompt,
   SettingsDocument,
   SettingsScope,
 } from "./wire";
@@ -145,6 +146,11 @@ export class DashboardStore {
   detailError = $state<Message | null>(null);
   detailLoading = $state(false);
 
+  /** The open run's input prompt. null until the operator expands it. */
+  prompt = $state<ReviewPrompt | null>(null);
+  promptError = $state<Message | null>(null);
+  promptLoading = $state(false);
+
   settings = $state<SettingsDocument | null>(null);
   globalDraft = $state(emptyGlobalDraft());
   repositoryDraft = $state(emptyRepositoryDraft());
@@ -252,6 +258,7 @@ export class DashboardStore {
     this.detail = null;
     this.detailError = null;
     this.detailLoading = false;
+    this.hidePrompt();
     this.settings = null;
     this.globalDraft = emptyGlobalDraft();
     this.repositoryDraft = emptyRepositoryDraft();
@@ -340,6 +347,7 @@ export class DashboardStore {
     this.detail = null;
     this.detailError = null;
     this.detailLoading = true;
+    this.hidePrompt();
     const issued = this.#session;
     // Closing the drawer or picking another row happens inside one session, so
     // the session counter cannot order these: without its own generation an
@@ -366,6 +374,43 @@ export class DashboardStore {
     this.detail = null;
     this.detailError = null;
     this.detailLoading = false;
+    this.hidePrompt();
+  }
+
+  /**
+   * The prompt carries the whole PR diff and can be megabytes, so it is a
+   * separate request made only on an explicit expand — never with the detail.
+   * It shares the detail generation: closing the drawer or picking another
+   * run drops a prompt still in flight.
+   */
+  async loadPrompt(id: number): Promise<void> {
+    if (this.promptLoading) return;
+    this.promptError = null;
+    this.promptLoading = true;
+    const issued = this.#session;
+    const generation = this.#detailRequest;
+    try {
+      const prompt = await this.#request<ReviewPrompt | null>(
+        `/reviews/${id}/prompt`,
+      );
+      if (generation !== this.#detailRequest) return;
+      this.prompt = prompt;
+      if (prompt === null) this.promptError = { key: "error.reviewNotFound" };
+    } catch (error) {
+      if (error instanceof StaleSessionError) return;
+      if (generation !== this.#detailRequest) return;
+      this.promptError = describe(error);
+    } finally {
+      if (issued === this.#session && generation === this.#detailRequest) {
+        this.promptLoading = false;
+      }
+    }
+  }
+
+  hidePrompt(): void {
+    this.prompt = null;
+    this.promptError = null;
+    this.promptLoading = false;
   }
 
   /**
