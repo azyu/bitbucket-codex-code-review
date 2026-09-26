@@ -322,8 +322,8 @@ export class WebhookController {
     const shortHash = headCommitHash.substring(0, 7);
     // 게시 클레임 직후 죽은 런은 어떤 재시도로도 다시 클레임되지 않고(review.service.ts
     // claimStatus), --force가 만든 새 런의 supersede만이 그 행을 풀어준다. 다만 supersede는
-    // DB 행만 바꿀 뿐 살아 있는 publishResults를 멈추지 못하고 markCompleted가 SUPERSEDED를
-    // 덮어쓰므로, 아직 게시 중인 런에 --force를 걸면 리뷰가 두 번 올라간다. 그래서 무조건
+    // DB 행만 바꿀 뿐 살아 있는 publishResults를 멈추지 못하므로(claimCompletion은 상태
+    // 덮어쓰기만 막는다), 아직 게시 중인 런에 --force를 걸면 리뷰가 두 번 올라간다. 그래서 무조건
     // 권하지 않고, 죽은 런과 살아 있는 런을 가르는 관찰 가능한 증거(결과 댓글 유무)를 준다.
     if (duplicateStatus === ReviewRunStatus.PUBLISHING) {
       return `⏳ 이 커밋(\`${shortHash}\`)의 리뷰 결과를 게시하는 중입니다.\n\n결과 댓글이 이미 올라와 있으면 기다려 주세요 — 지금 \`@codex --force\` 를 쓰면 리뷰가 두 번 게시될 수 있습니다. 몇 분이 지나도 결과 댓글이 없으면 게시가 멈춘 것이므로 그때 \`@codex --force\` 로 복구하세요.`;

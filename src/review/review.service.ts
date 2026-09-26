@@ -354,6 +354,25 @@ export class ReviewService {
     return (result.affected ?? 0) > 0;
   }
 
+  /**
+   * 조건부 COMPLETED 전이. from-set은 PUBLISHING뿐이다 — supersede는 게시 중인 워커를
+   * 멈추지 못하므로, 게시 도중 대체된 런이 SUPERSEDED를 COMPLETED로 덮어쓰지 못하게
+   * 여기서 막는다. 거부돼도 이 런은 이미 게시를 마쳤고 토큰을 썼으므로 상태만 두고
+   * 사용량·출력은 남긴다(과소집계 방지).
+   */
+  async claimCompletion(
+    id: number,
+    extra: ReviewRunStatusExtra,
+  ): Promise<boolean> {
+    const result = await this.reviewRunRepository.update(
+      { id, reviewStatus: In([ReviewRunStatus.PUBLISHING]) },
+      { reviewStatus: ReviewRunStatus.COMPLETED, ...extra },
+    );
+    if ((result.affected ?? 0) > 0) return true;
+    await this.reviewRunRepository.update(id, extra);
+    return false;
+  }
+
   /** 같은 PR의 진행 중인 리뷰를 SUPERSEDED로 전환 */
   async supersedeActivePrReviews(
     workspaceSlug: string,

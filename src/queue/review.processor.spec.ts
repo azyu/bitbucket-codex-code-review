@@ -783,6 +783,7 @@ describe("ReviewProcessor publish results", () => {
     supersedeActivePrReviews: jest.fn(),
     claimStatus: jest.fn(),
     claimFailure: jest.fn(),
+    claimCompletion: jest.fn(),
   };
   const mockWorkspaceService = {
     prepareWorktree: jest.fn(),
@@ -838,6 +839,7 @@ describe("ReviewProcessor publish results", () => {
     // clearAllMocks는 구현을 지우지 않으므로 beforeEach에서 매번 기본값을 되돌린다.
     mockReviewService.claimStatus.mockResolvedValue(true);
     mockReviewService.claimFailure.mockResolvedValue(true);
+    mockReviewService.claimCompletion.mockResolvedValue(true);
     mockWorkspaceService.createReviewDiff.mockResolvedValue({
       diff: "diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n+new line",
       excludedChangedFiles: [],
@@ -1094,9 +1096,8 @@ describe("ReviewProcessor publish results", () => {
       },
     );
 
-    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+    expect(mockReviewService.claimCompletion).toHaveBeenCalledWith(
       1,
-      "completed",
       expect.objectContaining({
         durationMs: 1200,
         totalDurationMs: 1500,
@@ -1269,9 +1270,8 @@ describe("ReviewProcessor publish results", () => {
     const processing = processor.process({ data: baseJobData } as never);
     await persistenceStarted;
 
-    expect(mockReviewService.updateStatus).not.toHaveBeenCalledWith(
+    expect(mockReviewService.claimCompletion).not.toHaveBeenCalledWith(
       1,
-      "completed",
       expect.anything(),
     );
 
@@ -1281,14 +1281,8 @@ describe("ReviewProcessor publish results", () => {
     expect(mockReviewService.updateResultCommentId).toHaveBeenCalledWith(1, 100);
     const persistOrder =
       mockReviewService.updateResultCommentId.mock.invocationCallOrder[0];
-    const completedCallIndex =
-      mockReviewService.updateStatus.mock.calls.findIndex(
-        ([, status]) => status === "completed",
-      );
     const completedOrder =
-      mockReviewService.updateStatus.mock.invocationCallOrder[
-        completedCallIndex
-      ];
+      mockReviewService.claimCompletion.mock.invocationCallOrder[0];
     expect(
       mockBitbucketService.createComment.mock.invocationCallOrder[0],
     ).toBeLessThan(persistOrder);
@@ -1384,9 +1378,8 @@ describe("ReviewProcessor publish results", () => {
       expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
         body: expect.not.stringContaining("인라인으로 잘 올라간 지적"),
       }), expect.anything());
-      expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      expect(mockReviewService.claimCompletion).toHaveBeenCalledWith(
         1,
-        "completed",
         expect.anything(),
       );
     });
@@ -1441,9 +1434,8 @@ describe("ReviewProcessor publish results", () => {
       );
 
       expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({ parentCommentId: 100 }), expect.anything());
-      expect(mockReviewService.updateStatus).not.toHaveBeenCalledWith(
+      expect(mockReviewService.claimCompletion).not.toHaveBeenCalledWith(
         1,
-        "completed",
         expect.anything(),
       );
       // 균일하게 던져도 안전한 이유: 요약 ID가 FAILED와 함께 남아 행이 삭제되지 않는다
@@ -1466,9 +1458,8 @@ describe("ReviewProcessor publish results", () => {
 
       expect(mockBitbucketService.createInlineComment).toHaveBeenCalledTimes(2);
       expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
-      expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      expect(mockReviewService.claimCompletion).toHaveBeenCalledWith(
         1,
-        "completed",
         expect.anything(),
       );
     });
@@ -1497,9 +1488,8 @@ describe("ReviewProcessor publish results", () => {
       }), expect.anything());
       // 요약 코멘트만 독립 코멘트로 남는다 — 복구분은 답글이므로 createComment가 늘지 않는다.
       expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
-      expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      expect(mockReviewService.claimCompletion).toHaveBeenCalledWith(
         1,
-        "completed",
         expect.anything(),
       );
     });
@@ -1522,9 +1512,8 @@ describe("ReviewProcessor publish results", () => {
         "Bitbucket API error 503: recovery reply rejected",
       );
 
-      expect(mockReviewService.updateStatus).not.toHaveBeenCalledWith(
+      expect(mockReviewService.claimCompletion).not.toHaveBeenCalledWith(
         1,
-        "completed",
         expect.anything(),
       );
       expect(mockBitbucketService.replyToComment).toHaveBeenCalledWith(expect.objectContaining({
@@ -1544,6 +1533,7 @@ describe("ReviewProcessor error handling", () => {
     supersedeActivePrReviews: jest.fn(),
     claimStatus: jest.fn(),
     claimFailure: jest.fn(),
+    claimCompletion: jest.fn(),
     findById: jest.fn(),
   };
   const mockWorkspaceService = {
@@ -1588,6 +1578,7 @@ describe("ReviewProcessor error handling", () => {
     // clearAllMocks는 구현을 지우지 않으므로 beforeEach에서 매번 기본값을 되돌린다.
     mockReviewService.claimStatus.mockResolvedValue(true);
     mockReviewService.claimFailure.mockResolvedValue(true);
+    mockReviewService.claimCompletion.mockResolvedValue(true);
     mockReviewService.updateStatus.mockResolvedValue(undefined);
     mockReviewService.updateResultCommentId.mockResolvedValue(undefined);
     // 클레임 거부 시의 진단용 조회 — 기본값은 흔한 "대체됨" 경우.
@@ -1907,9 +1898,8 @@ describe("ReviewProcessor error handling", () => {
 
       await expect(processor.process(job)).resolves.toBeUndefined();
 
-      expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+      expect(mockReviewService.claimCompletion).toHaveBeenCalledWith(
         1,
-        "completed",
         expect.objectContaining({
           durationMs: 4600,
           inputTokens: 1080,
@@ -1918,7 +1908,7 @@ describe("ReviewProcessor error handling", () => {
         }),
       );
       expect(
-        totalDurationArg(mockReviewService.updateStatus.mock.calls[0]),
+        totalDurationArg(mockReviewService.claimCompletion.mock.calls[0]),
       ).toBeGreaterThanOrEqual(5000);
     });
 
@@ -1964,11 +1954,8 @@ describe("ReviewProcessor error handling", () => {
       cachedInputTokens: null,
       outputTokens: null,
     });
-    mockReviewService.updateStatus.mockImplementation(
-      (_id: number, status: string) =>
-        status === "completed"
-          ? Promise.reject(new Error("db unavailable"))
-          : Promise.resolve(undefined),
+    mockReviewService.claimCompletion.mockRejectedValue(
+      new Error("db unavailable"),
     );
 
     const job = {
@@ -2010,7 +1997,7 @@ describe("ReviewProcessor error handling", () => {
     expect(mockWorkspaceService.prepareWorktree).not.toHaveBeenCalled();
     expect(mockCodexService.executeCodex).not.toHaveBeenCalled();
     expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
-    expect(mockReviewService.updateStatus).not.toHaveBeenCalled();
+    expect(mockReviewService.claimCompletion).not.toHaveBeenCalled();
     // 거부된 클레임에는 상태를 쓰지 않는다 — FAILED를 쓰면 findDuplicateRun가
     // 미게시 실패로 보고 행을 지워 같은 요청을 다시 받아들인다.
     expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
@@ -2093,11 +2080,8 @@ describe("ReviewProcessor error handling", () => {
       outputTokens: null,
     });
     // DB 장애: markCompleted도, 뒤따르는 FAILED 클레임도 실패한다
-    mockReviewService.updateStatus.mockImplementation(
-      (_id: number, status: string) =>
-        status === "completed"
-          ? Promise.reject(new Error("db unavailable"))
-          : Promise.resolve(undefined),
+    mockReviewService.claimCompletion.mockRejectedValue(
+      new Error("db unavailable"),
     );
     mockReviewService.claimFailure.mockRejectedValue(
       new Error("db unavailable"),
@@ -2158,9 +2142,8 @@ describe("ReviewProcessor error handling", () => {
     await expect(processor.process(job)).resolves.toBeUndefined();
 
     expect(mockBitbucketService.createInlineComment).toHaveBeenCalledTimes(1);
-    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+    expect(mockReviewService.claimCompletion).toHaveBeenCalledWith(
       1,
-      "completed",
       expect.objectContaining({
         resultCommentId: 100,
       }),
@@ -2182,7 +2165,7 @@ describe("ReviewProcessor error handling", () => {
       cachedInputTokens: null,
       outputTokens: null,
     });
-    // 게시 전 두 전이는 조건부 클레임으로만 기록된다 — updateStatus에는 COMPLETED만 남는다.
+    // 게시 전 두 전이는 조건부 클레임으로만 기록된다.
     const persistedStatuses: string[] = [];
     mockReviewService.claimStatus.mockImplementation(
       (_id: number, status: string) => {
@@ -2190,9 +2173,8 @@ describe("ReviewProcessor error handling", () => {
         return Promise.resolve(true);
       },
     );
-    mockReviewService.updateStatus.mockImplementation(
-      (_id: number, status: string) =>
-        Promise.reject(new Error(`unexpected status: ${status}`)),
+    mockReviewService.claimCompletion.mockRejectedValue(
+      new Error("COMPLETED persistence unavailable"),
     );
     mockReviewService.claimFailure.mockRejectedValue(
       new Error("FAILED persistence unavailable"),
@@ -2222,6 +2204,41 @@ describe("ReviewProcessor error handling", () => {
     expect(persistedStatuses).toEqual(["preparing", "publishing"]);
   });
 
+  it("does not overwrite SUPERSEDED when the run is superseded while publishing", async () => {
+    mockWorkspaceService.prepareWorktree.mockResolvedValue({
+      worktreePath: "/tmp/worktree",
+      bareRepoPath: "/tmp/bare",
+    });
+    mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+    mockCodexService.executeCodex.mockResolvedValue({
+      rawOutput:
+        '{"summary":"ok","verdict":"approve","confidence":100,"findings":[]}',
+      exitCode: 0,
+      durationMs: 10,
+      inputTokens: 5,
+      cachedInputTokens: 0,
+      outputTokens: 1,
+    });
+    // 게시 도중 새 런이 이 행을 SUPERSEDED로 바꿨다 — 완료 전이가 거부된다.
+    mockReviewService.claimCompletion.mockResolvedValue(false);
+
+    const job = {
+      data: baseJobData,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as never;
+
+    // 이미 게시했으므로 재시도(중복 게시)도, FAILED 기록(행 삭제 → 재수용)도 없어야 한다.
+    await expect(processor.process(job)).resolves.toBeUndefined();
+    expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
+    expect(mockReviewService.claimCompletion).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ resultCommentId: 100, inputTokens: 5 }),
+    );
+    expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
+    expect(mockReviewService.updateStatus).not.toHaveBeenCalled();
+  });
+
   it("should skip a first attempt whose run was already superseded", async () => {
     // 실행 중인 잡은 새 커밋 웹훅이 jobId를 못 찾아 제거하지 못한다 — 그래서 첫 시도(attemptsMade=0)
     // 에서도 게시 권한을 DB에 물어야 한다. 과거의 재시도 전용 사전 조회로는 막을 수 없던 경로.
@@ -2246,7 +2263,7 @@ describe("ReviewProcessor error handling", () => {
     expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
     expect(mockBitbucketService.createInlineComment).not.toHaveBeenCalled();
     expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
-    expect(mockReviewService.updateStatus).not.toHaveBeenCalled();
+    expect(mockReviewService.claimCompletion).not.toHaveBeenCalled();
     expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
   });
 
@@ -2282,7 +2299,7 @@ describe("ReviewProcessor error handling", () => {
     expect(mockBitbucketService.createInlineComment).not.toHaveBeenCalled();
     expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
     // COMPLETED도 쓰지 않는다 — 게시하지 않은 런이 완료로 집계되면 통계가 거짓이 된다.
-    expect(mockReviewService.updateStatus).not.toHaveBeenCalled();
+    expect(mockReviewService.claimCompletion).not.toHaveBeenCalled();
     // FAILED도 쓰지 않는다 — 여기서 실패로 기록하면 findDuplicateRun가 미게시
     // 실패로 보고 행을 삭제해 같은 요청을 재수용한다(막으려던 중복 게시의 부활).
     expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
@@ -2349,9 +2366,8 @@ describe("ReviewProcessor error handling", () => {
       mockReviewService.claimStatus.mock.calls.map(([, status]) => status),
     ).toEqual(["preparing", "publishing"]);
     expect(mockBitbucketService.createComment).toHaveBeenCalledTimes(1);
-    expect(mockReviewService.updateStatus).toHaveBeenCalledWith(
+    expect(mockReviewService.claimCompletion).toHaveBeenCalledWith(
       1,
-      "completed",
       expect.objectContaining({ resultCommentId: 100 }),
     );
   });
@@ -2391,7 +2407,7 @@ describe("ReviewProcessor error handling", () => {
       outputTokens: null,
     });
     // 게시까지 끝낸 뒤 markCompleted가 실패하고, 그 사이 대체돼 FAILED 기록도 거부된다.
-    mockReviewService.updateStatus.mockRejectedValue(new Error("db unavailable"));
+    mockReviewService.claimCompletion.mockRejectedValue(new Error("db unavailable"));
     mockReviewService.claimFailure.mockResolvedValue(false);
 
     const job = {
