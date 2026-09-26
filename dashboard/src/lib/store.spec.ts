@@ -509,10 +509,19 @@ describe("review detail", () => {
     expect(store.detail?.id).toBe(42);
   });
 
+  it("keeps other request failures as they are", async () => {
+    const store = await unlocked();
+
+    fetchMock.mockResolvedValue(json({ message: "db down" }, 500));
+    await store.openReview(42);
+
+    expect(store.detailError).toBe("db down");
+  });
+
   it("reports a missing run instead of rendering an empty panel", async () => {
     const store = await unlocked();
 
-    fetchMock.mockResolvedValue(json(null));
+    fetchMock.mockResolvedValue(json({ message: "Review run not found", error: "Not Found", statusCode: 404 }, 404));
     await store.openReview(9999);
 
     expect(store.detail).toBeNull();
@@ -572,7 +581,7 @@ describe("review prompt", () => {
   it("reports a missing run", async () => {
     const store = await unlocked();
 
-    fetchMock.mockResolvedValue(json(null));
+    fetchMock.mockResolvedValue(json({ message: "Review run not found", error: "Not Found", statusCode: 404 }, 404));
     await store.loadPrompt(9999);
 
     expect(store.prompt).toBeNull();

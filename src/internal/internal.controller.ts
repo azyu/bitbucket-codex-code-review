@@ -3,6 +3,7 @@ import {
   Controller,
   DefaultValuePipe,
   Get,
+  NotFoundException,
   Param,
   ParseIntPipe,
   Patch,
@@ -79,18 +80,24 @@ export class InternalController {
     return this.reviewService.findLatestByPr(workspaceSlug, repoSlug, prId);
   }
 
+  // 없는 run은 404다. null을 돌려주면 Nest가 빈 200 본문을 보내고, 대시보드의
+  // response.json()이 파싱 에러를 "찾을 수 없음" 대신 표시한다.
   @Get("reviews/:id")
   async getReviewById(
     @Param("id", ParseIntPipe) id: number,
-  ): Promise<ReviewRunEntity | null> {
-    return this.reviewService.findById(id);
+  ): Promise<ReviewRunEntity> {
+    const run = await this.reviewService.findById(id);
+    if (run === null) throw new NotFoundException("Review run not found");
+    return run;
   }
 
   @Get("reviews/:id/prompt")
   async getReviewPrompt(
     @Param("id", ParseIntPipe) id: number,
-  ): Promise<IReviewPrompt | null> {
-    return this.reviewService.findPromptById(id);
+  ): Promise<IReviewPrompt> {
+    const prompt = await this.reviewService.findPromptById(id);
+    if (prompt === null) throw new NotFoundException("Review run not found");
+    return prompt;
   }
 
   @Get("stats/repos/:workspaceSlug/:repoSlug")

@@ -262,7 +262,8 @@ The API behind the dashboard and operational tooling. Every route requires
 | `PATCH` | `/api/internal/settings/global` | CAS update of global settings |
 | `PATCH` | `/api/internal/settings/repositories/:workspaceSlug/:repoSlug` | CAS update of a repository override |
 | `GET` | `/api/internal/reviews/recent?limit=` | recent reviews (limit 1..50, default 10) |
-| `GET` | `/api/internal/reviews/:id` | one review run in detail |
+| `GET` | `/api/internal/reviews/:id` | one review run in detail, without the input prompt (404 if missing) |
+| `GET` | `/api/internal/reviews/:id/prompt` | the input prompt sent to Codex (404 if missing) |
 | `GET` | `/api/internal/reviews/:workspaceSlug/:repoSlug/:prId/latest` | latest review for a PR |
 | `GET` | `/api/internal/stats/repos` | summary statistics per workspace/repo |
 | `GET` | `/api/internal/stats/repos/:workspaceSlug/:repoSlug` | cumulative statistics for one workspace/repo |

@@ -88,6 +88,14 @@ function describe(error: unknown): Message {
   return { key: "error.request" };
 }
 
+/** Both review lookups answer a missing run with 404. */
+function describeReviewLookup(error: unknown): Message {
+  if (error instanceof ApiError && error.status === 404) {
+    return { key: "error.reviewNotFound" };
+  }
+  return describe(error);
+}
+
 async function readError(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { message?: unknown };
@@ -354,14 +362,13 @@ export class DashboardStore {
     // in-flight response reopens a closed drawer or replaces a newer pick.
     const generation = ++this.#detailRequest;
     try {
-      const detail = await this.#request<ReviewDetail | null>(`/reviews/${id}`);
+      const detail = await this.#request<ReviewDetail>(`/reviews/${id}`);
       if (generation !== this.#detailRequest) return;
       this.detail = detail;
-      if (detail === null) this.detailError = { key: "error.reviewNotFound" };
     } catch (error) {
       if (error instanceof StaleSessionError) return;
       if (generation !== this.#detailRequest) return;
-      this.detailError = describe(error);
+      this.detailError = describeReviewLookup(error);
     } finally {
       if (issued === this.#session && generation === this.#detailRequest) {
         this.detailLoading = false;
@@ -390,16 +397,13 @@ export class DashboardStore {
     const issued = this.#session;
     const generation = this.#detailRequest;
     try {
-      const prompt = await this.#request<ReviewPrompt | null>(
-        `/reviews/${id}/prompt`,
-      );
+      const prompt = await this.#request<ReviewPrompt>(`/reviews/${id}/prompt`);
       if (generation !== this.#detailRequest) return;
       this.prompt = prompt;
-      if (prompt === null) this.promptError = { key: "error.reviewNotFound" };
     } catch (error) {
       if (error instanceof StaleSessionError) return;
       if (generation !== this.#detailRequest) return;
-      this.promptError = describe(error);
+      this.promptError = describeReviewLookup(error);
     } finally {
       if (issued === this.#session && generation === this.#detailRequest) {
         this.promptLoading = false;
