@@ -1,6 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": ["config:recommended", ":noUnscheduledUpdates"],
+  "timezone": "Asia/Seoul",
+  "schedule": ["* 6-9 * * 5"],
   "minimumReleaseAge": "2 days",
   "customManagers": [
     {
@@ -23,6 +25,15 @@
     }
   ],
   "packageRules": [
+    {
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "matchPackageNames": ["!@openai/codex"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "non-major dependencies"
+    },
     {
       "matchPackageNames": ["@openai/codex"],
       "allowedVersions": "/^\\d+\\.\\d+\\.\\d+$/",
