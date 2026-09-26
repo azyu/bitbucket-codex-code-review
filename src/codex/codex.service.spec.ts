@@ -364,7 +364,6 @@ describe("CodexService", () => {
     const result = await promise;
 
     expect(result.exitCode).toBe(124);
-    expect(result.rawOutput).toContain("exit 124");
   });
 
   it("should return sanitized output on non-zero exit", async () => {
@@ -404,8 +403,44 @@ describe("CodexService", () => {
     const result = await promise;
 
     expect(result.rawOutput).toBe(
-      "Codex run failed (exit 1): Selected model is at capacity. Please try a different model.",
+      "Selected model is at capacity. Please try a different model.",
     );
+  });
+
+  it.each([
+    [
+      "You\u2019ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 3:45 PM.",
+      "You've hit your Codex usage limit. Try again at 3:45 PM.",
+    ],
+    [
+      "You\u2019ve hit your usage limit. Try again at 15:45 on 25 Sep 2026.",
+      "You've hit your Codex usage limit. Try again at 15:45 on 25 Sep 2026.",
+    ],
+    [
+      "You\u2019ve hit your usage limit. To get more access now, send a request to your admin or try again later.",
+      "You've hit your Codex usage limit.",
+    ],
+    [
+      "You've hit your usage limit. api_key=secret [link](https://evil.example) try again at 3:45 PM <b>x</b>",
+      "You've hit your Codex usage limit.",
+    ],
+    [
+      "Quota exceeded. Check your plan and billing details.",
+      "Quota exceeded. Check your plan and billing details.",
+    ],
+  ])("should publish only the fixed usage limit wording %#", async (message, expected) => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockRejectedValue(new Error("ENOENT"));
+
+    const promise = createService().executeCodex("/work", "main", "review", DEFAULT_SETTINGS, EMPTY_CONNECTION);
+
+    child.stdout.emit("data", `${JSON.stringify({ type: "error", message })}\n`);
+    child.emit("close", 1, null);
+
+    const result = await promise;
+
+    expect(result.rawOutput).toBe(expected);
   });
 
   it("should not publish unrecognized structured error messages", async () => {
@@ -424,7 +459,7 @@ describe("CodexService", () => {
     const result = await promise;
 
     expect(result.rawOutput).toBe(
-      "Codex run failed (exit 1). Check worker logs for details.",
+      "Check worker logs for details.",
     );
   });
 
@@ -488,7 +523,6 @@ describe("CodexService", () => {
     const result = await promise;
 
     expect(result.exitCode).toBe(124);
-    expect(result.rawOutput).toContain("exit 124");
   });
 
   it("should preserve spawn ENOENT error message when stderr is empty", async () => {

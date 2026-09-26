@@ -20,8 +20,18 @@ import {
 } from "../settings/runtime-settings.types";
 
 const MAX_STDERR_BYTES = 64 * 1024;
-const CAPACITY_ERROR_MESSAGE =
-  "Selected model is at capacity. Please try a different model.";
+// Codex CLI's own fixed wording, safe to publish. Anything else may echo
+// server bodies or credentials, so it stays in worker logs only.
+const PUBLIC_CODEX_ERRORS = [
+  /^Selected model is at capacity\. Please try a different model\.$/,
+  /^Quota exceeded\. Check your plan and billing details\.$/,
+];
+// The usage-limit wording varies by plan and has an open-ended suffix, so it is
+// never published verbatim: only a fixed sentence plus the reset time, which
+// must look like codex's "%-I:%M %p" / "%H:%M on %-d %b %Y" formats.
+const USAGE_LIMIT_ERROR = /^You.ve hit your usage limit\b/;
+const USAGE_LIMIT_RESET_TIME =
+  /[Tt]ry again at (\d{1,2}:\d{2}(?: [AP]M)?(?: on \d{1,2} [A-Z][a-z]{2}(?: \d{4})?)?)\./;
 const TIMEOUT_EXIT_CODE = 124;
 const AUTH_FILE_NAME = "auth.json";
 const CHATGPT_AUTH_MODE = "chatgpt";
@@ -392,12 +402,11 @@ export class CodexService {
           throw new Error("Codex output file could not be read");
         }
         const publicError =
-          result.codexError === CAPACITY_ERROR_MESSAGE
-            ? result.codexError
-            : result.stderr;
+          publicCodexError(result.codexError) ?? result.stderr;
+        // The caller prefixes "Codex run failed (exit N):" — don't repeat it.
         rawOutput = publicError
-          ? `Codex run failed (exit ${result.code}): ${publicError.trim()}`
-          : `Codex run failed (exit ${result.code}). Check worker logs for details.`;
+          ? publicError.trim()
+          : "Check worker logs for details.";
       }
 
       return {
@@ -418,4 +427,17 @@ export class CodexService {
       });
     }
   }
+}
+
+function publicCodexError(codexError: string): string | null {
+  if (PUBLIC_CODEX_ERRORS.some((re) => re.test(codexError))) {
+    return codexError;
+  }
+  if (USAGE_LIMIT_ERROR.test(codexError)) {
+    const resetTime = USAGE_LIMIT_RESET_TIME.exec(codexError)?.[1];
+    return resetTime
+      ? `You've hit your Codex usage limit. Try again at ${resetTime}.`
+      : "You've hit your Codex usage limit.";
+  }
+  return null;
 }
