@@ -57,6 +57,8 @@ PR을 열면 `chatgpt-codex-connector`가 리뷰를 남긴다. 결과는 즉시 
 
 ## 의존성 업데이트 (Renovate)
 
+Renovate는 금요일 06:00~09:59(KST)에만 브랜치를 만들고 갱신한다. minor·patch는 `non-major dependencies` PR 하나로 묶이고, major는 꺼져 있으며, `@openai/codex`만 automerge를 위해 따로 PR을 받는다. 창이 06시 한 시간이 아닌 이유는 Mend 호스팅 앱이 저장소를 약 3시간마다 확인하기 때문이다 — 1시간 창은 그 주를 통째로 건너뛸 수 있다. `:noUnscheduledUpdates` 때문에 열린 PR도 창 밖에서는 리베이스되지 않는다. rebase 체크박스 요청은 창 밖에서도 받아들여지지만, 아래 기록처럼 충돌이 없으면 브랜치가 그대로일 수 있다. major 범프는 PR이 오지 않으므로 직접 챙긴다.
+
 Renovate PR의 CI green은 타입 호환성만 증명한다. 테스트가 실제 Redis/MySQL을 띄우지 않으므로 런타임 동작 변경은 통과한다. major 범프는 릴리스 노트의 BREAKING 항목을 코드에 직접 대조할 것.
 
 그 green은 브랜치가 만들어진 시점의 main 기준이기도 하다. main이 움직여도 충돌만 없으면 Renovate는 리베이스하지 않는다 — #110·#92·#73·#68·#67·#55에 리베이스 체크박스를 찍었으나 다음 주기에 체크만 해제되고 브랜치는 그대로였으며, 이틀 뒤에도 `packageManager`가 `pnpm@10.34.5`였다. 충돌 상태였던 #94만 리베이스됐다. `gh run rerun`은 원래 이벤트의 SHA를 다시 쓰므로 낡은 병합 커밋을 재검증할 뿐이다. 오래된 Renovate PR은 병합 트리를 직접 만들어 확인할 것:
