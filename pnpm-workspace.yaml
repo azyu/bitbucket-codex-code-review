@@ -22,8 +22,3 @@ allowBuilds:
 # would reject. Setting this explicitly also turns minimumReleaseAgeStrict on,
 # so a fresh version fails the install instead of being excluded silently.
 minimumReleaseAge: 2880
-# Both were bumped into the tree within the window and their declared ranges
-# admit no older release. Prunable once either package moves again.
-minimumReleaseAgeExclude:
-  - '@types/node@24.13.5'
-  - jsdom@30.1.0

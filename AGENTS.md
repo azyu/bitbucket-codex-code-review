@@ -69,7 +69,7 @@ cd <dir> && pnpm install --frozen-lockfile && pnpm build && pnpm lint && pnpm te
 
 peer dependency가 optional로 강등되는 변경은 lockfile이 이전 트리의 잔재를 유지해 정상으로 보인다. `package.json`만 빈 디렉터리에 복사해 `pnpm install --lockfile-only`로 재해석하고 패키지가 살아남는지 확인할 것 (bullmq v6 → ioredis 유실, PR #90).
 
-CI가 빌드하는 이미지 레이어는 `--target deps`까지다. build·runtime stage에서만 깨지는 변경은 CI 전 항목 green으로 main에 들어가고 publish 잡에서야 터진다. Dockerfile이나 툴체인을 건드렸으면 `docker build .`를 직접 한 번 돌릴 것.
+CI가 빌드하는 이미지 레이어는 `--target deps`까지다. build·runtime stage에서만 깨지는 변경은 CI 전 항목 green으로 main에 들어가고 publish 잡에서야 터진다. Dockerfile이나 툴체인을 건드렸으면 `docker build .`를 직접 한 번 돌릴 것. 툴체인에는 build stage가 실행하는 도구도 들어간다 — patch 범프라도 vite처럼 플랫폼별 네이티브 바인딩(rolldown `@rolldown/binding-linux-*-musl`)이 lockfile에서 바뀌면, 로컬(glibc/darwin) build·test green은 Alpine에서 그 바인딩이 뜨는지를 증명하지 못한다(PR #150).
 
 pnpm 메이저를 올릴 때는 corepack부터 확인할 것. pnpm은 npm 패키지의 `bin` 매핑을 메이저마다 바꿨고(10 `bin/pnpm.cjs` → 11 `bin/pnpm.mjs` → 12 네이티브 런처), `node:*-alpine`에 번들된 corepack이 새 레이아웃을 모르면 `pnpm install`이 시작조차 못 하고 `MODULE_NOT_FOUND`로 죽는다. `pnpm/action-setup`은 멀쩡히 동작하므로 CI는 전부 통과한다 — 이미지만 깨진다(PR #112 → #114). 확인은 `docker run --rm node:24-alpine sh -c 'corepack enable && corepack prepare pnpm@<버전> --activate && pnpm -v'`.
 
