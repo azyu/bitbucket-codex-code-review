@@ -30,10 +30,11 @@ PR을 열면 `chatgpt-codex-connector`가 리뷰를 남긴다. 결과는 즉시 
 
 1. PR open (또는 `@codex review` 댓글로 재트리거)
 2. **10분 대기**
-3. 확인 — 두 명령을 모두 써야 한다. 인라인 리뷰 코멘트는 첫 명령에 나오지 않는다.
+3. 확인 — 세 명령을 모두 써야 한다. 인라인 리뷰 코멘트는 첫 명령에 나오지 않고, 지적이 없으면 커넥터는 댓글 없이 PR 본문에 👍 리액션만 남긴다(PR #143·#144, 2026-09-26). 리액션을 안 보면 끝난 리뷰를 "아직 없음"으로 읽고 불필요하게 재트리거하게 된다.
    - `gh pr view <번호> --comments`
    - `gh api repos/azyu/bitbucket-codex-code-review/pulls/<번호>/comments --jq '.[] | "\(.path):\(.line) \(.body)"'`
-4. 20분이 지나도 리뷰가 없으면 `@codex review` 댓글로 재트리거한다
+   - `gh api repos/azyu/bitbucket-codex-code-review/issues/<번호>/reactions --jq '.[] | "\(.content) \(.user.login) \(.created_at)"'` — 👍(`+1`)의 시각이 마지막 push·재트리거보다 뒤인지 확인한다
+4. 20분이 지나도 리뷰도 👍도 없으면 `@codex review` 댓글로 재트리거한다
 
 대기 시간 근거 — PR #85/#86/#101/#105에서 트리거→리뷰 게시 지연 24건을 측정(2026-09-17): 중앙값 8.0분, p90 10.6분, 최소 1.1분(지적 없음일 때). 표본 중 1건(165분)은 다른 요인으로 보여 제외했다. 큰 PR의 라운드트립은 6~10분대에 몰려 있고, 짧은 확인 요청은 1~3분에 돌아온다.
 
