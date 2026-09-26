@@ -699,9 +699,8 @@ export class ReviewProcessor
     commentId: number | undefined,
     usage: IReviewAttemptUsage,
   ): Promise<void> {
-    await this.reviewService.updateStatus(
+    const completed = await this.reviewService.claimCompletion(
       data.reviewRunId,
-      ReviewRunStatus.COMPLETED,
       {
         reviewOutput: codexResult.rawOutput,
         resultCommentId: commentId!,
@@ -710,6 +709,14 @@ export class ReviewProcessor
         codexReasoningEffort: codexResult.reasoningEffort ?? undefined,
       },
     );
+    if (!completed) {
+      // 게시 도중 새 런이 이 행을 대체했다. 이미 게시했으므로 재시도(중복 게시)도,
+      // FAILED 기록(findDuplicateRun의 행 삭제 → 재수용)도 하지 않는다.
+      this.logger.warn(
+        `Review run ${data.reviewRunId} was superseded while publishing; leaving it SUPERSEDED: ${data.idempotencyKey}`,
+      );
+      return;
+    }
 
     this.logger.log(
       `Review completed: PR #${data.pullRequestId}, comment=${commentId}, ${codexResult.durationMs}ms`,

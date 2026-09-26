@@ -567,6 +567,43 @@ describe("ReviewService conditional status transitions", () => {
     }
   });
 
+  it("completes only a run that still holds PUBLISHING", async () => {
+    mockRepository.update.mockResolvedValueOnce({ affected: 1 });
+
+    await expect(
+      service.claimCompletion(7, { resultCommentId: 100, inputTokens: 5 }),
+    ).resolves.toBe(true);
+
+    const fromSet = criteriaOfCall(0).reviewStatus;
+    // SUPERSEDED가 from-set에 있으면 게시 중 대체된 런이 COMPLETED로 덮어쓴다 (#106).
+    expect(fromSet?.value).toEqual([ReviewRunStatus.PUBLISHING]);
+    expect(mockRepository.update).toHaveBeenCalledTimes(1);
+    expect(mockRepository.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 7 }),
+      {
+        reviewStatus: ReviewRunStatus.COMPLETED,
+        resultCommentId: 100,
+        inputTokens: 5,
+      },
+    );
+  });
+
+  it("keeps SUPERSEDED but still records usage when completion is refused", async () => {
+    mockRepository.update
+      .mockResolvedValueOnce({ affected: 0 })
+      .mockResolvedValueOnce({ affected: 1 });
+
+    await expect(
+      service.claimCompletion(7, { resultCommentId: 100, inputTokens: 5 }),
+    ).resolves.toBe(false);
+
+    // 게시를 마친 런은 토큰을 실제로 썼다 — 상태는 건드리지 않고 사용량·출력만 남긴다.
+    expect(mockRepository.update).toHaveBeenLastCalledWith(7, {
+      resultCommentId: 100,
+      inputTokens: 5,
+    });
+  });
+
   it("supersedes only rows older than the new run", async () => {
     mockRepository.update.mockResolvedValueOnce({ affected: 2 });
 
