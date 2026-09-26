@@ -394,6 +394,8 @@ export class CodexService {
         );
       }
 
+      const publicError =
+        result.code === 0 ? null : publicCodexError(result.codexError);
       let rawOutput: string;
       try {
         rawOutput = await readFile(outputFile, "utf-8");
@@ -401,12 +403,9 @@ export class CodexService {
         if (result.code === 0) {
           throw new Error("Codex output file could not be read");
         }
-        const publicError =
-          publicCodexError(result.codexError) ?? result.stderr;
+        const detail = publicError ?? result.stderr;
         // The caller prefixes "Codex run failed (exit N):" — don't repeat it.
-        rawOutput = publicError
-          ? publicError.trim()
-          : "Check worker logs for details.";
+        rawOutput = detail ? detail.trim() : "Check worker logs for details.";
       }
 
       return {
@@ -418,6 +417,7 @@ export class CodexService {
         outputTokens: result.usage.outputTokens,
         model: settings.model,
         reasoningEffort: settings.reasoningEffort || null,
+        publicError,
       };
     } finally {
       rm(outputFile, { force: true }).catch((err) => {

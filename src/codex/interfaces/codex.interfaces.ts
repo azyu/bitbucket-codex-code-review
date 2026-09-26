@@ -10,6 +10,11 @@ export interface ICodexReviewResult {
   readonly model: string;
   /** 넘긴 model_reasoning_effort 값. 미설정이면 null */
   readonly reasoningEffort: string | null;
+  /**
+   * 실패 시 PR 댓글에 실어도 되는 codex 에러 문구(publicCodexError 통과분). 성공이거나
+   * 해당 문구가 없으면 null. rawOutput은 출력 파일·stderr 원문일 수 있어 공개하지 않는다.
+   */
+  readonly publicError: string | null;
 }
 
 /**

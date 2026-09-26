@@ -1705,6 +1705,28 @@ describe("ReviewProcessor error handling", () => {
       expect(failureBody()).toContain("Check worker logs");
     });
 
+    it("does not publish raw Codex output or stderr", async () => {
+      mockWorkspaceService.prepareWorktree.mockResolvedValue({
+        worktreePath: "/tmp/worktree",
+        bareRepoPath: "/tmp/bare",
+      });
+      mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
+      mockCodexService.executeCodex.mockResolvedValue({
+        rawOutput: "thread 'main' panicked at /home/runner/.codex/secret.rs",
+        publicError: null,
+        exitCode: 101,
+        durationMs: 10,
+      });
+
+      await expect(
+        processor.process({ data: baseJobData } as never),
+      ).rejects.toThrow("Codex run failed (exit 101)");
+
+      expect(failureBody()).toContain("Codex run failed (exit 101).");
+      expect(failureBody()).toContain("review run #1");
+      expect(failureBody()).not.toContain("/home/runner");
+    });
+
     it("names the stage but not the git output for an authentication failure", async () => {
       mockWorkspaceService.prepareWorktree.mockRejectedValue(
         new Error(
@@ -1730,6 +1752,7 @@ describe("ReviewProcessor error handling", () => {
     mockWorkspaceService.cleanupWorktree.mockResolvedValue(undefined);
     mockCodexService.executeCodex.mockResolvedValue({
       rawOutput: "Selected model is at capacity. Please try a different model.",
+      publicError: "Selected model is at capacity. Please try a different model.",
       exitCode: 2,
       durationMs: 2200,
       inputTokens: 1500,

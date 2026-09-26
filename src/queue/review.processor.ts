@@ -54,19 +54,25 @@ function authenticationFailureStage(error: Error): "api" | "git" | null {
 /**
  * 실패 댓글에 실을 문구. PR 댓글은 저장소를 읽을 수 있는 누구에게나 보이므로 에러 원문을
  * 싣지 않는다 — Bitbucket 에러는 응답 본문을, git 에러는 argv·stderr·로컬 경로를 담는다.
- * Codex 실패만 예외인데, 그 상세는 CodexService가 이미 공개용으로 골라 둔 것이다.
- * 원문은 워커 로그와 review_runs.errorMessage에 남는다.
+ * Codex 실패도 rawOutput(출력 파일·stderr 원문일 수 있다)이 아니라 CodexService가
+ * 공개용으로 고른 publicError만 싣는다. 원문은 워커 로그와 review_runs에 남는다.
  */
 function publicFailureMessage(
   error: Error & { codexResult?: ICodexReviewResult },
   authFailureStage: "api" | "git" | null,
   reviewRunId: number,
 ): string {
-  if (error.codexResult) return error.message.substring(0, 500);
+  const logsPointer = `Check worker logs for details (review run #${reviewRunId}).`;
+  if (error.codexResult) {
+    const { exitCode, publicError } = error.codexResult;
+    return publicError
+      ? `Codex run failed (exit ${exitCode}): ${publicError}`
+      : `Codex run failed (exit ${exitCode}). ${logsPointer}`;
+  }
   if (authFailureStage) {
     return `Bitbucket authentication failed (${authFailureStage}). Check the repository access token.`;
   }
-  return `Check worker logs for details (review run #${reviewRunId}).`;
+  return logsPointer;
 }
 
 function addUsage(
