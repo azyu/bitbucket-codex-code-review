@@ -34,6 +34,7 @@ PR을 열면 `chatgpt-codex-connector`가 리뷰를 남긴다. 결과는 즉시 
    - `gh pr view <번호> --comments`
    - `gh api repos/azyu/bitbucket-codex-code-review/pulls/<번호>/comments --jq '.[] | "\(.path):\(.line) \(.body)"'`
    - `gh api repos/azyu/bitbucket-codex-code-review/issues/<번호>/reactions --jq '.[] | "\(.content) \(.user.login) \(.created_at)"'` — 👍(`+1`)의 시각이 마지막 push·재트리거보다 뒤인지 확인한다
+   - 👀(`eyes`)는 리뷰 시작 신호일 뿐 완료가 아니다. 커넥터는 트리거 직후 👀를 달고 끝나면 👍나 리뷰를 남긴다(PR #155: 👀 04:20:34 → 👍 04:22:17 UTC, 2026-09-27). 폴링 루프가 커넥터의 리액션 개수로 종료를 판정하면 👀에서 멈춰 진행 중인 리뷰를 "지적 없음"으로 읽게 되므로, `eyes`는 완료 조건에서 뺄 것
 4. 20분이 지나도 리뷰도 👍도 없으면 `@codex review` 댓글로 재트리거한다
 
 대기 시간 근거 — PR #85/#86/#101/#105에서 트리거→리뷰 게시 지연 24건을 측정(2026-09-17): 중앙값 8.0분, p90 10.6분, 최소 1.1분(지적 없음일 때). 표본 중 1건(165분)은 다른 요인으로 보여 제외했다. 큰 PR의 라운드트립은 6~10분대에 몰려 있고, 짧은 확인 요청은 1~3분에 돌아온다.
