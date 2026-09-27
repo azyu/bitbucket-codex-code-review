@@ -998,6 +998,36 @@ describe("Refresh on the settings view asks before discarding drafts", () => {
     expect(store.loading).toBe(false);
   });
 
+  it("still applies the reload when only unloaded repository fields were typed", async () => {
+    const store = await onSettings();
+    let releaseRead: () => void = () => undefined;
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const newer = settings();
+    newer.global.revision = 7;
+    fetchMock.mockImplementation(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          statusText: "",
+          json: async () => {
+            await readGate;
+            return newer;
+          },
+        }) as unknown as Response,
+    );
+
+    const refreshing = store.refreshView(() => true);
+    store.repositoryDraft.workspaceSlug = "acme";
+    releaseRead();
+    await refreshing;
+
+    expect(store.settings?.global.revision).toBe(7);
+    expect(store.repositoryDraft.workspaceSlug).toBe("acme");
+  });
+
   it("never asks on the overview, which reloads no drafts", async () => {
     const store = await unlocked();
     store.globalDraft.values["customPrompt"] = "still typing";

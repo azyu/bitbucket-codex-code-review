@@ -380,6 +380,17 @@ export class DashboardStore {
   }
 
   /**
+   * The drafts loadSettings() replaces. The repository draft counts only once
+   * loaded: before that the reload leaves its fields alone.
+   */
+  #reloadableDraftsKey(): string {
+    return draftKey([
+      this.globalDraft,
+      this.repositoryLoadedIdentity === null ? null : this.repositoryDraft,
+    ]);
+  }
+
+  /**
    * What the header Refresh button reloads: the documents the current view
    * shows. On the settings view that is the settings document itself, which is
    * what makes the button a real recovery path after a CAS reload failed — the
@@ -398,11 +409,9 @@ export class DashboardStore {
     const issued = this.#session;
     // The form stays editable while the read is in flight, and whatever is
     // typed then was never covered by the confirmation above.
-    const drafts = draftKey([this.globalDraft, this.repositoryDraft]);
+    const drafts = this.#reloadableDraftsKey();
     try {
-      await this.loadSettings(
-        () => draftKey([this.globalDraft, this.repositoryDraft]) === drafts,
-      );
+      await this.loadSettings(() => this.#reloadableDraftsKey() === drafts);
     } finally {
       if (issued === this.#session) this.loading = false;
     }
