@@ -831,7 +831,7 @@ describe("the header Refresh reloads what the view shows", () => {
     store.view = "settings";
     const before = fetchMock.mock.calls.length;
 
-    await store.refreshView();
+    await store.refreshView(() => true);
 
     const paths = fetchMock.mock.calls
       .slice(before)
@@ -848,13 +848,131 @@ describe("the header Refresh reloads what the view shows", () => {
     store.view = "overview";
     const before = fetchMock.mock.calls.length;
 
-    await store.refreshView();
+    await store.refreshView(() => true);
 
     const paths = fetchMock.mock.calls
       .slice(before)
       .map((call) => String(call[0]));
     expect(paths).not.toContain("/api/internal/settings");
     expect(paths).toContain("/api/internal/stats/repos");
+  });
+});
+
+describe("Refresh on the settings view asks before discarding drafts", () => {
+  function settingsReads(before: number): number {
+    return fetchMock.mock.calls
+      .slice(before)
+      .filter((call) => String(call[0]) === "/api/internal/settings").length;
+  }
+
+  async function onSettings(): Promise<DashboardStore> {
+    const store = await unlocked();
+    store.view = "settings";
+    return store;
+  }
+
+  it("reloads without asking when nothing was edited", async () => {
+    const store = await onSettings();
+    const confirmDiscard = vi.fn(() => false);
+    const before = fetchMock.mock.calls.length;
+
+    await store.refreshView(confirmDiscard);
+
+    expect(confirmDiscard).not.toHaveBeenCalled();
+    expect(settingsReads(before)).toBe(1);
+  });
+
+  it("keeps an edited global draft when the operator declines", async () => {
+    const store = await onSettings();
+    store.globalDraft.values["customPrompt"] = "still typing";
+    const confirmDiscard = vi.fn(() => false);
+    const before = fetchMock.mock.calls.length;
+
+    await store.refreshView(confirmDiscard);
+
+    expect(confirmDiscard).toHaveBeenCalledOnce();
+    expect(settingsReads(before)).toBe(0);
+    expect(store.globalDraft.values["customPrompt"]).toBe("still typing");
+    expect(store.loading).toBe(false);
+  });
+
+  it("reloads and discards the draft when the operator agrees", async () => {
+    const store = await onSettings();
+    store.globalDraft.secrets["openaiApiKey"] = {
+      operation: "replace",
+      value: "sk-new",
+    };
+    const before = fetchMock.mock.calls.length;
+
+    await store.refreshView(() => true);
+
+    expect(settingsReads(before)).toBe(1);
+    expect(store.globalDraft.secrets["openaiApiKey"]).toEqual({
+      operation: "keep",
+      value: "",
+    });
+  });
+
+  it("does not count a number typed back to its stored value as an edit", async () => {
+    const store = await onSettings();
+    // bind:value on type="number" hands back a number, not the hydrated string.
+    (store.globalDraft.values as Record<string, unknown>)["timeoutMs"] =
+      600_000;
+
+    expect(store.settingsDraftsDirty).toBe(false);
+  });
+
+  it("counts an emptied number input as an edit", async () => {
+    const store = await onSettings();
+    (store.globalDraft.values as Record<string, unknown>)["timeoutMs"] = null;
+
+    expect(store.settingsDraftsDirty).toBe(true);
+  });
+
+  it("asks for an edited repository draft, which the reload also resets", async () => {
+    const store = await onSettings();
+    store.loadRepository("acme", "api");
+    expect(store.settingsDraftsDirty).toBe(false);
+
+    store.repositoryDraft.values["timeoutMs"] = {
+      inherit: false,
+      value: "1000",
+    };
+    const confirmDiscard = vi.fn(() => false);
+
+    await store.refreshView(confirmDiscard);
+
+    expect(confirmDiscard).toHaveBeenCalledOnce();
+    expect(store.repositoryDraft.values["timeoutMs"]).toEqual({
+      inherit: false,
+      value: "1000",
+    });
+  });
+
+  it("asks when the repository slug was edited after loading", async () => {
+    const store = await onSettings();
+    store.loadRepository("acme", "api");
+    store.repositoryDraft.repositorySlug = "web";
+
+    expect(store.settingsDraftsDirty).toBe(true);
+  });
+
+  it("ignores repository fields typed before any load — the reload leaves them alone", async () => {
+    const store = await onSettings();
+    store.repositoryDraft.workspaceSlug = "acme";
+
+    expect(store.settingsDraftsDirty).toBe(false);
+  });
+
+  it("never asks on the overview, which reloads no drafts", async () => {
+    const store = await unlocked();
+    store.globalDraft.values["customPrompt"] = "still typing";
+    const confirmDiscard = vi.fn(() => false);
+
+    await store.refreshView(confirmDiscard);
+
+    expect(confirmDiscard).not.toHaveBeenCalled();
+    expect(store.globalDraft.values["customPrompt"]).toBe("still typing");
   });
 });
 
@@ -963,7 +1081,7 @@ describe("a settings read cannot undo a save that landed while it was in flight"
       } as unknown as Response;
     });
 
-    const refreshing = store.refreshView();
+    const refreshing = store.refreshView(() => true);
     await store.saveGlobal();
     expect(store.settings?.global.revision).toBe(9);
 

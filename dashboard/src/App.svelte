@@ -42,7 +42,10 @@
       </nav>
     </div>
     <div class="flex gap-2">
-      <button onclick={() => store.refreshView()} disabled={store.loading}>
+      <button
+        onclick={() => store.refreshView(() => confirm(t("confirm.discardDrafts")))}
+        disabled={store.loading}
+      >
         {store.loading ? t("action.refreshing") : t("action.refresh")}
       </button>
       <LocaleToggle />

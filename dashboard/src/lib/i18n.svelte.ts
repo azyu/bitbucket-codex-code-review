@@ -15,6 +15,8 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
     "nav.settings": "설정",
     "action.refresh": "새로고침",
     "action.refreshing": "새로고침 중…",
+    "confirm.discardDrafts":
+      "저장하지 않은 설정 변경이 있습니다. 새로고침하면 사라집니다. 계속할까요?",
     "action.lock": "잠금",
     "action.open": "열기",
     "action.close": "닫기",
@@ -188,6 +190,8 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
     "nav.settings": "Settings",
     "action.refresh": "Refresh",
     "action.refreshing": "Refreshing…",
+    "confirm.discardDrafts":
+      "You have unsaved settings changes. Refreshing will discard them. Continue?",
     "action.lock": "Lock",
     "action.open": "Open",
     "action.close": "Close",

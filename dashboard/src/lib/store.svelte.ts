@@ -82,6 +82,56 @@ function emptyRepositoryDraft() {
   };
 }
 
+/** What hydrateGlobalDraft() puts on screen for a document. */
+function globalDraftFrom(settings: SettingsDocument | null) {
+  const scope = settings?.global;
+  const draft = emptyGlobalDraft();
+  if (scope !== undefined) {
+    for (const key of GLOBAL_VALUE_KEYS) {
+      draft.values[key] = valueToInput(scope.values[key]);
+    }
+  }
+  // Secret inputs stay empty: the API returns status only, so there is no
+  // value to prefill and nothing to accidentally re-submit. (Invariant 5.)
+  return draft;
+}
+
+/** What loadRepository() puts on screen for a document. */
+function repositoryDraftFrom(
+  settings: SettingsDocument | null,
+  workspaceSlug: string,
+  repositorySlug: string,
+) {
+  const scope = settings?.repositories.find(
+    (candidate) =>
+      candidate.workspaceSlug === workspaceSlug &&
+      candidate.repositorySlug === repositorySlug,
+  );
+  const draft = emptyRepositoryDraft();
+  draft.workspaceSlug = workspaceSlug;
+  draft.repositorySlug = repositorySlug;
+  for (const key of REPOSITORY_VALUE_KEYS) {
+    const stored = scope?.values[key];
+    draft.values[key] =
+      stored === undefined || stored === null
+        ? { inherit: true, value: "" }
+        : { inherit: false, value: valueToInput(stored) };
+  }
+  return draft;
+}
+
+/**
+ * A number input binds a number (or null when emptied), so a value edited and
+ * typed back must still compare equal to the string the draft was hydrated with.
+ */
+function sameDraft(a: unknown, b: unknown): boolean {
+  const normalize = (_key: string, value: unknown) =>
+    typeof value === "number" || value === null || value === undefined
+      ? valueToInput(value)
+      : value;
+  return JSON.stringify(a, normalize) === JSON.stringify(b, normalize);
+}
+
 function describe(error: unknown): Message {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
@@ -303,18 +353,43 @@ export class DashboardStore {
   }
 
   /**
+   * Whether reloading the settings document would overwrite something typed:
+   * the global draft, or the loaded repository draft (including an edited
+   * workspace or repository slug, which loadRepository() puts back).
+   */
+  get settingsDraftsDirty(): boolean {
+    if (!sameDraft(this.globalDraft, globalDraftFrom(this.settings))) {
+      return true;
+    }
+    const loaded = this.repositoryLoadedIdentity;
+    return (
+      loaded !== null &&
+      !sameDraft(
+        this.repositoryDraft,
+        repositoryDraftFrom(
+          this.settings,
+          loaded.workspaceSlug,
+          loaded.repositorySlug,
+        ),
+      )
+    );
+  }
+
+  /**
    * What the header Refresh button reloads: the documents the current view
    * shows. On the settings view that is the settings document itself, which is
    * what makes the button a real recovery path after a CAS reload failed — the
    * stale expectedRevision would otherwise survive every refresh and lose the
-   * next save to the same conflict. It re-hydrates the drafts, so an explicit
-   * Refresh discards unsaved edits exactly as the conflict reload does.
+   * next save to the same conflict. It re-hydrates the drafts, so unsaved
+   * edits are only discarded once `confirmDiscard` agrees. The conflict reload
+   * does not ask: showing what is actually stored is its whole point.
    */
-  async refreshView(): Promise<void> {
+  async refreshView(confirmDiscard: () => boolean): Promise<void> {
     if (this.view !== "settings") {
       await this.refresh();
       return;
     }
+    if (this.settingsDraftsDirty && !confirmDiscard()) return;
     this.loading = true;
     const issued = this.#session;
     try {
@@ -452,16 +527,7 @@ export class DashboardStore {
   }
 
   hydrateGlobalDraft(): void {
-    const scope = this.settings?.global;
-    const draft = emptyGlobalDraft();
-    if (scope !== undefined) {
-      for (const key of GLOBAL_VALUE_KEYS) {
-        draft.values[key] = valueToInput(scope.values[key]);
-      }
-    }
-    // Secret inputs stay empty: the API returns status only, so there is no
-    // value to prefill and nothing to accidentally re-submit. (Invariant 5.)
-    this.globalDraft = draft;
+    this.globalDraft = globalDraftFrom(this.settings);
   }
 
   /**
@@ -470,22 +536,11 @@ export class DashboardStore {
    * created.
    */
   loadRepository(workspaceSlug: string, repositorySlug: string): void {
-    const scope = this.settings?.repositories.find(
-      (candidate) =>
-        candidate.workspaceSlug === workspaceSlug &&
-        candidate.repositorySlug === repositorySlug,
+    this.repositoryDraft = repositoryDraftFrom(
+      this.settings,
+      workspaceSlug,
+      repositorySlug,
     );
-    const draft = emptyRepositoryDraft();
-    draft.workspaceSlug = workspaceSlug;
-    draft.repositorySlug = repositorySlug;
-    for (const key of REPOSITORY_VALUE_KEYS) {
-      const stored = scope?.values[key];
-      draft.values[key] =
-        stored === undefined || stored === null
-          ? { inherit: true, value: "" }
-          : { inherit: false, value: valueToInput(stored) };
-    }
-    this.repositoryDraft = draft;
     this.repositoryLoadedIdentity = { workspaceSlug, repositorySlug };
     this.repositoryNotice = null;
   }
