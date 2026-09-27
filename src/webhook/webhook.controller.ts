@@ -153,9 +153,12 @@ export class WebhookController {
       duplicate &&
       !forceReview &&
       // 일반 멘션의 key에는 댓글 ID가 없어 "새 멘션"과 "같은 웹훅의 재전송"이 같은
-      // key로 들어온다. 기존 run을 만든 댓글과 같으면 재전송이므로 답글을 반복하지
-      // 않는다 — 사람이 새로 멘션한 경우에만 ID가 달라진다.
-      duplicate.triggerCommentId !== body.comment.id
+      // key로 들어온다. 이미 답한 댓글(run을 만든 댓글 포함)의 재전송이면 답글을
+      // 반복하지 않는다.
+      (await this.reviewService.claimDuplicateReply(
+        duplicate.id,
+        body.comment.id,
+      ))
     ) {
       // 멘션에만 답한다. pullrequest:updated는 제목/리뷰어 변경에도 같은 head
       // commit으로 날아오므로 AUTO 경로에서 같은 안내를 달면 PR마다 잡음이 쌓인다.

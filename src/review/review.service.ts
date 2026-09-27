@@ -27,8 +27,8 @@ export type {
 
 /** 중복으로 판정된 기존 run에서 웹훅 경로가 읽는 부분. */
 export interface IDuplicateReviewRun {
+  readonly id: number;
   readonly reviewStatus: ReviewRunStatus;
-  readonly triggerCommentId: number | null;
 }
 
 /** 게시 전 단계에서만 유효한 활성 상태 — PUBLISHING을 제외하는 것이 재진입 중복 게시를 막는다. */
@@ -176,15 +176,14 @@ export class ReviewService {
   /**
    * idempotency key로 중복 확인 (게시되지 않은 FAILED만 재시도 허용).
    * boolean이 아니라 기존 run을 돌려주는 이유: 웹훅 경로가 "이미 리뷰된 커밋"과
-   * "리뷰가 아직 도는 중"을 구분해 안내해야 하고(reviewStatus), 같은 댓글의 웹훅
-   * 재전송과 새 멘션을 구분해야 하기 때문이다(triggerCommentId).
+   * "리뷰가 아직 도는 중"을 구분해 안내해야 하기 때문이다(reviewStatus).
    */
   async findDuplicateRun(
     idempotencyKey: string,
   ): Promise<IDuplicateReviewRun | null> {
     const existing = await this.reviewRunRepository.findOne({
       where: { idempotencyKey },
-      select: ["id", "reviewStatus", "resultCommentId", "triggerCommentId"],
+      select: ["id", "reviewStatus", "resultCommentId"],
     });
 
     if (!existing) return null;
@@ -201,13 +200,34 @@ export class ReviewService {
       return null;
     }
 
-    return {
-      reviewStatus: existing.reviewStatus,
-      // bigint 컬럼이라 MySQL 드라이버는 문자열을 돌려준다(toRecentReview의
-      // pullRequestId와 같은 이유). 그대로 두면 호출부의 === 비교가 "321" !== 321로
-      // 항상 어긋나 재전송 억제가 프로덕션에서만 조용히 풀린다.
-      triggerCommentId: toNullableNumber(existing.triggerCommentId),
-    };
+    return { id: existing.id, reviewStatus: existing.reviewStatus };
+  }
+
+  /**
+   * 중복 안내를 달 권리를 댓글 하나에 한 번만 준다. 일반 멘션의 key에는 댓글 ID가 없어
+   * 새 멘션과 그 웹훅의 재전송이 같은 key로 들어온다. 비교를 SQL 안에서 하는 이유는
+   * 두 가지다 — 동시에 도착한 재전송 둘 중 하나만 affected = 1을 받고, bigint를 문자열로
+   * 돌려주는 드라이버 탓에 JS 비교가 "321" !== 321로 어긋날 일이 없다.
+   *
+   * triggerCommentId를 하한으로 두는 건 run을 만든 댓글이 이미 "진행 중" 답글을 받았기
+   * 때문이다(AUTO run은 null → 0).
+   *
+   * ponytail: Bitbucket 댓글 ID가 증가한다는 전제의 high-water mark다. 두 새 멘션의
+   * 웹훅이 역순으로 도착하면 먼저 쓴 쪽의 안내가 빠진다(잡음 방지 쪽으로 실패). 정확히
+   * 가려야 하면 (runId, commentId) unique 테이블로 바꾼다.
+   */
+  async claimDuplicateReply(id: number, commentId: number): Promise<boolean> {
+    const result = await this.reviewRunRepository
+      .createQueryBuilder()
+      .update()
+      .set({ lastRepliedCommentId: commentId })
+      .where("id = :id", { id })
+      .andWhere(
+        ":commentId > COALESCE(lastRepliedCommentId, triggerCommentId, 0)",
+        { commentId },
+      )
+      .execute();
+    return (result.affected ?? 0) > 0;
   }
 
   /** 리뷰 상태 업데이트 */
