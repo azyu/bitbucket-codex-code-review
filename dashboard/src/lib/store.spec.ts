@@ -964,6 +964,40 @@ describe("Refresh on the settings view asks before discarding drafts", () => {
     expect(store.settingsDraftsDirty).toBe(false);
   });
 
+  it("drops the reload when the operator types while it is in flight", async () => {
+    const store = await onSettings();
+    let releaseRead: () => void = () => undefined;
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const newer = settings();
+    newer.global.revision = 7;
+    fetchMock.mockImplementation(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          statusText: "",
+          json: async () => {
+            await readGate;
+            return newer;
+          },
+        }) as unknown as Response,
+    );
+
+    const refreshing = store.refreshView(() => true);
+    store.globalDraft.values["customPrompt"] = "typed during the reload";
+    releaseRead();
+    await refreshing;
+
+    expect(store.globalDraft.values["customPrompt"]).toBe(
+      "typed during the reload",
+    );
+    // The drafts were typed against revision 4, so that is what a save expects.
+    expect(store.settings?.global.revision).toBe(4);
+    expect(store.loading).toBe(false);
+  });
+
   it("never asks on the overview, which reloads no drafts", async () => {
     const store = await unlocked();
     store.globalDraft.values["customPrompt"] = "still typing";

@@ -124,12 +124,16 @@ function repositoryDraftFrom(
  * A number input binds a number (or null when emptied), so a value edited and
  * typed back must still compare equal to the string the draft was hydrated with.
  */
-function sameDraft(a: unknown, b: unknown): boolean {
-  const normalize = (_key: string, value: unknown) =>
+function draftKey(draft: unknown): string {
+  return JSON.stringify(draft, (_key, value: unknown) =>
     typeof value === "number" || value === null || value === undefined
       ? valueToInput(value)
-      : value;
-  return JSON.stringify(a, normalize) === JSON.stringify(b, normalize);
+      : value,
+  );
+}
+
+function sameDraft(a: unknown, b: unknown): boolean {
+  return draftKey(a) === draftKey(b);
 }
 
 function describe(error: unknown): Message {
@@ -392,8 +396,13 @@ export class DashboardStore {
     if (this.settingsDraftsDirty && !confirmDiscard()) return;
     this.loading = true;
     const issued = this.#session;
+    // The form stays editable while the read is in flight, and whatever is
+    // typed then was never covered by the confirmation above.
+    const drafts = draftKey([this.globalDraft, this.repositoryDraft]);
     try {
-      await this.loadSettings();
+      await this.loadSettings(
+        () => draftKey([this.globalDraft, this.repositoryDraft]) === drafts,
+      );
     } finally {
       if (issued === this.#session) this.loading = false;
     }
@@ -496,8 +505,10 @@ export class DashboardStore {
    * @returns whether the document was replaced. A caller that tells the user
    * what the reload produced has to know: on failure the old document — and so
    * the old expectedRevision — is still in place.
+   * @param draftsUnchanged checked once the response is in; false keeps the
+   * old document together with the drafts typed against it.
    */
-  async loadSettings(): Promise<boolean> {
+  async loadSettings(draftsUnchanged: () => boolean = () => true): Promise<boolean> {
     const issued = this.#session;
     const writes = this.#settingsWrites;
     try {
@@ -506,6 +517,7 @@ export class DashboardStore {
       // than what is on screen. Reported as "not replaced": the caller that
       // asks is the conflict path, and telling it to refresh is safe.
       if (writes !== this.#settingsWrites) return false;
+      if (!draftsUnchanged()) return false;
       this.settings = settings;
       this.hydrateGlobalDraft();
       if (this.repositoryLoadedIdentity !== null) {
