@@ -52,6 +52,11 @@ export class ReviewRunEntity
   @Column({ type: "bigint", nullable: true })
   triggerCommentId: number;
 
+  // 중복 안내를 마지막으로 단 댓글 ID. 일반 멘션의 key에는 댓글 ID가 없어 새 멘션과
+  // 그 웹훅의 재전송이 같은 key로 들어오므로, 이미 답한 댓글인지를 여기서 가린다.
+  @Column({ type: "bigint", nullable: true })
+  lastRepliedCommentId: number | null;
+
   @Column({
     type: "enum",
     enum: ReviewRunStatus,

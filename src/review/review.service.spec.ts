@@ -184,10 +184,18 @@ describe("ReviewService stats", () => {
 });
 
 describe("ReviewService idempotency", () => {
+  const updateBuilder = {
+    update: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    execute: jest.fn(),
+  };
   const mockRepository = {
     findOne: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+    createQueryBuilder: jest.fn(() => updateBuilder),
   };
 
   let service: ReviewService;
@@ -210,7 +218,7 @@ describe("ReviewService idempotency", () => {
 
     expect(mockRepository.findOne).toHaveBeenCalledWith({
       where: { idempotencyKey: "repo:1:commit" },
-      select: ["id", "reviewStatus", "resultCommentId", "triggerCommentId"],
+      select: ["id", "reviewStatus", "resultCommentId"],
     });
     expect(mockRepository.delete).toHaveBeenCalledWith(7);
   });
@@ -220,29 +228,35 @@ describe("ReviewService idempotency", () => {
       id: 8,
       reviewStatus: ReviewRunStatus.FAILED,
       resultCommentId: 321,
-      triggerCommentId: 99,
     });
 
     await expect(service.findDuplicateRun("repo:1:commit")).resolves.toEqual({
+      id: 8,
       reviewStatus: ReviewRunStatus.FAILED,
-      triggerCommentId: 99,
     });
 
     expect(mockRepository.delete).not.toHaveBeenCalled();
   });
 
-  it("normalizes the bigint trigger comment ID the driver returns as a string", async () => {
-    mockRepository.findOne.mockResolvedValueOnce({
-      id: 10,
-      reviewStatus: ReviewRunStatus.COMPLETED,
-      resultCommentId: 555,
-      triggerCommentId: "321",
-    });
+  it("claims a duplicate reply only for a comment newer than any answered one", async () => {
+    updateBuilder.execute.mockResolvedValueOnce({ affected: 1 });
 
-    await expect(service.findDuplicateRun("repo:1:commit")).resolves.toEqual({
-      reviewStatus: ReviewRunStatus.COMPLETED,
-      triggerCommentId: 321,
-    });
+    await expect(service.claimDuplicateReply(7, 400)).resolves.toBe(true);
+
+    // 비교는 SQL 안에서 한다 — 동시 재전송 중 하나만 affected = 1을 받는다. run을 만든
+    // 댓글은 이미 "진행 중" 답글을 받았으므로 triggerCommentId가 하한이다.
+    expect(updateBuilder.set).toHaveBeenCalledWith({ lastRepliedCommentId: 400 });
+    expect(updateBuilder.where).toHaveBeenCalledWith("id = :id", { id: 7 });
+    expect(updateBuilder.andWhere).toHaveBeenCalledWith(
+      ":commentId > COALESCE(lastRepliedCommentId, triggerCommentId, 0)",
+      { commentId: 400 },
+    );
+  });
+
+  it("refuses the claim when the comment was already answered", async () => {
+    updateBuilder.execute.mockResolvedValueOnce({ affected: 0 });
+
+    await expect(service.claimDuplicateReply(7, 400)).resolves.toBe(false);
   });
 
   it("keeps a publishing run without a result comment as a duplicate", async () => {
@@ -253,8 +267,8 @@ describe("ReviewService idempotency", () => {
     });
 
     await expect(service.findDuplicateRun("repo:1:commit")).resolves.toEqual({
+      id: 9,
       reviewStatus: ReviewRunStatus.PUBLISHING,
-      triggerCommentId: null,
     });
 
     expect(mockRepository.delete).not.toHaveBeenCalled();
