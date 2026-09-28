@@ -2,6 +2,7 @@
   import { count, duration, percent, relativeTime, shortSha, tokens } from "../lib/format";
   import { t, tEnum } from "../lib/i18n.svelte";
   import { store } from "../lib/store.svelte";
+  import { nextSort, sortRepos, type RepoSort, type RepoSortKey } from "../lib/sort";
   import { linkButton } from "../lib/ui";
   import StatusBadge from "./StatusBadge.svelte";
 
@@ -20,6 +21,9 @@
   const limitButton = "px-2.5 py-0.75 text-xs";
   const limitIdle = `${limitButton} text-fg-dim`;
   const limitActive = `${limitButton} bg-surface-2 font-semibold text-fg`;
+  // The th already carries the header look; the button only drops its chrome.
+  const sortButton =
+    "inline-flex items-center gap-1 border-none bg-transparent p-0 uppercase text-inherit hover:bg-transparent hover:text-fg";
 
   let totals = $derived.by(() => {
     const seed = {
@@ -60,10 +64,35 @@
     return sharedWorkspace === null ? `${workspaceSlug}/${repoSlug}` : repoSlug;
   }
 
-  let ranked = $derived(
-    [...store.repoStats].sort((a, b) => b.counts.total - a.counts.total),
-  );
+  let repoSort = $state<RepoSort>({ key: "runs", dir: "desc" });
+  let ranked = $derived(sortRepos(store.repoStats, repoSort));
 </script>
+
+{#snippet arrow(key: RepoSortKey)}
+  <span aria-hidden="true" class={repoSort.key === key ? "" : "invisible"}
+    >{repoSort.dir === "asc" ? "▲" : "▼"}</span
+  >
+{/snippet}
+
+{#snippet sortHeader(key: RepoSortKey, label: string, right = false)}
+  <th
+    class={right ? "text-right" : ""}
+    aria-sort={repoSort.key === key
+      ? repoSort.dir === "asc"
+        ? "ascending"
+        : "descending"
+      : "none"}
+  >
+    <!-- The arrow keeps its space while hidden so sorting never reflows the
+         columns, and sits on the label's inner side so a right-aligned header
+         still ends flush with its numbers. -->
+    <button class={sortButton} onclick={() => (repoSort = nextSort(repoSort, key))}>
+      {#if right}{@render arrow(key)}{/if}
+      {label}
+      {#if !right}{@render arrow(key)}{/if}
+    </button>
+  </th>
+{/snippet}
 
 <section class="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
   <div class={tile}>
@@ -125,14 +154,14 @@
       <table class="whitespace-nowrap tabular-nums">
         <thead>
           <tr>
-            <th>{t("column.repository")}</th>
+            {@render sortHeader("repository", t("column.repository"))}
             <th>{t("column.status")}</th>
-            <th class="text-right">{t("overview.runCount")}</th>
-            <th class="text-right">{t("overview.success")}</th>
-            <th class="text-right">{t("overview.codexAvg")}</th>
-            <th class="text-right">{t("overview.reviewAvg")}</th>
-            <th class="text-right">{t("column.tokens")}</th>
-            <th>{t("overview.latestPr")}</th>
+            {@render sortHeader("runs", t("overview.runCount"), true)}
+            {@render sortHeader("success", t("overview.success"), true)}
+            {@render sortHeader("codexAvg", t("overview.codexAvg"), true)}
+            {@render sortHeader("reviewAvg", t("overview.reviewAvg"), true)}
+            {@render sortHeader("tokens", t("column.tokens"), true)}
+            {@render sortHeader("latest", t("overview.latestPr"))}
           </tr>
         </thead>
         <tbody>
