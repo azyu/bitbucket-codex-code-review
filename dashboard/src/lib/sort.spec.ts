@@ -89,6 +89,8 @@ describe("sortRepos", () => {
     ]);
     expect(slugs(sortRepos(rows, { key: "codexAvg", dir: "asc" })).at(-1)).toBe("idle");
     expect(slugs(sortRepos(rows, { key: "latest", dir: "asc" })).at(-1)).toBe("idle");
+    // tokens() renders 0 as "—", so a zero total is absent, not the smallest.
+    expect(slugs(sortRepos(rows, { key: "tokens", dir: "asc" })).at(-1)).toBe("idle");
   });
 
   it("sorts the latest PR by time", () => {

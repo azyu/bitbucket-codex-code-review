@@ -22,10 +22,10 @@ const VALUE: Record<RepoSortKey, (r: RepoStats) => string | number | null> = {
   repository: (r) => `${r.workspaceSlug}/${r.repoSlug}`,
   runs: (r) => r.counts.total,
   success: (r) => (r.counts.total > 0 ? r.counts.completed / r.counts.total : null),
-  // duration() renders 0 as "—", so 0 is absent here too.
+  // duration() and tokens() render 0 as "—", so 0 is absent here too.
   codexAvg: (r) => (r.durations.codexAvgMs > 0 ? r.durations.codexAvgMs : null),
   reviewAvg: (r) => (r.durations.reviewAvgMs > 0 ? r.durations.reviewAvgMs : null),
-  tokens: (r) => r.tokens.totalTokens,
+  tokens: (r) => (r.tokens.totalTokens > 0 ? r.tokens.totalTokens : null),
   latest: (r) => (r.latestReview === null ? null : Date.parse(r.latestReview.createdAt)),
 };
 
