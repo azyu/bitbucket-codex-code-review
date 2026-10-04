@@ -3,6 +3,8 @@ import { ConfigService } from "@nestjs/config";
 import { CodexService } from "./codex.service";
 import * as childProcess from "child_process";
 import * as fsPromises from "fs/promises";
+import * as fs from "fs";
+import { resolve } from "path";
 
 jest.mock("@lib/logger", () => ({
   ServiceLogger: jest.fn().mockImplementation(() => ({
@@ -87,6 +89,7 @@ describe("CodexService", () => {
     spawnSpy = jest.spyOn(childProcess, "spawn");
     readFileSpy = jest.spyOn(fsPromises, "readFile");
     rmSpy = jest.spyOn(fsPromises, "rm").mockResolvedValue();
+    jest.spyOn(fs, "realpathSync").mockImplementation((path) => resolve(String(path)));
   });
 
   afterEach(() => {
@@ -198,6 +201,29 @@ describe("CodexService", () => {
     );
   });
 
+  it("uses the canonical path so a trusted symlink target cannot win", async () => {
+    jest.spyOn(fs, "realpathSync").mockReturnValue("/canonical/work.tree");
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockResolvedValue("review output text");
+
+    const promise = createService().executeCodex(
+      "/worktree-link",
+      "main",
+      "review this",
+      DEFAULT_SETTINGS,
+      EMPTY_CONNECTION,
+    );
+    child.emit("close", 0, null);
+    await promise;
+
+    const args = spawnSpy.mock.calls[0][1] as string[];
+    expect(args).toContain(
+      'projects={"/canonical/work.tree"={trust_level="untrusted"}}',
+    );
+    expect(fs.realpathSync).toHaveBeenCalledWith("/worktree-link");
+  });
+
   it("should pass prompt through stdin instead of argv to avoid E2BIG", async () => {
     const child = createMockChild();
     spawnSpy.mockReturnValue(child);
@@ -219,6 +245,37 @@ describe("CodexService", () => {
     expect(args).not.toContain(largePrompt);
     expect(options.stdio[0]).toBe("pipe");
     expect(child.stdin.end).toHaveBeenCalledWith(largePrompt);
+  });
+
+  it.each([
+    "/work",
+    'relative/work.tree with spaces/"quoted"\\path',
+  ])("marks review worktree %s as untrusted", async (worktreePath) => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockResolvedValue("review output text");
+
+    const promise = createService().executeCodex(
+      worktreePath,
+      "main",
+      "review this",
+      DEFAULT_SETTINGS,
+      EMPTY_CONNECTION,
+    );
+    child.emit("close", 0, null);
+    await promise;
+
+    const [, args, options] = spawnSpy.mock.calls[0] as [
+      string,
+      string[],
+      { cwd: string },
+    ];
+    const trustOverride =
+      `projects={${JSON.stringify(resolve(options.cwd))}={trust_level="untrusted"}}`;
+    const overrideIndex = args.indexOf(trustOverride);
+    expect(overrideIndex).toBeGreaterThan(0);
+    expect(args[overrideIndex - 1]).toBe("-c");
+    expect(args[args.length - 1]).toBe("-");
   });
 
   it("passes only allowlisted env plus the job-start API key", async () => {

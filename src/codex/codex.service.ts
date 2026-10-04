@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { ServiceLogger } from "@lib/logger";
 import { execFile, spawn } from "child_process";
 import { readFile, rm } from "fs/promises";
+import { realpathSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import {
@@ -159,6 +160,7 @@ export class CodexService {
     outputFile: string,
     settings: IReviewSettingsSnapshot,
     connection: IOpenAiConnectionSnapshot,
+    worktreePath: string,
   ): string[] {
     const args = [
       "exec",
@@ -177,7 +179,13 @@ export class CodexService {
       args.push("-c", 'model_provider="openai"');
       args.push("-c", `openai_base_url=${JSON.stringify(connection.baseUrl)}`);
     }
-    args.push("-");
+    // CLI dotted override keys split on periods without parsing quoted keys.
+    // Put the path in a TOML table value to disable PR-controlled instructions.
+    args.push(
+      "-c",
+      `projects={${JSON.stringify(realpathSync(worktreePath))}={trust_level="untrusted"}}`,
+      "-",
+    );
     return args;
   }
 
@@ -406,7 +414,12 @@ export class CodexService {
     );
 
     try {
-      const args = this.buildCodexArgs(outputFile, settings, connection);
+      const args = this.buildCodexArgs(
+        outputFile,
+        settings,
+        connection,
+        worktreePath,
+      );
       const result = await this.spawnCodex(
         args,
         worktreePath,
