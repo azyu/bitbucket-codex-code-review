@@ -56,7 +56,9 @@
     </div>
   </header>
 
-  <main class="mx-auto grid max-w-7xl gap-5 p-5">
+  <!-- One minmax(0,1fr) track: an auto track grows to the widest table, so on a
+       phone the page scrolled sideways instead of the table inside its card. -->
+  <main class="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-5 p-4 sm:p-5">
     {#if store.loadError !== null}
       <p class="rounded-md bg-bad-bg px-3 py-2.5 text-bad" role="alert">
         {resolve(store.loadError)}
