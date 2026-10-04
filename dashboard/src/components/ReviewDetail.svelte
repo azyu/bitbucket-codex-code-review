@@ -1,10 +1,11 @@
 <script lang="ts">
   import { absoluteTime, count, duration, shortSha, tokens } from "../lib/format";
   import { resolve, t, tEnum } from "../lib/i18n.svelte";
+  import { pullRequestUrl } from "../lib/attention";
   import { store } from "../lib/store.svelte";
   import StatusBadge from "./StatusBadge.svelte";
 
-  const headingText = "text-[11.5px] tracking-[0.06em] text-fg-dim uppercase";
+  const headingText = "text-xs font-semibold text-fg-dim";
   const heading = `mb-2 ${headingText}`;
   const grid = "grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-x-4.5 gap-y-1.5";
   const row = "flex justify-between gap-2.5 border-b border-border pb-1.25 text-code";
@@ -32,6 +33,13 @@
   }
 </script>
 
+{#snippet fact(label: string, value: string, mono = false)}
+  <div class={row}>
+    <dt class="text-fg-dim">{label}</dt>
+    <dd class={["min-w-0 text-right tabular-nums wrap-anywhere", mono && "font-mono"]}>{value}</dd>
+  </div>
+{/snippet}
+
 <svelte:window onkeydown={onKeydown} />
 
 <div class="fixed inset-0 z-10 bg-black/40" role="presentation" onclick={() => store.closeReview()}></div>
@@ -53,7 +61,7 @@
         <span class="truncate font-semibold">{t("detail.title")}</span>
       {/if}
     </div>
-    <button onclick={() => store.closeReview()} aria-label={t("action.close")}>
+    <button class="shrink-0" onclick={() => store.closeReview()} aria-label={t("action.close")}>
       {t("action.close")}
     </button>
   </header>
@@ -64,71 +72,61 @@
     {:else if store.detailError !== null}
       <p class="rounded-md bg-bad-bg px-3 py-2.5 text-bad" role="alert">{resolve(store.detailError)}</p>
     {:else if detail !== null}
-      <dl class={grid}>
-        <div class={row}><dt class="text-fg-dim">{t("detail.runId")}</dt><dd class="text-right font-mono tabular-nums">{detail.id}</dd></div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.started")}</dt>
-          <dd class="text-right tabular-nums">{absoluteTime(detail.createdAt)}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.updated")}</dt>
-          <dd class="text-right tabular-nums">{absoluteTime(detail.updatedAt)}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.trigger")}</dt>
-          <dd class="text-right tabular-nums">{tEnum("trigger", detail.triggerType)}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.branch")}</dt>
-          <dd class="text-right font-mono tabular-nums">{detail.headBranch} → {detail.baseBranch}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.commits")}</dt>
-          <dd class="text-right font-mono tabular-nums">
-            {shortSha(detail.headCommitHash)} / {shortSha(detail.baseCommitHash)}
-          </dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.codexModel")}</dt>
-          <dd class="text-right tabular-nums">{detail.codexModel || "—"}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.effort")}</dt>
-          <dd class="text-right tabular-nums">{detail.codexReasoningEffort || "—"}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.cliVersion")}</dt>
-          <dd class="text-right font-mono tabular-nums">{detail.codexCliVersion || "—"}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.mergeBase")}</dt>
-          <dd class="text-right font-mono tabular-nums">{shortSha(detail.reviewMergeBase)}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.codexTime")}</dt>
-          <dd class="text-right tabular-nums">{duration(detail.durationMs)}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.totalTime")}</dt>
-          <dd class="text-right tabular-nums">{duration(detail.totalDurationMs)}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.inputTokens")}</dt>
-          <dd class="text-right tabular-nums">{tokens(detail.inputTokens)}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.cachedInput")}</dt>
-          <dd class="text-right tabular-nums">{tokens(detail.cachedInputTokens)}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.outputTokens")}</dt>
-          <dd class="text-right tabular-nums">{tokens(detail.outputTokens)}</dd>
-        </div>
-        <div class={row}>
-          <dt class="text-fg-dim">{t("detail.resultComment")}</dt>
-          <dd class="text-right font-mono tabular-nums">{count(detail.resultCommentId)}</dd>
-        </div>
-      </dl>
+      <a
+        class="inline-flex w-fit items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 font-medium text-accent no-underline hover:bg-surface-2"
+        href={pullRequestUrl(detail.workspaceSlug, detail.repositorySlug, detail.pullRequestId)}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {t("detail.openPr")}
+        <svg viewBox="0 0 16 16" aria-hidden="true" class="size-3.5 fill-none stroke-current stroke-2" stroke-linecap="round">
+          <path d="M6 3.5h6.5V10M12.5 3.5L5 11" />
+        </svg>
+        <span class="sr-only">{t("detail.newTab")}</span>
+      </a>
+
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-x-6 gap-y-4.5">
+        <section>
+          <h3 class={heading}>{t("detail.group.run")}</h3>
+          <dl class="grid gap-y-1.5">
+            {@render fact(t("detail.runId"), String(detail.id), true)}
+            {@render fact(t("detail.started"), absoluteTime(detail.createdAt))}
+            {@render fact(t("detail.updated"), absoluteTime(detail.updatedAt))}
+            {@render fact(t("detail.trigger"), tEnum("trigger", detail.triggerType))}
+            {@render fact(t("detail.resultComment"), count(detail.resultCommentId), true)}
+          </dl>
+        </section>
+        <section>
+          <h3 class={heading}>{t("detail.group.code")}</h3>
+          <dl class="grid gap-y-1.5">
+            {@render fact(t("detail.branch"), `${detail.headBranch} → ${detail.baseBranch}`, true)}
+            {@render fact(
+              t("detail.commits"),
+              `${shortSha(detail.headCommitHash)} / ${shortSha(detail.baseCommitHash)}`,
+              true,
+            )}
+            {@render fact(t("detail.mergeBase"), shortSha(detail.reviewMergeBase), true)}
+          </dl>
+        </section>
+        <section>
+          <h3 class={heading}>{t("detail.group.codex")}</h3>
+          <dl class="grid gap-y-1.5">
+            {@render fact(t("detail.codexModel"), detail.codexModel || "—")}
+            {@render fact(t("detail.effort"), detail.codexReasoningEffort || "—")}
+            {@render fact(t("detail.cliVersion"), detail.codexCliVersion || "—", true)}
+          </dl>
+        </section>
+        <section>
+          <h3 class={heading}>{t("detail.group.usage")}</h3>
+          <dl class="grid gap-y-1.5">
+            {@render fact(t("detail.codexTime"), duration(detail.durationMs))}
+            {@render fact(t("detail.totalTime"), duration(detail.totalDurationMs))}
+            {@render fact(t("detail.inputTokens"), tokens(detail.inputTokens))}
+            {@render fact(t("detail.cachedInput"), tokens(detail.cachedInputTokens))}
+            {@render fact(t("detail.outputTokens"), tokens(detail.outputTokens))}
+          </dl>
+        </section>
+      </div>
 
       {#if detail.errorMessage}
         <section>

@@ -13,11 +13,12 @@ export const linkButton =
 
 export const fieldLabel = "text-xs font-semibold text-fg-dim";
 
-export type Tone = "ok" | "warn" | "bad" | "mute";
+export type Tone = "ok" | "warn" | "bad" | "run" | "mute";
 
 export const TONE_CLASS: Record<Tone, string> = {
   ok: "bg-ok-bg text-ok",
   warn: "bg-warn-bg text-warn",
   bad: "bg-bad-bg text-bad",
+  run: "bg-run-bg text-run",
   mute: "bg-mute-bg text-mute",
 };

@@ -27,6 +27,9 @@
   --color-warn-bg: #fdf1d9;
   --color-bad: #c0392f;
   --color-bad-bg: #fbe9e7;
+  /* In-flight runs: distinct from warn so "still going" never reads as "trouble". */
+  --color-run: #0a6d9f;
+  --color-run-bg: #e0eff7;
   --color-mute: #5c6570;
   --color-mute-bg: #eceef1;
 
@@ -65,6 +68,8 @@
   --color-warn-bg: #33270e;
   --color-bad: #f08479;
   --color-bad-bg: #351d1a;
+  --color-run: #62b9e8;
+  --color-run-bg: #0f2738;
   --color-mute: #9aa4ae;
   --color-mute-bg: #262b2f;
 
@@ -159,18 +164,16 @@
 
   th {
     text-align: left;
-    font-size: var(--text-2xs);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: 12px;
     color: var(--color-fg-dim);
-    font-weight: 600;
+    font-weight: 500;
     padding: 8px 12px;
     border-bottom: 1px solid var(--color-border);
     white-space: nowrap;
   }
 
   td {
-    padding: 9px 12px;
+    padding: 8px 12px;
     border-bottom: 1px solid var(--color-border);
     vertical-align: middle;
   }

@@ -2,28 +2,35 @@
   import { count, duration, percent, relativeTime, shortSha, tokens } from "../lib/format";
   import { t, tEnum } from "../lib/i18n.svelte";
   import { store } from "../lib/store.svelte";
+  import { LONG_RUNNING_MS, needsAttention } from "../lib/attention";
   import { nextSort, sortRepos, type RepoSort, type RepoSortKey } from "../lib/sort";
-  import { linkButton } from "../lib/ui";
+  import { linkButton, TONE_CLASS } from "../lib/ui";
   import StatusBadge from "./StatusBadge.svelte";
 
   const LIMITS = [10, 25, 50];
 
   const card = "rounded-lg border border-border bg-surface";
-  const tile = `${card} grid gap-0.5 px-4 py-3.5`;
+  // Inset lines on the right and bottom; the grid's -1px margins tuck the last
+  // column's and row's lines under the card border, and a short last row
+  // leaves plain surface instead of a filled gap.
+  const tile = "grid content-start gap-0.5 px-4 py-3.5 shadow-[inset_-1px_-1px_0_var(--color-border)]";
   const tileLabel = "text-[11.5px] text-fg-dim";
   const tileValue = "text-2xl font-semibold tracking-[-0.02em]";
-  const heading = "mb-2.5 text-[13px] tracking-[0.06em] text-fg-dim uppercase";
+  const heading = "mb-2.5 text-[13px] font-semibold text-fg-dim";
   // The workspace slug lives beside the heading instead of on every row, so
   // it must opt out of the heading's uppercase tracking.
   const workspace = "ml-2 font-mono text-code font-normal tracking-normal normal-case";
   const empty = `${card} p-5.5 text-center text-fg-dim`;
-  const scroll = `${card} overflow-x-auto`;
+  // relative: the sr-only text in a cell is absolutely positioned, and without
+  // a positioned ancestor inside the scroller it lands at the table's far edge
+  // in page coordinates — widening the whole page on a phone.
+  const scroll = `${card} relative overflow-x-auto`;
   const limitButton = "px-2.5 py-0.75 text-xs";
   const limitIdle = `${limitButton} text-fg-dim`;
   const limitActive = `${limitButton} bg-surface-2 font-semibold text-fg`;
   // The th already carries the header look; the button only drops its chrome.
   const sortButton =
-    "inline-flex items-center gap-1 border-none bg-transparent p-0 uppercase text-inherit hover:bg-transparent hover:text-fg";
+    "inline-flex items-center gap-1 border-none bg-transparent p-0 font-medium text-inherit hover:bg-transparent hover:text-fg";
 
   let totals = $derived.by(() => {
     const seed = {
@@ -64,9 +71,32 @@
     return sharedWorkspace === null ? `${workspaceSlug}/${repoSlug}` : repoSlug;
   }
 
+  let attention = $derived(needsAttention(store.repoStats));
+  let urgent = $derived(attention.filter((item) => item.kind !== "inFlight"));
+  let running = $derived(attention.filter((item) => item.kind === "inFlight"));
+  let inFlight = $derived(
+    totals.total - totals.completed - totals.failed - totals.superseded,
+  );
+
+  // Error text is collapsed to two lines per row until asked for.
+  let expanded = $state<Record<number, boolean>>({});
+
+  /** Width of one segment of a stacked bar, as a share of `whole`. */
+  function share(part: number, whole: number): string {
+    return `${whole > 0 ? (part / whole) * 100 : 0}%`;
+  }
+
   let repoSort = $state<RepoSort>({ key: "runs", dir: "desc" });
   let ranked = $derived(sortRepos(store.repoStats, repoSort));
 </script>
+
+{#snippet bar(completed: number, failed: number, superseded: number, total: number)}
+  <span class="flex h-1.5 gap-px overflow-hidden rounded-xs bg-surface-2" aria-hidden="true">
+    <i class="bg-ok" style:width={share(completed, total)}></i>
+    <i class="bg-bad" style:width={share(failed, total)}></i>
+    <i class="bg-fg-dim opacity-45" style:width={share(superseded, total)}></i>
+  </span>
+{/snippet}
 
 {#snippet arrow(key: RepoSortKey)}
   <span aria-hidden="true" class={repoSort.key === key ? "" : "invisible"}
@@ -94,50 +124,112 @@
   </th>
 {/snippet}
 
-<section class="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
-  <div class={tile}>
-    <span class={tileLabel}>{t("overview.runs")}</span>
-    <strong class={tileValue}>{count(totals.total)}</strong>
-    <span class={tileLabel}>
-      {t("overview.repositories", { count: store.repoStats.length })}
-    </span>
-  </div>
-  <div class={tile}>
-    <span class={tileLabel}>{t("overview.completed")}</span>
-    <strong class={[tileValue, "text-ok"]}>{count(totals.completed)}</strong>
-    <span class={tileLabel}>
-      {t("overview.ofRuns", {
-        percent: percent(totals.completed, totals.total),
-      })}
-    </span>
-  </div>
-  <div class={tile}>
-    <span class={tileLabel}>{t("overview.failed")}</span>
-    <strong class={[tileValue, totals.failed > 0 && "text-bad"]}>{count(totals.failed)}</strong>
-    <span class={tileLabel}>
-      {t("overview.superseded", { count: count(totals.superseded) })}
-    </span>
-  </div>
-  <div class={tile}>
-    <span class={tileLabel}>{t("overview.reviewTime")}</span>
-    <strong class={tileValue}>{duration(totals.reviewTotalMs)}</strong>
-    <span class={tileLabel}>
-      <!-- Divided by the runs that actually reported a duration, which is
-           what the backend's AVG(totalDurationMs) counts. Using counts.total
-           would understate the average while runs are queued or running. -->
-      {t("overview.average", {
-        duration: duration(
-          totals.reviewSampleCount > 0
-            ? totals.reviewTotalMs / totals.reviewSampleCount
-            : 0,
-        ),
-      })}
-    </span>
-  </div>
-  <div class={tile}>
-    <span class={tileLabel}>{t("overview.tokens")}</span>
-    <strong class={tileValue}>{tokens(totals.totalTokens)}</strong>
-    <span class={tileLabel}>{t("overview.inputOutput")}</span>
+{#if store.repoStats.length > 0}
+  <section class={card} aria-labelledby="attention-title">
+    <header class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border px-4 py-2.5">
+      <h2 id="attention-title" class="text-[14px]">{t("attention.title")}</h2>
+      <span class="text-xs text-fg-dim">{t("attention.note")}</span>
+    </header>
+    {#if attention.length === 0}
+      <p class="flex items-center gap-2 px-4 py-3 text-fg-dim">
+        <StatusBadge status="completed" />
+        {t("attention.clear")}
+      </p>
+    {:else}
+      <ul>
+        {#each urgent as { kind, repo } (repo.workspaceSlug + "/" + repo.repoSlug)}
+          <li class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-4 py-2.5 first:border-t-0">
+            {#if kind === "longRunning"}
+              <span class={["inline-flex rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap", TONE_CLASS.warn]}>
+                {t("attention.longRunning", { minutes: LONG_RUNNING_MS / 60_000 })}
+              </span>
+            {/if}
+            <StatusBadge status={repo.latestReview.reviewStatus} />
+            <span class="min-w-0 flex-1 basis-48">
+              <span class="font-mono text-code font-semibold">{repoLabel(repo.workspaceSlug, repo.repoSlug)}</span>
+              <span class="text-fg-dim">
+                #{repo.latestReview.pullRequestId} · {relativeTime(repo.latestReview.createdAt)}
+              </span>
+            </span>
+            <button class="px-2.5 py-1 text-xs" onclick={() => store.openReview(repo.latestReview.id)}>
+              {t("action.open")}
+            </button>
+          </li>
+        {/each}
+        {#if running.length > 0}
+          <li class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-4 py-2.5 first:border-t-0">
+            <span class={["inline-flex rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap", TONE_CLASS.run]}>
+              {t("overview.inFlight", { count: running.length })}
+            </span>
+            {#each running as { repo } (repo.workspaceSlug + "/" + repo.repoSlug)}
+              <span class="whitespace-nowrap">
+                <button class={linkButton} onclick={() => store.openReview(repo.latestReview.id)}>
+                  {repoLabel(repo.workspaceSlug, repo.repoSlug)} #{repo.latestReview.pullRequestId}
+                </button>
+                <span class="text-fg-dim">
+                  {tEnum("status", repo.latestReview.reviewStatus)} · {relativeTime(repo.latestReview.createdAt)}
+                </span>
+              </span>
+            {/each}
+          </li>
+        {/if}
+      </ul>
+    {/if}
+  </section>
+{/if}
+
+<section class={`${card} overflow-hidden`}>
+  <div class="-mr-px -mb-px grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))]">
+    <div class={tile}>
+      <span class={tileLabel}>{t("overview.runs")}</span>
+      <strong class={tileValue}>{count(totals.total)}</strong>
+      <span class={tileLabel}>
+        {t("overview.repositories", { count: store.repoStats.length })}
+        {#if inFlight > 0}
+          · <span class="text-run">{t("overview.inFlight", { count: inFlight })}</span>
+        {/if}
+      </span>
+      <span class="mt-1.5">
+        {@render bar(totals.completed, totals.failed, totals.superseded, totals.total)}
+      </span>
+    </div>
+    <div class={tile}>
+      <span class={tileLabel}>{t("overview.completed")}</span>
+      <strong class={[tileValue, "text-ok"]}>{count(totals.completed)}</strong>
+      <span class={tileLabel}>
+        {t("overview.ofRuns", {
+          percent: percent(totals.completed, totals.total),
+        })}
+      </span>
+    </div>
+    <div class={tile}>
+      <span class={tileLabel}>{t("overview.failed")}</span>
+      <strong class={[tileValue, totals.failed > 0 && "text-bad"]}>{count(totals.failed)}</strong>
+      <span class={tileLabel}>
+        {t("overview.superseded", { count: count(totals.superseded) })}
+      </span>
+    </div>
+    <div class={tile}>
+      <span class={tileLabel}>{t("overview.reviewTime")}</span>
+      <strong class={tileValue}>{duration(totals.reviewTotalMs)}</strong>
+      <span class={tileLabel}>
+        <!-- Divided by the runs that actually reported a duration, which is
+             what the backend's AVG(totalDurationMs) counts. Using counts.total
+             would understate the average while runs are queued or running. -->
+        {t("overview.average", {
+          duration: duration(
+            totals.reviewSampleCount > 0
+              ? totals.reviewTotalMs / totals.reviewSampleCount
+              : 0,
+          ),
+        })}
+      </span>
+    </div>
+    <div class={tile}>
+      <span class={tileLabel}>{t("overview.tokens")}</span>
+      <strong class={tileValue}>{tokens(totals.totalTokens)}</strong>
+      <span class={tileLabel}>{t("overview.inputOutput")}</span>
+    </div>
   </div>
 </section>
 
@@ -187,7 +279,15 @@
                    focus and a touch screen has no hover — so they ride along
                    as text the cell's accessible name includes. -->
               <td class="text-right">
-                {percent(repo.counts.completed, repo.counts.total)}
+                <span class="inline-grid grid-cols-[3.25rem_4rem] items-center gap-2">
+                  {percent(repo.counts.completed, repo.counts.total)}
+                  {@render bar(
+                    repo.counts.completed,
+                    repo.counts.failed,
+                    repo.counts.superseded,
+                    repo.counts.total,
+                  )}
+                </span>
                 <span class="sr-only">
                   {t("overview.breakdown", {
                     completed: repo.counts.completed,
@@ -262,7 +362,7 @@
         </thead>
         <tbody>
           {#each store.recent as review (review.id)}
-            <tr>
+            <tr class={review.errorMessage ? "[&>td]:border-b-0" : ""}>
               <td><StatusBadge status={review.reviewStatus} /></td>
               <td class="font-mono text-code">
                 {repoLabel(review.workspaceSlug, review.repositorySlug)}
@@ -294,11 +394,25 @@
             </tr>
             {#if review.errorMessage}
               <tr>
-                <td class="border-b-0 pt-0"></td>
-                <td
-                  colspan="10"
-                  class="border-b-0 pt-0 font-mono text-xs whitespace-normal text-bad"
-                >{review.errorMessage}</td>
+                <td class="pt-0"></td>
+                <td colspan="10" class="pt-0 whitespace-normal">
+                  <div
+                    class="grid grid-cols-[1fr_auto] items-start gap-2 rounded-sm border-l-3 border-bad bg-bad-bg py-1.5 pr-2 pl-2.5"
+                  >
+                    <pre
+                      class={expanded[review.id]
+                        ? "m-0 font-mono text-xs leading-[1.6] wrap-anywhere whitespace-pre-wrap"
+                        : "m-0 line-clamp-2 font-mono text-xs leading-[1.6] wrap-anywhere whitespace-pre-wrap"}
+                    >{review.errorMessage}</pre>
+                    <button
+                      class="border-transparent bg-transparent px-2 py-0.5 text-xs"
+                      aria-expanded={expanded[review.id] === true}
+                      onclick={() => (expanded[review.id] = !expanded[review.id])}
+                    >
+                      {expanded[review.id] ? t("action.collapse") : t("action.showAll")}
+                    </button>
+                  </div>
+                </td>
               </tr>
             {/if}
           {/each}

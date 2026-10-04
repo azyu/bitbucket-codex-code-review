@@ -84,6 +84,8 @@ pnpm 메이저를 올릴 때는 corepack부터 확인할 것. pnpm은 npm 패키
 
 - 같은 속성을 건드리는 유틸리티 두 개(`bg-transparent`와 `bg-surface-2`, `text-fg-dim`와 `text-fg`)를 한 요소에 같이 두면, 이기는 쪽은 class 순서가 아니라 생성된 CSS의 순서로 정해진다. `class={[base, active && on]}` 패턴으로는 활성 상태가 조용히 사라진다(#133에서 nav 활성 배경이 없어졌다). 상태별로 완성된 문자열을 삼항으로 고를 것.
 - 토큰은 `@theme inline`이 아니라 plain `@theme`에 둔다. inline으로 두면 유틸리티에 라이트 값이 박혀서 `data-theme="dark"` 오버라이드가 먹지 않는다.
+- 가로 스크롤 래퍼(`overflow-x-auto`)에는 `relative`를 같이 둘 것. 셀 안의 `sr-only`는 absolute라 위치 지정된 조상이 래퍼 안에 없으면 페이지 좌표의 표 오른쪽 끝에 놓이고, 래퍼가 잘라내지 못해 휴대폰에서 페이지 전체가 옆으로 밀린다(#166에서 390px 폭에 522px 넘침). `document.documentElement.scrollWidth - innerWidth`로 확인한다.
+- `sticky` 요소가 있는 화면은 풀페이지 캡처로 판단하지 말 것. 캡처는 첫 뷰포트 높이 기준으로 sticky를 그려서, 실제로는 없는 겹침이 화면 중간에 나타난다. 뷰포트 단위로 스크롤하며 찍는다.
 - 화면에 영향을 주는 변경은 이전 커밋과 스크린샷을 나란히 비교해 확인할 것. #133에서 나온 줄높이 2px 차이(Tailwind `text-xs`의 기본 line-height), Preflight가 바꾼 placeholder 색, 사라진 활성 상태는 build·lint·test를 모두 통과한 뒤 스크린샷 비교에서만 드러났다.
 
 ## 프로젝트 개요

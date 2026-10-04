@@ -14,8 +14,13 @@
 
   const pane = "grid content-start gap-3.5 rounded-lg border border-border bg-surface px-5 py-4.5";
   const paneHeader = "flex flex-wrap items-start justify-between gap-3.5";
-  const subheading =
-    "border-t border-border pt-3.5 text-[11.5px] tracking-[0.06em] text-fg-dim uppercase";
+  const subheading = "border-t border-border pt-3.5 text-[13px] font-semibold";
+  const saveBar =
+    "-mx-5 -mb-4.5 flex items-center justify-end gap-3 rounded-b-lg border-t border-border bg-surface px-5 py-3";
+  // The global pane runs past a screen, so its save action stays pinned to
+  // the viewport bottom. Not the repository pane: it is short, and a sticky
+  // bar there rises over the pane's own heading as the pane scrolls into view.
+  const stickySaveBar = `${saveBar} sticky bottom-0`;
   const note = "text-xs text-fg-dim";
   const grid = "grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-x-4 gap-y-3.25";
   const field = "grid content-start gap-1.25";
@@ -54,20 +59,7 @@
           })}
         </span>
       </div>
-      <button
-        class={primaryButton}
-        disabled={saving}
-        onclick={() => save(() => store.saveGlobal())}
-      >
-        {saving ? t("common.saving") : t("settings.saveGlobal")}
-      </button>
     </header>
-
-    {#if store.globalNotice !== null}
-      <p class={[notice, NOTICE_CLASS[store.globalNotice.kind]]} role="status">
-        {resolve(store.globalNotice.text)}
-      </p>
-    {/if}
 
     <div class={grid}>
       {#each GLOBAL_VALUE_KEYS as key (key)}
@@ -123,6 +115,21 @@
         />
       </div>
     </div>
+
+    <div class={stickySaveBar}>
+      {#if store.globalNotice !== null}
+        <p class={["mr-auto", notice, NOTICE_CLASS[store.globalNotice.kind]]} role="status">
+          {resolve(store.globalNotice.text)}
+        </p>
+      {/if}
+      <button
+        class={primaryButton}
+        disabled={saving}
+        onclick={() => save(() => store.saveGlobal())}
+      >
+        {saving ? t("common.saving") : t("settings.saveGlobal")}
+      </button>
+    </div>
   </section>
 
   <section class={pane}>
@@ -131,22 +138,7 @@
         <h2 class="text-[15px]">{t("settings.repoOverride")}</h2>
         <span class={note}>{t("settings.repoOverrideNote")}</span>
       </div>
-      <button
-        class={primaryButton}
-        disabled={saving ||
-          store.repositoryDraftStale ||
-          store.repositoryDraft.repositorySlug === ""}
-        onclick={() => save(() => store.saveRepository())}
-      >
-        {saving ? t("common.saving") : t("settings.saveRepository")}
-      </button>
     </header>
-
-    {#if store.repositoryNotice !== null}
-      <p class={[notice, NOTICE_CLASS[store.repositoryNotice.kind]]} role="status">
-        {resolve(store.repositoryNotice.text)}
-      </p>
-    {/if}
 
     <div class="grid grid-cols-[1fr_1fr_auto] items-end gap-2.5">
       <div class={field}>
@@ -230,5 +222,22 @@
         {/each}
       </div>
     {/if}
+
+    <div class={saveBar}>
+      {#if store.repositoryNotice !== null}
+        <p class={["mr-auto", notice, NOTICE_CLASS[store.repositoryNotice.kind]]} role="status">
+          {resolve(store.repositoryNotice.text)}
+        </p>
+      {/if}
+      <button
+        class={primaryButton}
+        disabled={saving ||
+          store.repositoryDraftStale ||
+          store.repositoryDraft.repositorySlug === ""}
+        onclick={() => save(() => store.saveRepository())}
+      >
+        {saving ? t("common.saving") : t("settings.saveRepository")}
+      </button>
+    </div>
   </section>
 {/if}
