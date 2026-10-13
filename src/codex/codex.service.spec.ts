@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 import { ConfigService } from "@nestjs/config";
 import { CodexService } from "./codex.service";
+import { REVIEW_OUTPUT_SCHEMA } from "./review-output.schema";
 import * as childProcess from "child_process";
 import * as fsPromises from "fs/promises";
 import * as fs from "fs";
@@ -84,11 +85,13 @@ describe("CodexService", () => {
   let spawnSpy: jest.SpyInstance;
   let readFileSpy: jest.SpyInstance;
   let rmSpy: jest.SpyInstance;
+  let writeFileSpy: jest.SpyInstance;
 
   beforeEach(() => {
     spawnSpy = jest.spyOn(childProcess, "spawn");
     readFileSpy = jest.spyOn(fsPromises, "readFile");
     rmSpy = jest.spyOn(fsPromises, "rm").mockResolvedValue();
+    writeFileSpy = jest.spyOn(fs, "writeFileSync").mockImplementation(() => {});
     jest.spyOn(fs, "realpathSync").mockImplementation((path) => resolve(String(path)));
   });
 
@@ -120,6 +123,24 @@ describe("CodexService", () => {
       publicError: null,
     });
     expect(rmSpy).toHaveBeenCalled();
+  });
+
+  // 스키마가 argv에 없거나 다른 파일을 가리키면 codex는 형식 강제 없이 돌고,
+  // 파싱 실패가 원문 코멘트 fallback으로 조용히 흘러간다.
+  it("passes the review schema file via --output-schema and removes it afterwards", async () => {
+    const child = createMockChild();
+    spawnSpy.mockReturnValue(child);
+    readFileSpy.mockResolvedValue("out");
+
+    const promise = createService().executeCodex("/work", "main", "review this", DEFAULT_SETTINGS, EMPTY_CONNECTION);
+    child.emit("close", 0, null);
+    await promise;
+
+    const args = spawnSpy.mock.calls[0][1] as string[];
+    const schemaFile = args[args.indexOf("--output-schema") + 1];
+    expect(schemaFile).toBe(`${args[args.indexOf("--output-last-message") + 1]}.schema.json`);
+    expect(writeFileSpy).toHaveBeenCalledWith(schemaFile, JSON.stringify(REVIEW_OUTPUT_SCHEMA));
+    expect(rmSpy).toHaveBeenCalledWith(schemaFile, { force: true });
   });
 
   // 토큰 통계를 모델에 귀속하려면 결과가 argv와 같은 값을 실어야 한다. 둘이 갈라지면
