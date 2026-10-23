@@ -389,7 +389,7 @@ export class ReviewProcessor
 
   // BullMQ는 재시도로 이어지는 실패에도 "failed"를 emit한다 — 최종 실패와 구분해서 남긴다.
   @OnWorkerEvent("failed")
-  onFailed(job: Job<IReviewJobData>, error: Error): void {
+  async onFailed(job: Job<IReviewJobData>, error: Error): Promise<void> {
     const attempts = job.opts?.attempts ?? 1;
     const willRetry =
       job.attemptsMade < attempts && error.name !== "UnrecoverableError";
@@ -398,6 +398,36 @@ export class ReviewProcessor
         ? `Job ${job.id} failed attempt ${job.attemptsMade}/${attempts}, retrying: ${error.message}`
         : `Job ${job.id} failed permanently after ${job.attemptsMade} attempts: ${error.message}`,
     );
+
+    // deferredFailure(stalled 한도 초과 등)는 BullMQ가 process()를 호출하지 않고 곧바로
+    // 실패 처리한다 — 런을 종료 상태로 닫을 곳은 이 핸들러뿐이다 (#77).
+    if (!job.deferredFailure) return;
+
+    // claimFailure를 쓰지 않는 이유: 그 from-set은 PUBLISHING을 포함한다. 게시 도중 stall된
+    // 런은 요약 댓글을 올리고도 resultCommentId를 못 남겼을 수 있는데, FAILED + null
+    // resultCommentId면 findDuplicateRun이 행을 지우고 재요청을 수용해 중복 게시가 된다.
+    // PUBLISHING 행은 supersede에 맡긴다.
+    // 경합: 락을 잃어도 다른 워커의 process()는 멈추지 않는다. 그 process()가 아직 돌고
+    // 있으면 PUBLISHING 클레임에서 지고 게시를 건너뛴다 — 수렴하며 Codex 토큰만 낭비된다.
+    // @OnWorkerEvent는 일반 EventEmitter에 붙으므로 reject가 새면 unhandled가 된다.
+    try {
+      const claimed = await this.reviewService.claimStatus(
+        job.data.reviewRunId,
+        ReviewRunStatus.FAILED,
+        { errorMessage: error.message.substring(0, 2000) },
+      );
+      if (claimed) {
+        this.logger.log(
+          `Review run ${job.data.reviewRunId} marked FAILED after deferred failure: ${error.message}`,
+        );
+      } else {
+        await this.logInactiveRun(job.data);
+      }
+    } catch (err) {
+      this.logger.error(
+        `Failed to mark review run ${job.data.reviewRunId} FAILED after deferred failure: ${(err as Error).message}`,
+      );
+    }
   }
 
   /**
