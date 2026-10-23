@@ -550,6 +550,28 @@ describe("ReviewService conditional status transitions", () => {
     expect(fromSet?.value).toContain(ReviewRunStatus.QUEUED);
   });
 
+  it("stores extra columns with a claimStatus FAILED transition", async () => {
+    mockRepository.update.mockResolvedValueOnce({ affected: 1 });
+
+    await expect(
+      service.claimStatus(7, ReviewRunStatus.FAILED, {
+        errorMessage: "job stalled more than allowable limit",
+      }),
+    ).resolves.toBe(true);
+
+    const fromSet = criteriaOfCall(0).reviewStatus;
+    // stalled 실패 기록이 PUBLISHING 행을 FAILED로 바꾸면 findDuplicateRun이 중복 게시를 허용한다 (#77).
+    expect(fromSet?.value).not.toContain(ReviewRunStatus.PUBLISHING);
+    expect(fromSet?.value).toContain(ReviewRunStatus.REVIEWING);
+    expect(mockRepository.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 7 }),
+      {
+        reviewStatus: ReviewRunStatus.FAILED,
+        errorMessage: "job stalled more than allowable limit",
+      },
+    );
+  });
+
   it("includes PUBLISHING in the claimFailure from-set", async () => {
     mockRepository.update.mockResolvedValueOnce({ affected: 1 });
 

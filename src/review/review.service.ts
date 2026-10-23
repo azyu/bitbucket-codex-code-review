@@ -44,7 +44,7 @@ const CLAIMABLE_FOR_FAILURE = [
   ReviewRunStatus.PUBLISHING,
 ] as const;
 
-/** updateStatus/claimFailure가 상태와 함께 저장하는 부가 컬럼 집합. */
+/** updateStatus/claimStatus/claimFailure가 상태와 함께 저장하는 부가 컬럼 집합. */
 type ReviewRunStatusExtra = Partial<
   Pick<
     ReviewRunEntity,
@@ -379,10 +379,14 @@ export class ReviewService {
    * 재진입해도 이미 publishing인 행은 다시 게시 권한을 얻지 못해야 한다.
    * 행이 삭제된 경우에도 affected = 0이라 같은 경로로 걸러진다.
    */
-  async claimStatus(id: number, next: ReviewRunStatus): Promise<boolean> {
+  async claimStatus(
+    id: number,
+    next: ReviewRunStatus,
+    extra?: ReviewRunStatusExtra,
+  ): Promise<boolean> {
     const result = await this.reviewRunRepository.update(
       { id, reviewStatus: In([...CLAIMABLE_BEFORE_PUBLISH]) },
-      { reviewStatus: next },
+      { reviewStatus: next, ...extra },
     );
     return (result.affected ?? 0) > 0;
   }

@@ -2686,6 +2686,79 @@ describe("ReviewProcessor error handling", () => {
     expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
     expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
   });
+  describe("onFailed", () => {
+    const STALLED = "job stalled more than allowable limit";
+    const stalledJob = (): never =>
+      ({
+        id: "job-1",
+        data: baseJobData,
+        attemptsMade: 1,
+        opts: { attempts: 3 },
+        deferredFailure: STALLED,
+      }) as never;
+
+    it("marks the run FAILED through claimStatus on a deferred failure", async () => {
+      // stalled 한도 초과는 process()를 거치지 않으므로 여기서 닫지 않으면 런이 영원히 남는다 (#77).
+      await processor.onFailed(stalledJob(), new UnrecoverableError(STALLED));
+
+      expect(mockReviewService.claimStatus).toHaveBeenCalledWith(1, "failed", {
+        errorMessage: STALLED,
+      });
+      // claimFailure는 PUBLISHING을 FAILED로 바꿔 findDuplicateRun의 중복 게시를 연다.
+      expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
+      expect(mockBitbucketService.createComment).not.toHaveBeenCalled();
+      expect(mockBitbucketService.replyToComment).not.toHaveBeenCalled();
+    });
+
+    it("leaves the run alone on an ordinary failure", async () => {
+      // 일반 실패는 process()의 catch가 이미 상태를 기록했다.
+      const job = {
+        id: "job-1",
+        data: baseJobData,
+        attemptsMade: 3,
+        opts: { attempts: 3 },
+      } as never;
+
+      await processor.onFailed(job, new Error("Git clone failed"));
+
+      expect(mockReviewService.claimStatus).not.toHaveBeenCalled();
+      expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
+    });
+
+    it("reports the run state when the claim is rejected", async () => {
+      mockReviewService.claimStatus.mockResolvedValue(false);
+      mockReviewService.findById.mockResolvedValue({
+        id: 1,
+        reviewStatus: "publishing",
+      });
+      const logger = (
+        processor as unknown as { logger: { warn: jest.Mock } }
+      ).logger;
+
+      await expect(
+        processor.onFailed(stalledJob(), new UnrecoverableError(STALLED)),
+      ).resolves.toBeUndefined();
+
+      expect(mockReviewService.findById).toHaveBeenCalledWith(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("status=publishing"),
+      );
+      expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
+    });
+
+    it("does not reject when the claim throws", async () => {
+      // EventEmitter 리스너라 reject가 새면 unhandled rejection이 된다.
+      mockReviewService.claimStatus.mockRejectedValue(new Error("db unavailable"));
+
+      await expect(
+        processor.onFailed(stalledJob(), new UnrecoverableError(STALLED)),
+      ).resolves.toBeUndefined();
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.stringContaining("db unavailable"),
+      );
+    });
+  });
 });
 
 describe("ReviewProcessor worker concurrency", () => {
