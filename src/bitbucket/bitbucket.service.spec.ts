@@ -417,6 +417,24 @@ describe("BitbucketService", () => {
       expect(waitSpy).toHaveBeenCalledWith(5000);
     });
 
+    it("retries when Retry-After equals the 10s cap", async () => {
+      mockResponses(failure(429, "10"), ok(1));
+
+      await expect(service.createComment(params, DEFAULT_CREDENTIALS)).resolves.toEqual({ id: 1 });
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(waitSpy).toHaveBeenCalledWith(10000);
+    });
+
+    it("does not retry when Retry-After is just above the 10s cap", async () => {
+      mockResponses(failure(429, "11"), ok(1));
+
+      await expect(service.createComment(params, DEFAULT_CREDENTIALS)).rejects.toThrow(
+        "Bitbucket API error 429",
+      );
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(waitSpy).not.toHaveBeenCalled();
+    });
+
     it("does not retry when Retry-After exceeds the 10s cap", async () => {
       mockResponses(failure(429, "3600"), ok(1));
 

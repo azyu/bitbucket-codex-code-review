@@ -81,7 +81,8 @@ export class BitbucketService {
   }
 
   /**
-   * Retries 429/503 only: those responses mean the write was not processed.
+   * Retries 429/503 only: Bitbucket rejects those before processing the write. A proxy 503
+   * after the upstream received the request may mean it landed; that duplicate risk is accepted.
    * A Retry-After above the cap is a quota window, so the response is returned as-is.
    */
   private async sendWithRateLimitRetry(
