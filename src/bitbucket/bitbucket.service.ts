@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ServiceLogger } from "@lib/logger";
@@ -7,6 +8,21 @@ import {
   ICreateInlineCommentParams,
 } from "./interfaces/bitbucket.interfaces";
 import { IBitbucketCredentialSnapshot } from "../settings/runtime-settings.types";
+
+const MAX_ATTEMPTS = 3;
+const RETRYABLE_STATUSES = new Set([429, 503]);
+const DEFAULT_RETRY_DELAY_MS = 1_000;
+const MAX_RETRY_DELAY_MS = 10_000;
+
+/** Retry-After to ms. Delta-seconds is checked first: Date.parse("2") is the year 2001. */
+function parseRetryAfterMs(value: string | null): number {
+  if (value === null) return DEFAULT_RETRY_DELAY_MS;
+  if (/^\d+$/.test(value.trim())) return Number(value.trim()) * 1000;
+  const date = Date.parse(value);
+  return Number.isNaN(date)
+    ? DEFAULT_RETRY_DELAY_MS
+    : Math.max(0, date - Date.now());
+}
 
 @Injectable()
 export class BitbucketService {
@@ -48,14 +64,12 @@ export class BitbucketService {
   ): Promise<Response> {
     const authHeaders = this.resolveAuthHeaders(repoSlug, credentials);
     for (const [index, authHeader] of authHeaders.entries()) {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: authHeader,
-          "Content-Type": "application/json",
-        },
+      const response = await this.sendWithRateLimitRetry(
+        url,
+        authHeader,
         body,
-      });
+        repoSlug,
+      );
       if (response.status !== 401 || index === authHeaders.length - 1) {
         return response;
       }
@@ -64,6 +78,45 @@ export class BitbucketService {
       );
     }
     throw new Error("Bitbucket auth resolution produced no credentials");
+  }
+
+  /**
+   * Retries 429/503 only: Bitbucket rejects those before processing the write. A proxy 503
+   * after the upstream received the request may mean it landed; that duplicate risk is accepted.
+   * A Retry-After above the cap is a quota window, so the response is returned as-is.
+   */
+  private async sendWithRateLimitRetry(
+    url: string,
+    authHeader: string,
+    body: string,
+    repoSlug: string,
+  ): Promise<Response> {
+    for (let attempt = 1; ; attempt++) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "application/json",
+        },
+        body,
+      });
+      if (!RETRYABLE_STATUSES.has(response.status) || attempt >= MAX_ATTEMPTS) {
+        return response;
+      }
+      const delayMs = parseRetryAfterMs(response.headers.get("retry-after"));
+      if (delayMs > MAX_RETRY_DELAY_MS) {
+        return response;
+      }
+      await response.body?.cancel();
+      this.logger.warn(
+        `Bitbucket returned ${response.status} for "${repoSlug}"; retrying in ${delayMs}ms (attempt ${attempt + 1}/${MAX_ATTEMPTS})`,
+      );
+      await this.wait(delayMs);
+    }
+  }
+
+  private async wait(ms: number): Promise<void> {
+    await sleep(ms);
   }
 
   /** PR에 리뷰 결과 댓글 생성 */
