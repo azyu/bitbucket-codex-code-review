@@ -318,4 +318,167 @@ describe("BitbucketService", () => {
       );
     });
   });
+
+  describe("rate-limit retry", () => {
+    const params = {
+      workspace: "my-workspace",
+      repoSlug: "my-repo",
+      pullRequestId: 7,
+      body: "hello",
+    };
+    const ok = (id: number) => ({
+      ok: true,
+      status: 201,
+      json: async () => ({ id }),
+    });
+    const failure = (status: number, retryAfter?: string) => ({
+      ok: false,
+      status,
+      headers: new Headers(
+        retryAfter === undefined ? {} : { "Retry-After": retryAfter },
+      ),
+      body: { cancel: jest.fn().mockResolvedValue(undefined) },
+      text: async () => `status ${status}`,
+    });
+    let service: BitbucketService;
+    let waitSpy: jest.SpyInstance<Promise<void>, [number]>;
+
+    const mockResponses = (...responses: unknown[]): string[] => {
+      const captured: string[] = [];
+      const fetchMock = jest.fn((_url: string, options: RequestInit) => {
+        captured.push(
+          (options.headers as Record<string, string>)["Authorization"],
+        );
+        return Promise.resolve(responses[captured.length - 1]);
+      });
+      global.fetch = fetchMock as unknown as typeof fetch;
+      return captured;
+    };
+
+    beforeEach(async () => {
+      service = await createService();
+      waitSpy = jest
+        .spyOn(
+          service as unknown as { wait: (ms: number) => Promise<void> },
+          "wait",
+        )
+        .mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("retries 429 with the same auth header and drains only the retried response", async () => {
+      const limited = failure(429);
+      const captured = mockResponses(limited, ok(1));
+
+      await expect(
+        service.createComment(params, DEFAULT_CREDENTIALS),
+      ).resolves.toEqual({ id: 1 });
+
+      expect(captured).toEqual(["Bearer token", "Bearer token"]);
+      expect(limited.body.cancel).toHaveBeenCalledTimes(1);
+      expect(waitSpy).toHaveBeenCalledWith(1000);
+    });
+
+    it("gives up after 3 attempts of 503 without draining the final response", async () => {
+      const last = failure(503);
+      mockResponses(failure(503), failure(503), last);
+
+      await expect(
+        service.createComment(params, DEFAULT_CREDENTIALS),
+      ).rejects.toThrow("Bitbucket API error 503: status 503");
+      expect(global.fetch).toHaveBeenCalledTimes(3);
+      expect(waitSpy).toHaveBeenCalledTimes(2);
+      expect(last.body.cancel).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["delta-seconds before Date.parse", "2", 2000],
+      ["missing header", undefined, 1000],
+      ["unparseable header", "soon", 1000],
+      ["past HTTP-date", "Thu, 01 Jan 2015 00:00:00 GMT", 0],
+    ])("waits per Retry-After (%s)", async (_label, retryAfter, expectedMs) => {
+      mockResponses(failure(429, retryAfter), ok(1));
+
+      await service.createComment(params, DEFAULT_CREDENTIALS);
+
+      expect(waitSpy).toHaveBeenCalledWith(expectedMs);
+    });
+
+    it("honors an HTTP-date Retry-After within the cap", async () => {
+      const now = Date.UTC(2026, 9, 23, 0, 0, 0);
+      jest.spyOn(Date, "now").mockReturnValue(now);
+      mockResponses(failure(429, new Date(now + 5000).toUTCString()), ok(1));
+
+      await service.createComment(params, DEFAULT_CREDENTIALS);
+
+      expect(waitSpy).toHaveBeenCalledWith(5000);
+    });
+
+    it("does not retry when Retry-After exceeds the 10s cap", async () => {
+      mockResponses(failure(429, "3600"), ok(1));
+
+      await expect(
+        service.createComment(params, DEFAULT_CREDENTIALS),
+      ).rejects.toThrow("Bitbucket API error 429");
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(waitSpy).not.toHaveBeenCalled();
+    });
+
+    it("falls back on 401 and then retries 429 on the next auth header", async () => {
+      const captured = mockResponses(
+        { ok: false, status: 401, text: async () => "expired" },
+        failure(429),
+        ok(1),
+      );
+
+      await expect(
+        service.createComment(params, {
+          apiTokens: ["repo-token", "global-token"],
+        }),
+      ).resolves.toEqual({ id: 1 });
+      expect(captured).toEqual([
+        "Bearer repo-token",
+        "Bearer global-token",
+        "Bearer global-token",
+      ]);
+    });
+
+    it.each([400, 401, 404, 500])(
+      "does not retry status %i",
+      async (status) => {
+        mockResponses(failure(status), ok(1));
+
+        await expect(
+          service.createComment(params, DEFAULT_CREDENTIALS),
+        ).rejects.toThrow(`Bitbucket API error ${status}`);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(waitSpy).not.toHaveBeenCalled();
+      },
+    );
+
+    it("retries inline comments on 429", async () => {
+      mockResponses(failure(429), ok(12));
+
+      await expect(
+        service.createInlineComment(
+          { ...params, filePath: "src/app.ts", line: 42 },
+          DEFAULT_CREDENTIALS,
+        ),
+      ).resolves.toEqual({ id: 12 });
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not retry thrown network errors", async () => {
+      global.fetch = jest.fn().mockRejectedValue(new TypeError("fetch failed"));
+
+      await expect(
+        service.createComment(params, DEFAULT_CREDENTIALS),
+      ).rejects.toThrow("fetch failed");
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(waitSpy).not.toHaveBeenCalled();
+    });
+  });
 });
