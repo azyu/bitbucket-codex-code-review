@@ -32,7 +32,7 @@ flowchart LR
 
 **필수:**
 
-- Node.js >= 24.0.0
+- Node.js >= 26.0.0 (Node.js 26 LTS; [Node 26 릴리스 근거](node26-release-evidence.md) 참고)
 - pnpm
 - [Codex CLI](https://github.com/openai/codex) 설치
 
