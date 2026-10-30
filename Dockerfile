@@ -1,10 +1,10 @@
-FROM node:24-alpine AS deps
+FROM node:26-alpine AS deps
 
 WORKDIR /app
 
-# node:24-alpine bundles corepack 0.34.0, which still resolves pnpm through
-# bin/pnpm.cjs. pnpm 12 ships a native launcher instead, so that corepack dies
-# with MODULE_NOT_FOUND before any install runs. 0.36.0 downloads the binary.
+# Corepack 0.34.0 resolves pnpm through bin/pnpm.cjs. pnpm 12 ships a native
+# launcher instead, so that Corepack dies with MODULE_NOT_FOUND before install.
+# Corepack 0.36.0 understands pnpm 12's launcher.
 # renovate: datasource=npm depName=corepack
 RUN npm install -g corepack@0.36.0 && corepack enable
 
@@ -15,7 +15,7 @@ COPY dashboard/package.json ./dashboard/
 RUN pnpm install --frozen-lockfile
 
 
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 
 WORKDIR /app
 
@@ -33,7 +33,7 @@ COPY . .
 RUN pnpm build
 
 
-FROM node:24-alpine AS runtime
+FROM node:26-alpine AS runtime
 
 WORKDIR /app
 
