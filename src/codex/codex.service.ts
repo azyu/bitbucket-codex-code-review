@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { ServiceLogger } from "@lib/logger";
 import { execFile, spawn } from "child_process";
 import { readFile, rm } from "fs/promises";
-import { realpathSync } from "fs";
+import { realpathSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import {
@@ -15,6 +15,7 @@ import {
   parseCodexErrorLine,
   parseCodexUsageLine,
 } from "./codex-output.parser";
+import { REVIEW_OUTPUT_SCHEMA } from "./review-output.schema";
 import {
   IOpenAiConnectionSnapshot,
   IReviewSettingsSnapshot,
@@ -158,6 +159,7 @@ export class CodexService {
 
   private buildCodexArgs(
     outputFile: string,
+    schemaFile: string,
     settings: IReviewSettingsSnapshot,
     connection: IOpenAiConnectionSnapshot,
     worktreePath: string,
@@ -171,6 +173,8 @@ export class CodexService {
       "--json",
       "--output-last-message",
       outputFile,
+      "--output-schema",
+      schemaFile,
     ];
     if (settings.reasoningEffort) {
       args.push("-c", `model_reasoning_effort="${settings.reasoningEffort}"`);
@@ -393,7 +397,7 @@ export class CodexService {
   /**
    * codex exec 으로 프롬프트 실행 (non-interactive, headless)
    * worktreePath 내에서 실행하며, 호출자가 프롬프트를 지정
-   * --output-last-message 로 최종 결과만 파일로 캡처
+   * --output-last-message 로 최종 결과만 파일로 캡처, --output-schema 로 그 형식을 강제
    * stdout은 라인 스트리밍으로 usage만 추출 (메모리 버퍼 초과 방지)
    */
   async executeCodex(
@@ -408,14 +412,17 @@ export class CodexService {
       "/tmp",
       `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`,
     );
+    const schemaFile = `${outputFile}.schema.json`;
 
     this.logger.log(
       `Starting codex exec in ${worktreePath}, base: ${baseBranch}, model: ${settings.model}, reasoning: ${settings.reasoningEffort || "default"}`,
     );
 
     try {
+      writeFileSync(schemaFile, JSON.stringify(REVIEW_OUTPUT_SCHEMA));
       const args = this.buildCodexArgs(
         outputFile,
+        schemaFile,
         settings,
         connection,
         worktreePath,
@@ -463,11 +470,13 @@ export class CodexService {
         publicError,
       };
     } finally {
-      rm(outputFile, { force: true }).catch((err) => {
-        this.logger.error(
-          `Failed to cleanup output file ${outputFile}: ${(err as Error).message}`,
-        );
-      });
+      for (const file of [outputFile, schemaFile]) {
+        rm(file, { force: true }).catch((err) => {
+          this.logger.error(
+            `Failed to cleanup output file ${file}: ${(err as Error).message}`,
+          );
+        });
+      }
     }
   }
 }
