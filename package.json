@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Bitbucket PR webhook → Codex CLI code review → PR comment",
   "private": true,
-  "packageManager": "pnpm@12.11.2",
+  "packageManager": "pnpm@12.18.0",
   "engines": {
     "node": ">=26.0.0"
   },
