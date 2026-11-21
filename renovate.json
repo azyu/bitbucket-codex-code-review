@@ -1,13 +1,20 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":noUnscheduledUpdates"],
+  "extends": [
+    "config:recommended",
+    ":noUnscheduledUpdates"
+  ],
   "timezone": "Asia/Seoul",
-  "schedule": ["* 6-9 * * 5"],
+  "schedule": [
+    "* 9-12 * * 5"
+  ],
   "minimumReleaseAge": "2 days",
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "# renovate: datasource=npm depName=@openai/codex\\nRUN npm install -g @openai/codex@(?<currentValue>[\\d.]+)"
       ],
@@ -16,7 +23,9 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "# renovate: datasource=npm depName=corepack\\nRUN npm install -g corepack@(?<currentValue>[\\d.]+)"
       ],
@@ -26,18 +35,60 @@
   ],
   "packageRules": [
     {
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": [
+        "major"
+      ],
       "enabled": false
     },
     {
-      "matchPackageNames": ["!@openai/codex"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "non-major dependencies"
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "weekly minor and patch dependencies",
+      "groupSlug": "weekly-minor-patch",
+      "automerge": false
     },
     {
-      "matchPackageNames": ["@openai/codex"],
+      "matchCurrentVersion": "/^0\\./",
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "groupName": null,
+      "automerge": false
+    },
+    {
+      "matchDepTypes": [
+        "packageManager"
+      ],
+      "groupName": null,
+      "automerge": false
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "groupName": null,
+      "automerge": false
+    },
+    {
+      "matchPackageNames": [
+        "@openai/codex",
+        "corepack",
+        "pnpm",
+        "node",
+        "npm"
+      ],
+      "groupName": null,
+      "automerge": false
+    },
+    {
+      "matchPackageNames": [
+        "@openai/codex"
+      ],
       "allowedVersions": "/^\\d+\\.\\d+\\.\\d+$/",
-      "automerge": true
+      "automerge": false
     }
-  ]
+  ],
+  "automerge": false
 }
