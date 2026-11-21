@@ -76,6 +76,17 @@ describe("review.prompt", () => {
     },
   );
 
+  it("keeps review verdicts and skipped verification out of the summary", () => {
+    const prompt = buildReviewPrompt("main", "diff --git a/a b/a");
+
+    expect(prompt).toContain(
+      "- `### 영향 범위`에는 이 변경이 영향을 주는 모듈·환경·사용자만 적을 것",
+    );
+    expect(prompt).toContain(
+      "리뷰 결론(버그 유무)이나 실행하지 못한 검증(빌드·테스트·배포)은 summary에 쓰지 말 것",
+    );
+  });
+
   it.each([
     {
       baseBranch: "release&hotfix",

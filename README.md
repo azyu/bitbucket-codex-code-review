@@ -32,7 +32,7 @@ flowchart LR
 
 **Required:**
 
-- Node.js >= 24.0.0
+- Node.js >= 26.0.0 (Node.js 26 LTS; see [Node 26 release evidence](node26-release-evidence.md))
 - pnpm
 - [Codex CLI](https://github.com/openai/codex)
 
