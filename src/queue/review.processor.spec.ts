@@ -2708,6 +2708,15 @@ describe("ReviewProcessor error handling", () => {
         deferredFailure: STALLED,
       }) as never;
 
+    it("does not reject or change a review run when BullMQ omits the job", async () => {
+      await expect(
+        processor.onFailed(undefined, new Error("Job unavailable")),
+      ).resolves.toBeUndefined();
+
+      expect(mockReviewService.claimStatus).not.toHaveBeenCalled();
+      expect(mockReviewService.claimFailure).not.toHaveBeenCalled();
+    });
+
     it("marks the run FAILED through claimStatus on a deferred failure", async () => {
       // stalled 한도 초과는 process()를 거치지 않으므로 여기서 닫지 않으면 런이 영원히 남는다 (#77).
       await processor.onFailed(stalledJob(), new UnrecoverableError(STALLED));

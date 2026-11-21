@@ -389,7 +389,15 @@ export class ReviewProcessor
 
   // BullMQ는 재시도로 이어지는 실패에도 "failed"를 emit한다 — 최종 실패와 구분해서 남긴다.
   @OnWorkerEvent("failed")
-  async onFailed(job: Job<IReviewJobData>, error: Error): Promise<void> {
+  async onFailed(
+    job: Job<IReviewJobData> | undefined,
+    error: Error,
+  ): Promise<void> {
+    if (!job) {
+      this.logger.error("Job failed without job data");
+      return;
+    }
+
     const attempts = job.opts?.attempts ?? 1;
     const willRetry =
       job.attemptsMade < attempts && error.name !== "UnrecoverableError";
