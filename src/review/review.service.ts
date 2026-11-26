@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { In, LessThan, Repository } from "typeorm";
+import { In, IsNull, LessThan, Not, Repository } from "typeorm";
 import { ServiceLogger } from "@lib/logger";
 import {
   ReviewRunEntity,
@@ -256,6 +256,32 @@ export class ReviewService {
     return this.reviewRunRepository.findOne({
       where: { workspaceSlug, repositorySlug, pullRequestId },
       order: { createdAt: "DESC" },
+    });
+  }
+
+  /**
+   * 재리뷰 프롬프트에 실을 같은 PR의 직전 완료 런. 트리거 종류는 가리지 않는다.
+   * 같은 head 커밋의 런은 뺀다 — `--force`로 같은 SHA를 다시 돌려도 그 이전 SHA의 런을
+   * 계속 찾아야 반복 실행이 증분 리뷰로 남는다.
+   */
+  async findPreviousCompletedRun(
+    workspaceSlug: string,
+    repositorySlug: string,
+    pullRequestId: number,
+    beforeId: number,
+    excludeHeadCommitHash: string,
+  ): Promise<ReviewRunEntity | null> {
+    return this.reviewRunRepository.findOne({
+      where: {
+        workspaceSlug,
+        repositorySlug,
+        pullRequestId,
+        reviewStatus: ReviewRunStatus.COMPLETED,
+        id: LessThan(beforeId),
+        headCommitHash: Not(excludeHeadCommitHash),
+        reviewOutput: Not(IsNull()),
+      },
+      order: { id: "DESC" },
     });
   }
 
