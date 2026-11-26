@@ -7,6 +7,7 @@
 - 지정된 이슈는 `gh issue view <번호> --comments`로 읽고, 지정이 없으면 `gh issue list --state open --label backlog`에서 선택할 것
 - **DoD를 모두 확인했으면 승인을 묻지 말고 커밋 → push → PR 생성까지 진행할 것.** 작업 브랜치에서만 하고 `main`에 직접 push하지 않는다
 - DoD 중 확인하지 못한 항목이 있으면 커밋 전에 멈추고, 무엇을 왜 확인하지 못했는지 보고한 뒤 결정을 받는다
+- **PR 머지는 사용자가 "머지"를 명시했을 때만 한다.** 위 자동 진행 범위는 PR 생성까지다. 예외는 Renovate automerge뿐이다. "적용하자" 같은 말을 머지로 읽어 squash-merge한 사례가 있다(PR #92·#110, 2026-09-20). 다른 사례에서는 `gh pr merge 172`와 함께 사용자의 OrbStack까지 꺼 버렸다(2026-10-16)
 
 ## Task Coordination (GitHub Issues)
 
@@ -35,7 +36,16 @@ PR을 열면 `chatgpt-codex-connector`가 리뷰를 남긴다. 결과는 즉시 
    - `gh api repos/azyu/bitbucket-codex-code-review/pulls/<번호>/comments --jq '.[] | "\(.path):\(.line) \(.body)"'`
    - `gh api repos/azyu/bitbucket-codex-code-review/issues/<번호>/reactions --jq '.[] | "\(.content) \(.user.login) \(.created_at)"'` — 👍(`+1`)의 시각이 마지막 push·재트리거보다 뒤인지 확인한다
    - 👀(`eyes`)는 리뷰 시작 신호일 뿐 완료가 아니다. 커넥터는 트리거 직후 👀를 달고 끝나면 👍나 리뷰를 남긴다(PR #155: 👀 04:20:34 → 👍 04:22:17 UTC, 2026-09-27). 폴링 루프가 커넥터의 리액션 개수로 종료를 판정하면 👀에서 멈춰 진행 중인 리뷰를 "지적 없음"으로 읽게 되므로, `eyes`는 완료 조건에서 뺄 것
-4. 20분이 지나도 리뷰도 👍도 없으면 `@codex review` 댓글로 재트리거한다
+   - **완료 판정은 상태 댓글의 마커로 한다.** 커넥터는 트리거 직후 상태 표 댓글을 달고 그 댓글을 계속 고쳐 쓴다. 본문에는 `codex-review-state:v1 {…}` JSON이 들어 있다. 이 JSON의 `code_review.commit_sha`가 PR head와 같고 `code_review.status`가 `"completed"`이면 완료다. 지적이 있는지는 `has_any_findings`로 알 수 있다. 근거는 PR #211(2026-11-26)에서 관측한 것이다.
+     - 시작 시 상태는 `running`이고, 이때 댓글 본문에 `🔄 **Running**`이 보인다. 그래서 "커넥터 댓글이 있으면 완료"로 판정하는 루프는 시작 2초 만에 끝난다. 실제로 이 오탐이 났다.
+     - push만 해도 리뷰가 다시 시작된다. 이때 앞 커밋의 👍는 사라지고 👀가 다시 붙는다. 그래서 리액션만으로는 어느 커밋의 결과인지 알 수 없다.
+     - 마커로 완료를 확인한 뒤, 지적 내용은 위 명령으로 읽는다.
+     ```bash
+     gh api repos/azyu/bitbucket-codex-code-review/issues/<번호>/comments --jq '.[] | select(.user.login|test("codex")) | .body' | grep -o 'codex-review-state:v1 {.*}' | tail -1
+     ```
+4. 20분이 지나도 head 커밋 기준으로 완료되지 않으면 `@codex review` 댓글로 재트리거한다
+
+**PR을 연 턴은 대기를 걸어 둔 뒤에 끝낸다.** Monitor 같은 백그라운드 대기를 걸고, 완료 조건은 3의 마커 판정을 그대로 쓴다. 대기를 걸 수 없으면 "리뷰 미확인"이라고 명시하고 끝낸다. 확인 방법만 적혀 있던 시기에는, 에이전트가 PR을 열고 그대로 턴을 끝내는 일이 반복됐다. 그때마다 사용자가 "코멘트 확인"을 직접 다시 지시해야 했다(2026-09-09 세션에서 9회, PR #191 "멈춘 건가?", 2026-10-23).
 
 대기 시간 근거 — PR #85/#86/#101/#105에서 트리거→리뷰 게시 지연 24건을 측정(2026-09-17): 중앙값 8.0분, p90 10.6분, 최소 1.1분(지적 없음일 때). 표본 중 1건(165분)은 다른 요인으로 보여 제외했다. 큰 PR의 라운드트립은 6~10분대에 몰려 있고, 짧은 확인 요청은 1~3분에 돌아온다.
 
