@@ -856,4 +856,81 @@ describe("WorkspaceService", () => {
       "Git merge-base failed for refs/heads/main and HEAD",
     );
   });
+
+  describe("createIncrementalDiff", () => {
+    // 조상 판정·축약 해시 해석은 git 동작 그 자체라 실제 저장소로 확인한다.
+    let git: ReturnType<typeof useRealExecFile>;
+    let repoPath: string;
+
+    const commit = async (file: string, content: string): Promise<string> => {
+      await writeFile(join(repoPath, file), content);
+      await git("git", ["add", "-A"], { cwd: repoPath });
+      await git(
+        "git",
+        ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", file],
+        { cwd: repoPath },
+      );
+      const { stdout } = await git("git", ["rev-parse", "HEAD"], { cwd: repoPath });
+      return stdout.trim();
+    };
+
+    beforeEach(async () => {
+      git = useRealExecFile();
+      repoPath = join(basePath, "repo");
+      await mkdir(repoPath, { recursive: true });
+      await git("git", ["init", "-q", "--initial-branch=main", repoPath]);
+    });
+
+    it("returns the resolved full SHA and the prev..HEAD diff for an ancestor short hash", async () => {
+      const prev = await commit("a.ts", "one\n");
+      await commit("a.ts", "one\nINCREMENT\n");
+      await commit("pnpm-lock.yaml", "lock\n");
+
+      const result = await service.createIncrementalDiff(repoPath, prev.slice(0, 12));
+
+      expect(result?.commitHash).toBe(prev);
+      expect(result?.diff).toContain("+INCREMENT");
+      // 리뷰 diff와 같은 제외 규칙을 따른다
+      expect(result?.diff).not.toContain("pnpm-lock.yaml");
+    }, 30_000);
+
+    it("returns null when prev is not an ancestor of HEAD", async () => {
+      await commit("a.ts", "base\n");
+      await git("git", ["checkout", "-q", "-b", "other"], { cwd: repoPath });
+      const diverged = await commit("b.ts", "other\n");
+      await git("git", ["checkout", "-q", "main"], { cwd: repoPath });
+      await commit("c.ts", "main\n");
+
+      await expect(service.createIncrementalDiff(repoPath, diverged)).resolves.toBeNull();
+    }, 30_000);
+
+    it("returns null when prev is a valid hex but an unknown object", async () => {
+      await commit("a.ts", "base\n");
+
+      await expect(
+        service.createIncrementalDiff(repoPath, "deadbeefdeadbeef"),
+      ).resolves.toBeNull();
+    }, 30_000);
+
+    it("returns null when prev resolves to HEAD itself", async () => {
+      const head = await commit("a.ts", "base\n");
+
+      await expect(
+        service.createIncrementalDiff(repoPath, head.slice(0, 7)),
+      ).resolves.toBeNull();
+    }, 30_000);
+
+    it.each(["--output=/tmp/x", "HEAD~1", "abc", "g123456"])(
+      "rejects %s without running git",
+      async (hash) => {
+        await expect(service.createIncrementalDiff(repoPath, hash)).resolves.toBeNull();
+        expect(execFileMock).not.toHaveBeenCalledWith(
+          "git",
+          expect.arrayContaining([expect.stringContaining(hash)]),
+          expect.anything(),
+          expect.anything(),
+        );
+      },
+    );
+  });
 });

@@ -499,4 +499,95 @@ describe("BitbucketService", () => {
       expect(waitSpy).not.toHaveBeenCalled();
     });
   });
+
+  describe("listComments", () => {
+    const BASE = "https://api.bitbucket.org/2.0";
+    const params = { workspace: "ws", repoSlug: "repo", pullRequestId: 7 };
+    const page = (values: unknown[], next?: string) =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ values, next }),
+      }) as unknown as Response;
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("follows next pages under the API base and forwards the abort signal", async () => {
+      const service = await createService();
+      const signal = new AbortController().signal;
+      global.fetch = jest
+        .fn()
+        .mockResolvedValueOnce(page([{ id: 1 }], `${BASE}/repositories/ws/repo/pullrequests/7/comments?page=2`))
+        .mockResolvedValueOnce(page([{ id: 2 }]));
+
+      await expect(
+        service.listComments(params, DEFAULT_CREDENTIALS, signal),
+      ).resolves.toEqual([{ id: 1 }, { id: 2 }]);
+
+      const fetchMock = global.fetch as jest.Mock;
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        `${BASE}/repositories/ws/repo/pullrequests/7/comments?pagelen=100`,
+      );
+      expect(fetchMock.mock.calls[1][0]).toContain("page=2");
+      expect(fetchMock.mock.calls[0][1]).toMatchObject({ signal });
+    });
+
+    it.each([
+      "https://evil.example/2.0/comments?page=2",
+      "https://api.bitbucket.org/2.0.evil.example/comments?page=2",
+    ])("does not send credentials to a foreign next URL %s", async (next) => {
+      const service = await createService();
+      global.fetch = jest.fn().mockResolvedValueOnce(page([{ id: 1 }], next));
+
+      await expect(
+        service.listComments(params, DEFAULT_CREDENTIALS),
+      ).resolves.toEqual([{ id: 1 }]);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("stops after the page cap", async () => {
+      const service = await createService();
+      global.fetch = jest
+        .fn()
+        .mockImplementation(async () => page([{ id: 1 }], `${BASE}/next`));
+
+      await service.listComments(params, DEFAULT_CREDENTIALS);
+
+      expect(global.fetch).toHaveBeenCalledTimes(20);
+    });
+
+    it("retries a 401 with the next auth header", async () => {
+      const service = await createService();
+      const auths: string[] = [];
+      global.fetch = jest.fn().mockImplementation(
+        async (_url: string, init: RequestInit) => {
+          auths.push((init.headers as Record<string, string>).Authorization);
+          return auths.length === 1
+            ? ({ ok: false, status: 401, body: null } as unknown as Response)
+            : page([{ id: 3 }]);
+        },
+      );
+
+      await expect(
+        service.listComments(params, { apiTokens: ["repo-token", "global-token"] }),
+      ).resolves.toEqual([{ id: 3 }]);
+      expect(auths).toEqual(["Bearer repo-token", "Bearer global-token"]);
+    });
+
+    it("throws on a non-ok response without retrying", async () => {
+      const service = await createService();
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        text: async () => "slow down",
+      });
+
+      await expect(
+        service.listComments(params, DEFAULT_CREDENTIALS),
+      ).rejects.toThrow("Bitbucket API error 429: slow down");
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+  });
 });

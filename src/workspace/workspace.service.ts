@@ -11,6 +11,7 @@ import {
   IWorktreeInfo,
   IPrepareWorktreeParams,
   IReviewDiff,
+  IIncrementalDiff,
 } from "./interfaces/workspace.interfaces";
 
 const execFileAsync = promisify(execFile);
@@ -26,6 +27,20 @@ const excludePathspecs = REVIEW_DIFF_EXCLUDED_PATHS.map(
 const includePathspecs = REVIEW_DIFF_EXCLUDED_PATHS.map(
   (path) => `:(glob)**/${path}`,
 );
+
+/** 리뷰 diff와 재리뷰 증분 diff가 같은 형식·제외 규칙을 쓰도록 인자를 한곳에서 만든다. */
+function reviewDiffArgs(fromCommit: string): string[] {
+  return [
+    "diff",
+    "--no-ext-diff",
+    "--find-renames",
+    "--unified=80",
+    `${fromCommit}..HEAD`,
+    "--",
+    ".",
+    ...excludePathspecs,
+  ];
+}
 
 @Injectable()
 export class WorkspaceService {
@@ -205,16 +220,7 @@ export class WorkspaceService {
       throw new Error(`Git merge-base failed for ${baseRef} and HEAD`);
     }
 
-    const diffArgs = [
-      "diff",
-      "--no-ext-diff",
-      "--find-renames",
-      "--unified=80",
-      `${baseCommit}..HEAD`,
-      "--",
-      ".",
-      ...excludePathspecs,
-    ];
+    const diffArgs = reviewDiffArgs(baseCommit);
     let stdout: string;
     try {
       ({ stdout } = await execFileAsync("git", diffArgs, {
@@ -237,6 +243,48 @@ export class WorkspaceService {
       `Review diff created from merge-base ${baseCommit.substring(0, 12)} against HEAD`,
     );
     return { diff: stdout, mergeBase: baseCommit, excludedChangedFiles };
+  }
+
+  /**
+   * 재리뷰용 `<prev>..HEAD` 증분 diff. prev가 HEAD의 조상일 때만 만든다 — rebase·force-push로
+   * 조상이 아니면 증분이 의미가 없으므로 null을 돌려 전체 리뷰로 둔다.
+   * 웹훅의 head 해시는 12자 축약형이라 전체 SHA로 풀어서 돌려준다.
+   * 어떤 실패도 던지지 않는다 — 이 조회는 리뷰를 보조할 뿐 리뷰를 막으면 안 된다.
+   */
+  async createIncrementalDiff(
+    worktreePath: string,
+    previousCommitHash: string,
+  ): Promise<IIncrementalDiff | null> {
+    // git 인자로 들어가므로 옵션·리비전 문법이 섞이지 않게 16진 해시만 받는다.
+    if (!/^[0-9a-f]{7,40}$/i.test(previousCommitHash)) return null;
+    const git = async (args: string[], timeout = 30_000) =>
+      (
+        await execFileAsync("git", args, {
+          cwd: worktreePath,
+          timeout,
+          maxBuffer: 20 * 1024 * 1024,
+        })
+      ).stdout;
+    try {
+      const commitHash = (
+        await git([
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          `${previousCommitHash}^{commit}`,
+        ])
+      ).trim();
+      if (commitHash === (await git(["rev-parse", "HEAD"])).trim()) return null;
+      // exit 1(조상 아님)도 execFile에서는 reject라 아래 catch로 떨어진다.
+      await git(["merge-base", "--is-ancestor", commitHash, "HEAD"]);
+      const diff = await git(reviewDiffArgs(commitHash), 60_000);
+      return { commitHash, diff };
+    } catch (err) {
+      this.logger.warn(
+        `Incremental diff from ${previousCommitHash} unavailable: ${(err as Error).message}`,
+      );
+      return null;
+    }
   }
 
   /**

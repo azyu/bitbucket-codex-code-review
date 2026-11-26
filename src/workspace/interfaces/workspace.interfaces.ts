@@ -17,6 +17,12 @@ export interface IReviewDiff {
   readonly excludedChangedFiles: readonly string[] | null;
 }
 
+/** 재리뷰 증분 diff. commitHash는 축약 해시를 푼 40자 SHA다. */
+export interface IIncrementalDiff {
+  readonly commitHash: string;
+  readonly diff: string;
+}
+
 export interface IPrepareWorktreeParams {
   readonly cloneUrl: string;
   readonly repositorySlug: string;

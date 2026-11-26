@@ -720,3 +720,42 @@ describe("ReviewService review input", () => {
     await expect(service.findPromptById(3)).resolves.toBeNull();
   });
 });
+
+describe("ReviewService.findPreviousCompletedRun", () => {
+  const mockRepository = { findOne: jest.fn() };
+  let service: ReviewService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new ReviewService(mockRepository as never);
+  });
+
+  it("queries the latest completed run of the same PR before this run, excluding the same head", async () => {
+    const previous = { id: 7, headCommitHash: "prev123" };
+    mockRepository.findOne.mockResolvedValueOnce(previous);
+
+    await expect(
+      service.findPreviousCompletedRun("ws", "repo", 42, 11, "head456"),
+    ).resolves.toBe(previous);
+
+    const { where, order } = mockRepository.findOne.mock.calls[0][0] as {
+      where: Record<string, unknown>;
+      order: Record<string, string>;
+    };
+    expect(where).toMatchObject({
+      workspaceSlug: "ws",
+      repositorySlug: "repo",
+      pullRequestId: 42,
+      reviewStatus: ReviewRunStatus.COMPLETED,
+    });
+    const id = where.id as FindOperator<number>;
+    expect([id.type, id.value]).toEqual(["lessThan", 11]);
+    // 같은 SHA의 --force 재실행이 이전 SHA의 런을 계속 찾아야 증분 리뷰가 유지된다.
+    const head = where.headCommitHash as FindOperator<string>;
+    expect([head.type, head.value]).toEqual(["not", "head456"]);
+    const output = where.reviewOutput as FindOperator<unknown>;
+    expect(output.type).toBe("not");
+    expect((output.child as FindOperator<unknown>).type).toBe("isNull");
+    expect(order).toEqual({ id: "DESC" });
+  });
+});

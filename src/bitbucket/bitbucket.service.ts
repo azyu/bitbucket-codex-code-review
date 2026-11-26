@@ -6,6 +6,7 @@ import {
   IBitbucketComment,
   ICreateCommentParams,
   ICreateInlineCommentParams,
+  IListCommentsParams,
 } from "./interfaces/bitbucket.interfaces";
 import { IBitbucketCredentialSnapshot } from "../settings/runtime-settings.types";
 
@@ -13,6 +14,7 @@ const MAX_ATTEMPTS = 3;
 const RETRYABLE_STATUSES = new Set([429, 503]);
 const DEFAULT_RETRY_DELAY_MS = 1_000;
 const MAX_RETRY_DELAY_MS = 10_000;
+const MAX_COMMENT_PAGES = 20;
 
 /** Retry-After to ms. Delta-seconds is checked first: Date.parse("2") is the year 2001. */
 function parseRetryAfterMs(value: string | null): number {
@@ -113,6 +115,64 @@ export class BitbucketService {
       );
       await this.wait(delayMs);
     }
+  }
+
+  /**
+   * 조회 전용 GET. 쓰기 경로의 429/503 재시도를 일부러 두지 않는다 — 호출자(재리뷰 컨텍스트)는
+   * 실패하면 전체 리뷰로 돌아가므로, 기다리느라 리뷰를 늦출 이유가 없다.
+   */
+  private async getWithAuthFallback(
+    url: string,
+    repoSlug: string,
+    credentials: IBitbucketCredentialSnapshot,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    const authHeaders = this.resolveAuthHeaders(repoSlug, credentials);
+    for (const [index, authHeader] of authHeaders.entries()) {
+      const response = await fetch(url, {
+        headers: { Authorization: authHeader },
+        signal,
+      });
+      if (response.status !== 401 || index === authHeaders.length - 1) {
+        return response;
+      }
+      await response.body?.cancel();
+      this.logger.warn(
+        `Repository token rejected for "${repoSlug}"; retrying with global Bitbucket credentials`,
+      );
+    }
+    throw new Error("Bitbucket auth resolution produced no credentials");
+  }
+
+  /** PR의 모든 댓글(인라인·답글 포함)을 페이지를 따라 조회한다. */
+  async listComments(
+    params: IListCommentsParams,
+    credentials: IBitbucketCredentialSnapshot,
+    signal?: AbortSignal,
+  ): Promise<IBitbucketComment[]> {
+    const comments: IBitbucketComment[] = [];
+    let url: string | undefined =
+      `${this.baseUrl}/repositories/${params.workspace}/${params.repoSlug}/pullrequests/${params.pullRequestId}/comments?pagelen=100`;
+    for (let page = 0; url && page < MAX_COMMENT_PAGES; page++) {
+      const response = await this.getWithAuthFallback(
+        url,
+        params.repoSlug,
+        credentials,
+        signal,
+      );
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Bitbucket API error ${response.status}: ${errorBody}`);
+      }
+      const body = (await response.json()) as {
+        values?: IBitbucketComment[];
+        next?: string;
+      };
+      comments.push(...(body.values ?? []));
+      // 응답이 준 next로 인증 헤더를 보내므로 같은 API 밑의 주소만 따라간다.
+      url = body.next?.startsWith(`${this.baseUrl}/`) ? body.next : undefined;
+    }
+    return comments;
   }
 
   private async wait(ms: number): Promise<void> {

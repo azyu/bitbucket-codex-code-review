@@ -27,6 +27,10 @@ import {
   parseUnifiedReviewJson,
 } from "./review.formatter";
 import { type ReviewPromptMode, resolveReviewPrompt } from "./review.prompt";
+import {
+  type IPreviousReviewContext,
+  selectPreviousFindings,
+} from "./review.rereview";
 import { RuntimeSettingsService } from "../settings/runtime-settings.service";
 import {
   type IBitbucketCredentialSnapshot,
@@ -207,6 +211,12 @@ export class ReviewProcessor
           data.baseBranch,
         );
       reviewDiff = diff;
+      const previousReview = await this.loadPreviousReview(
+        data,
+        worktreePath,
+        reviewDiff,
+        credentials.bitbucket,
+      );
 
       // Step 2: Execute unified review (single Codex call)
       codexResult = await this.executeReview(
@@ -217,6 +227,7 @@ export class ReviewProcessor
         data.settings,
         credentials.openai,
         (prompt) => this.recordReviewInput(data, prompt, mergeBase),
+        previousReview,
       );
 
       // Step 3: Publish results to Bitbucket
@@ -488,6 +499,65 @@ export class ReviewProcessor
     }
   }
 
+  /**
+   * 재리뷰 컨텍스트(직전 완료 런의 지적·답글 + 증분 diff). 직전 런이 없거나, 조상이 아니거나,
+   * 어느 조회든 실패하면 null — 지금처럼 전체 리뷰를 한다. 읽기 전용이고 PUBLISHING 클레임
+   * 전에 돈다. 예외를 전부 삼키는 이유: process()의 catch로 새면 보조 조회 하나 때문에
+   * 재시도·FAILED 기록·실패 댓글이 나간다.
+   */
+  private async loadPreviousReview(
+    data: IReviewJobData,
+    worktreePath: string,
+    reviewDiff: string,
+    credentials: IBitbucketCredentialSnapshot,
+  ): Promise<IPreviousReviewContext | null> {
+    try {
+      const run = await this.reviewService.findPreviousCompletedRun(
+        data.workspaceSlug,
+        data.repositorySlug,
+        data.pullRequestId,
+        data.reviewRunId,
+        data.headCommitHash,
+      );
+      if (!run) return null;
+      const previous = parseUnifiedReviewJson(run.reviewOutput);
+      if (!previous) return null;
+      const incremental = await this.workspaceService.createIncrementalDiff(
+        worktreePath,
+        run.headCommitHash,
+      );
+      if (!incremental) return null;
+      const comments = await this.bitbucketService.listComments(
+        {
+          workspace: data.workspaceSlug,
+          repoSlug: data.repositorySlug,
+          pullRequestId: data.pullRequestId,
+        },
+        credentials,
+        AbortSignal.timeout(30_000),
+      );
+      const findings = selectPreviousFindings(
+        previous.findings,
+        this.extractChangedPathsFromDiff(reviewDiff),
+        comments,
+        run.resultCommentId,
+      );
+      this.logger.log(
+        `Re-review against run ${run.id} (${incremental.commitHash.substring(0, 12)}) with ${findings.length} previous findings`,
+      );
+      return {
+        commitHash: incremental.commitHash,
+        findings,
+        incrementalDiff: incremental.diff,
+      };
+    } catch (err) {
+      this.logger.warn(
+        `Previous review lookup failed for run ${data.reviewRunId}; running a full review: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
   /** Step 2: 통합 프롬프트로 단일 Codex 호출 */
   private async executeReview(
     worktreePath: string,
@@ -497,6 +567,7 @@ export class ReviewProcessor
     settings: IReviewSettingsSnapshot,
     connection: IOpenAiConnectionSnapshot,
     onPromptResolved: (prompt: string) => Promise<void>,
+    previousReview: IPreviousReviewContext | null = null,
   ): Promise<ICodexReviewResult> {
     const customPrompt = settings.customPrompt;
     let reviewPromptMode: ReviewPromptMode =
@@ -508,28 +579,33 @@ export class ReviewProcessor
         `Review diff is ${reviewDiff.length} characters; omitting diff from Codex prompt and using branch diff mode`,
       );
     }
-    let prompt = await resolveReviewPrompt(
-      baseBranch,
-      customPrompt,
-      reviewDiff,
-      reviewPromptMode,
-      excludedChangedFiles,
-    );
+    const buildPrompt = () =>
+      resolveReviewPrompt(
+        baseBranch,
+        customPrompt,
+        reviewDiff,
+        reviewPromptMode,
+        excludedChangedFiles,
+        previousReview,
+      );
+    let prompt = await buildPrompt();
     if (
       reviewPromptMode === "inline-diff" &&
       prompt.length > MAX_INLINE_REVIEW_PROMPT_CHARS
     ) {
       reviewPromptMode = "branch-diff";
       this.logger.warn(
-        `Review prompt is ${prompt.length} characters after custom instructions; omitting diff from Codex prompt and using branch diff mode`,
+        `Review prompt is ${prompt.length} characters after custom instructions or re-review context; omitting diff from Codex prompt and using branch diff mode`,
       );
-      prompt = await resolveReviewPrompt(
-        baseBranch,
-        customPrompt,
-        reviewDiff,
-        reviewPromptMode,
-        excludedChangedFiles,
+      prompt = await buildPrompt();
+    }
+    // branch-diff로 바꿔도 넘치면 재리뷰 섹션(직전 지적·답글)을 빼고 전체 리뷰로 돌아간다.
+    if (previousReview && prompt.length > MAX_INLINE_REVIEW_PROMPT_CHARS) {
+      this.logger.warn(
+        `Review prompt is ${prompt.length} characters in branch diff mode; dropping the re-review section`,
       );
+      previousReview = null;
+      prompt = await buildPrompt();
     }
 
     await onPromptResolved(prompt);
