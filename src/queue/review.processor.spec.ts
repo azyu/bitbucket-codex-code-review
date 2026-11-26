@@ -275,6 +275,10 @@ describe("review.prompt", () => {
 
     it("is absent without a previous review", async () => {
       expect(buildReviewPrompt("main", "diff --git a/a b/a")).not.toContain("## 재리뷰");
+      // gitDiffCommand로 묶기 전의 전체 리뷰 명령 그대로 — 재리뷰 쪽 수정이 이 명령을 바꾸면 안 된다.
+      expect(buildReviewPrompt("main", "", "branch-diff")).toContain(
+        'git diff --no-ext-diff --find-renames --unified=80 "${merge_base}..HEAD" -- . \':(exclude,glob)**/pnpm-lock.yaml\' \':(exclude,glob)**/package-lock.json\' \':(exclude,glob)**/yarn.lock\' \':(exclude,glob)**/bun.lockb\'',
+      );
       await expect(
         resolveReviewPrompt("main", "", "diff", "inline-diff", [], previousReview),
       ).resolves.toContain("## 재리뷰: 직전 리뷰 이후 변경");

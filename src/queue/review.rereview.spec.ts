@@ -92,6 +92,26 @@ describe("selectPreviousFindings", () => {
     ]);
   });
 
+  it("does not let a title equal to a severity label take another finding's thread", () => {
+    // 제목이 "Blocking"이면 다른 지적 본문 첫 줄의 `🚫 **Blocking**`에도 들어맞는다.
+    const labelTitled = item({ title: "Blocking", severity: "recommended" });
+    const real = item({ title: "Real bug" });
+    const comments = [
+      comment(100, BOT, "summary"),
+      comment(201, BOT, formatInlineComment(real), { inline: { path: "src/app.ts", to: 12 } }),
+      comment(202, BOT, formatInlineComment(labelTitled), { inline: { path: "src/app.ts", to: 12 } }),
+      comment(203, AUTHOR, "reply to real", { parent: { id: 201 } }),
+      comment(204, AUTHOR, "reply to label", { parent: { id: 202 } }),
+    ];
+
+    const result = selectPreviousFindings([labelTitled, real], paths, comments, 100);
+
+    expect(result.map((entry) => entry.replies)).toEqual([
+      ["reply to label"],
+      ["reply to real"],
+    ]);
+  });
+
   it("caps findings, replies and text length", () => {
     const items = Array.from({ length: 25 }, (_, index) =>
       item({ title: `t${index}`, description: "d".repeat(3000) }),

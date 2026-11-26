@@ -75,7 +75,9 @@ export function selectPreviousFindings(
           comment.user?.uuid === botUuid &&
           comment.inline?.path === item.path &&
           item.title !== "" &&
-          comment.content.raw.includes(`**${item.title}**`),
+          // formatInlineComment는 제목을 빈 줄로 둘러싼 한 줄에 둔다. 그냥 포함으로 보면
+          // "Blocking" 같은 제목이 다른 지적 첫 줄의 `🚫 **Blocking**`에 들어맞는다.
+          comment.content.raw.includes(`\n\n**${item.title}**\n\n`),
       )
       .sort(
         (a, b) =>
