@@ -42,7 +42,7 @@ export const REVIEW_OUTPUT_SCHEMA = {
           },
           severity: {
             type: "string",
-            enum: ["blocking", "recommended", "suggestion", "tech-debt"],
+            enum: ["blocking", "recommended", "suggestion"],
           },
           description: { type: "string" },
           problemCode: { type: ["string", "null"] },

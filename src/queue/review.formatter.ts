@@ -76,7 +76,7 @@ export function buildSummaryTable(
       }
       return acc;
     },
-    { blocking: 0, recommended: 0, suggestion: 0, "tech-debt": 0 } as Record<
+    { blocking: 0, recommended: 0, suggestion: 0 } as Record<
       ReviewSeverity,
       number
     >,

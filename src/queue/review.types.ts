@@ -2,8 +2,7 @@
 export type ReviewSeverity =
   | "blocking"
   | "recommended"
-  | "suggestion"
-  | "tech-debt";
+  | "suggestion";
 
 /** 라인 범위 */
 export interface ILineRange {
@@ -28,7 +27,6 @@ export const SEVERITY_EMOJI: Readonly<Record<ReviewSeverity, string>> = {
   blocking: "🚫",
   recommended: "⚠️",
   suggestion: "💡",
-  "tech-debt": "📝",
 };
 
 /** 심각도별 라벨 */
@@ -36,7 +34,6 @@ export const SEVERITY_LABEL: Readonly<Record<ReviewSeverity, string>> = {
   blocking: "Blocking",
   recommended: "Recommended",
   suggestion: "Suggestion",
-  "tech-debt": "Tech Debt",
 };
 
 /** 유효한 심각도 값 집합 */
@@ -44,7 +41,6 @@ export const VALID_SEVERITIES: ReadonlySet<string> = new Set<string>([
   "blocking",
   "recommended",
   "suggestion",
-  "tech-debt",
 ]);
 
 /** 리뷰 판정 타입 */

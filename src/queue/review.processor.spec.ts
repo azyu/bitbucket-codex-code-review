@@ -464,6 +464,21 @@ describe("review.formatter", () => {
       expect(result!.findings[0].severity).toBe("blocking");
     });
 
+    it('should read a removed "tech-debt" severity as "suggestion" without breaking formatting', () => {
+      const input = JSON.stringify({
+        ...validUnified,
+        findings: [{ ...validUnified.findings[0], severity: "tech-debt" }],
+      });
+      const result = parseUnifiedReviewJson(input);
+
+      expect(result!.findings).toHaveLength(1);
+      expect(result!.findings[0].severity).toBe("suggestion");
+      expect(formatInlineComment(result!.findings[0])).toContain("Suggestion");
+      const table = buildSummaryTable(result!.findings);
+      expect(table).toContain("Suggestion | 1건");
+      expect(table).not.toContain("Tech Debt");
+    });
+
     it("should parse legacy format with line field", () => {
       const legacyUnified = {
         summary: "요약",
@@ -718,8 +733,6 @@ describe("review.formatter", () => {
         { title: "", path: "b.ts", lineRange: { start: 2, end: 2 }, severity: "blocking", description: "d2", reason: "r2" },
         { title: "", path: "c.ts", lineRange: { start: 3, end: 3 }, severity: "recommended", description: "d3", reason: "r3" },
         { title: "", path: "d.ts", lineRange: { start: 4, end: 4 }, severity: "suggestion", description: "d4", reason: "r4" },
-        { title: "", path: "e.ts", lineRange: { start: 5, end: 5 }, severity: "tech-debt", description: "d5", reason: "r5" },
-        { title: "", path: "f.ts", lineRange: { start: 6, end: 6 }, severity: "tech-debt", description: "d6", reason: "r6" },
       ];
 
       const result = buildSummaryTable(items);
@@ -729,7 +742,7 @@ describe("review.formatter", () => {
       expect(result).toContain("Blocking | 2건");
       expect(result).toContain("Recommended | 1건");
       expect(result).toContain("Suggestion | 1건");
-      expect(result).toContain("Tech Debt | 2건");
+      expect(result).not.toContain("Tech Debt");
     });
 
     it("should return zero counts for unused severities", () => {
@@ -741,7 +754,6 @@ describe("review.formatter", () => {
 
       expect(result).toContain("Recommended | 0건");
       expect(result).toContain("Suggestion | 0건");
-      expect(result).toContain("Tech Debt | 0건");
     });
   });
 
